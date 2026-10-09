@@ -496,7 +496,7 @@ def rebuild_source_aggregates(
     envelope: DataAccessEnvelope,
     *,
     current_revision: int,
-) -> None:
+) -> dict[uuid.UUID, int]:
     from app.services.data_access_envelopes import (
         DataAccessEnvelopeConflict,
         _label_counts,
@@ -529,12 +529,14 @@ def rebuild_source_aggregates(
     envelope.policy_revision = current_revision
     db.add(envelope)
     db.flush()
+    aggregate_counts = _label_counts(db, envelope.id)
     validate_normalized_source_invariants(
         db,
         envelope=envelope,
-        aggregate_counts=_label_counts(db, envelope.id),
+        aggregate_counts=aggregate_counts,
         source_rows=source_rows,
     )
+    return aggregate_counts
 
 
 def validate_normalized_source_invariants(

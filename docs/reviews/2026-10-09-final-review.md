@@ -10,7 +10,8 @@ native evidence applies to `fec81ca` and its recorded equivalent image inputs.
 Images retain their actual build revision. All corrections were committed as
 `Patrik <patrik@local>`.
 
-**Decision at this checkpoint: held for comparative capacity. Fresh quality at
+**Decision at this checkpoint: held for qualification of the new envelope
+correction and comparative capacity. The latest completed full quality at
 `508c7413` passes all fifteen jobs, including the full backend suite and ARM64
 smoke/scan job. The earlier raw queue-configuration assertion failure is retained
 and its test isolation correction is fully qualified. The uninstrumented
@@ -26,6 +27,12 @@ OpenAPI and deployment defaults. These pre-merge corrections need no further
 version bump. [Draft PR #31](https://github.com/PatrikSi/threatlens/pull/31)
 contains the review candidate; remote main, release tags, published images and
 model promotion remain unchanged.
+
+The new envelope writer correction passes **38/38 focused PostgreSQL cases**,
+full backend Ruff and the source-size gate. It removes redundant reads and
+revalidates parent ownership after a concurrent creator wins. Its fresh hosted
+quality, comparative capacity and changed native image qualification are next;
+the completed `508c7413`/`6141a719` results above retain their actual inputs.
 
 This follows the [Oct8 review](2026-10-08-final-local-review.md), preserving its
 original sources, failures and qualification limits.
@@ -54,6 +61,8 @@ candidate capacity harness blobs.
 | Automatic classification/IOC/tagging recovery started while article input was still pending | Automatic derivation waits for committed fetch input; failed-fetch fallback and explicit waiting/manual recovery remain available. Six regressions failed before; all 67 new/existing integration cases pass after explicit fixture prerequisites. The initial fixed run's two fixture-selection failures are retained. | `20c289a` |
 | Watchdog-selected Beat scheduler bypassed bounded canary admission | Compose bounded admission with the persistent watchdog heartbeat scheduler. The actual selected-class Redis regression grew to 63 messages against cap eight before correction. All 20 scheduler/heartbeat/control cases pass afterward with unchanged limits. | `fec81ca` |
 | Legacy capacity baseline cleanup lacked independent verification before candidate measurement | An outer driver verifies exact run-label ownership, including stopped containers, on the same frozen endpoint before advancing. Unknown/late/remnant results fail closed; workload exits and measurement artifacts are preserved. The actual old workflow handoff regression failed before; 11 controls pass afterward. Original baseline contamination was not proved. | `a6c07f7` |
+| Envelope persistence repeated known-absent and known-empty reads | Only successful local creation skips empty child reads; unique winners retain full reads, and snapshots reuse already validated persisted counts. The six-item measured variant removes 24 SQL executions, with policy/feed locks unchanged. Final fresh/replay query controls pass. | Current envelope correction |
+| Concurrent envelope creation could skip the own-envelope parent-source guard | Revalidate references with the actual winner's envelope ID after reload, before modifying lineage. One real PostgreSQL regression fails before and passes afterward; all 38 new/existing envelope cases pass, including rollback and both matching/conflicting winners. | Current envelope correction |
 
 [Structured regression evidence](evidence/2026-10-09-final-review/regression-proof.json)
 records pinned environments, before/after failures, hashes and scope limits.
@@ -392,9 +401,17 @@ wall/thread CPU time is **163.487/106.133 ms**; the nested lineage stage account
 for **132 queries and 63.546/42.035 ms**. Nested timings overlap and must not be
 added. The two parser calls total only **3.365/2.845 ms**.
 Twelve locked envelope lookups confirm a repeated known-absent lookup for every
-new envelope. A narrow correction is being developed for that redundancy and
-reads of known-empty, freshly inserted envelopes, while retaining policy/feed
-locks, unique-conflict reloads, persisted lineage validation and atomic commits.
+new envelope. The narrow measured correction removes **24 SQL executions
+(233 → 209)** while retaining policy/feed locks, unique-conflict reloads,
+persisted lineage validation and atomic commits. A later reload-only reference
+guard also closes a reproduced own-envelope parent race; final fresh/replay
+query controls retain the reduced normal read budget. The
+[combined controls](evidence/2026-10-09-final-review/envelope-read-reduction-controls.json)
+preserve the four original budget/path control failures, the separate semantic
+race failure and all **38 final passes**. The 209-query profile applies to its
+recorded earlier measured variant: instrumented wall/CPU time rises from
+163.487/106.133 to 196.295/109.686 ms. This establishes eliminated reads,
+without an end-to-end speedup claim for either source.
 The profile does not establish either hosted regression's cause. Both owned
 fixture containers and their two anonymous volumes are removed, with zero row,
 Redis-key, cleanup error or remnant counts. No threshold change is claimed.
@@ -607,7 +624,8 @@ outputs and named human review of the twelve prepared cases. Provider-contract
 and configuration tests do not complete that approval; ordinary ingestion and
 classification do not require model promotion.
 
-The current unresolved gate is the uninstrumented comparative capacity failure.
+The current unresolved gates are fresh full qualification of the envelope
+correction and the uninstrumented comparative capacity failure.
 Fresh `508c7413` full backend validation and both platform jobs pass; the earlier
 failed outcomes remain recorded. Current `6141a719` native behavior and selected
 image scan checks pass. The earlier native qualification and

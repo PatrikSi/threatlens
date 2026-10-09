@@ -1,0 +1,385 @@
+{
+  "schema_version": 1,
+  "scope": "Bounded PostgreSQL envelope read reduction and internal unique-winner parent-reference invariant repair",
+  "final_source_sha256": {
+    "backend/app/services/data_access_envelopes.py": "10470864feba0bcafdf0dad3f4c7b9622d39c4f109ec96d420d0e09f562ed4b9",
+    "backend/app/services/data_access_lineage.py": "ada04c0265bde309c7f97267363215ba46df30ab43b02847dcbb5db7ece38475",
+    "backend/tests/integration/test_data_access_envelope_queries.py": "66cdca58e60dfa448226602c48895c22eedf20905e0964bc089a297b4a2ebba7"
+  },
+  "validation": {
+    "envelope-read-reduction-before": {
+      "status": "failed",
+      "elapsed_seconds": 15.707,
+      "runs": [
+        {
+          "name": "envelope-controls",
+          "exit_code": 1,
+          "timed_out": false,
+          "tests": 7,
+          "failures": 4,
+          "errors": 0,
+          "skipped": 0
+        }
+      ],
+      "cleanup": {
+        "errors": [],
+        "remaining_owned_container_count": 0,
+        "recorded_owned_anonymous_volume_count": 2,
+        "remaining_owned_anonymous_volume_count": 0
+      },
+      "source_sha256": {
+        "backend/app/services/data_access_envelopes.py": "7f5786779179d57bfd7b0e9f538a66bbe31d6605105f605167daed80df398909",
+        "backend/app/services/data_access_lineage.py": "2a80d11b0a344c260db6ad191add31ca2aa16ca48b29eae09cf743a385cb6541",
+        "backend/tests/integration/test_data_access_envelope_queries.py": "c74c3fc70078e81ca6531191ea710b2cbe86affbd9208f2d1a11be3aab7a7640"
+      }
+    },
+    "envelope-read-reduction-after": {
+      "status": "passed",
+      "elapsed_seconds": 21.917,
+      "runs": [
+        {
+          "name": "envelope-controls",
+          "exit_code": 0,
+          "timed_out": false,
+          "tests": 37,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      ],
+      "cleanup": {
+        "errors": [],
+        "remaining_owned_container_count": 0,
+        "recorded_owned_anonymous_volume_count": 2,
+        "remaining_owned_anonymous_volume_count": 0
+      },
+      "source_sha256": {
+        "backend/app/services/data_access_envelopes.py": "e7026fc44a06900cd6e40ba72330c5e40efeea979f88bb6e49f367ea23797b41",
+        "backend/app/services/data_access_lineage.py": "ada04c0265bde309c7f97267363215ba46df30ab43b02847dcbb5db7ece38475",
+        "backend/tests/integration/test_data_access_envelope_queries.py": "c74c3fc70078e81ca6531191ea710b2cbe86affbd9208f2d1a11be3aab7a7640",
+        "backend/tests/unit/test_data_access_envelopes.py": "9faa463c1c80b93bc91a2687ce1c62433fb7a0e3cef3f9724e0601fadeb3d429",
+        "backend/tests/unit/test_data_access_runtime.py": "7245677f6bd51d05d47758a695f3baabc83bf603dab36649723d1ffb5f7ce0a7"
+      }
+    },
+    "envelope-own-parent-before": {
+      "status": "failed",
+      "elapsed_seconds": 15.886,
+      "runs": [
+        {
+          "name": "envelope-own-parent-before",
+          "exit_code": 1,
+          "timed_out": false,
+          "tests": 1,
+          "failures": 1,
+          "errors": 0,
+          "skipped": 0
+        }
+      ],
+      "cleanup": {
+        "errors": [],
+        "remaining_owned_container_count": 0,
+        "recorded_owned_anonymous_volume_count": 2,
+        "remaining_owned_anonymous_volume_count": 0
+      },
+      "source_sha256": {
+        "backend/app/services/data_access_envelopes.py": "e7026fc44a06900cd6e40ba72330c5e40efeea979f88bb6e49f367ea23797b41",
+        "backend/app/services/data_access_lineage.py": "ada04c0265bde309c7f97267363215ba46df30ab43b02847dcbb5db7ece38475",
+        "backend/tests/integration/test_data_access_envelope_queries.py": "66cdca58e60dfa448226602c48895c22eedf20905e0964bc089a297b4a2ebba7"
+      }
+    },
+    "envelope-own-parent-after": {
+      "status": "passed",
+      "elapsed_seconds": 19.486,
+      "runs": [
+        {
+          "name": "envelope-own-parent-after",
+          "exit_code": 0,
+          "timed_out": false,
+          "tests": 38,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      ],
+      "cleanup": {
+        "errors": [],
+        "remaining_owned_container_count": 0,
+        "recorded_owned_anonymous_volume_count": 2,
+        "remaining_owned_anonymous_volume_count": 0
+      },
+      "source_sha256": {
+        "backend/app/services/data_access_envelopes.py": "10470864feba0bcafdf0dad3f4c7b9622d39c4f109ec96d420d0e09f562ed4b9",
+        "backend/app/services/data_access_lineage.py": "ada04c0265bde309c7f97267363215ba46df30ab43b02847dcbb5db7ece38475",
+        "backend/tests/integration/test_data_access_envelope_queries.py": "66cdca58e60dfa448226602c48895c22eedf20905e0964bc089a297b4a2ebba7",
+        "backend/tests/unit/test_data_access_envelopes.py": "9faa463c1c80b93bc91a2687ce1c62433fb7a0e3cef3f9724e0601fadeb3d429",
+        "backend/tests/unit/test_data_access_runtime.py": "7245677f6bd51d05d47758a695f3baabc83bf603dab36649723d1ffb5f7ce0a7"
+      }
+    },
+    "feed-six-item-profile": {
+      "status": "passed",
+      "elapsed_seconds": 14.577,
+      "runs": [
+        {
+          "name": "recording-controls",
+          "exit_code": 0,
+          "timed_out": false,
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "six-item-profile",
+          "exit_code": 0,
+          "timed_out": false,
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      ],
+      "cleanup": {
+        "errors": [],
+        "remaining_owned_container_count": 0,
+        "recorded_owned_anonymous_volume_count": 2,
+        "remaining_owned_anonymous_volume_count": 0
+      },
+      "source_sha256": {}
+    },
+    "feed-six-item-profile-after": {
+      "status": "passed",
+      "elapsed_seconds": 15.345,
+      "runs": [
+        {
+          "name": "recording-controls",
+          "exit_code": 0,
+          "timed_out": false,
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "six-item-profile",
+          "exit_code": 0,
+          "timed_out": false,
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      ],
+      "cleanup": {
+        "errors": [],
+        "remaining_owned_container_count": 0,
+        "recorded_owned_anonymous_volume_count": 2,
+        "remaining_owned_anonymous_volume_count": 0
+      },
+      "source_sha256": {
+        "backend/app/services/data_access_envelopes.py": "e7026fc44a06900cd6e40ba72330c5e40efeea979f88bb6e49f367ea23797b41",
+        "backend/app/services/data_access_lineage.py": "ada04c0265bde309c7f97267363215ba46df30ab43b02847dcbb5db7ece38475",
+        "backend/tests/integration/test_data_access_envelope_queries.py": "c74c3fc70078e81ca6531191ea710b2cbe86affbd9208f2d1a11be3aab7a7640"
+      }
+    }
+  },
+  "profile": {
+    "original": {
+      "dialect": "postgresql",
+      "offered_items": 6,
+      "body_bytes": 1249,
+      "autoflush": false,
+      "passes": [
+        {
+          "new_items": 6,
+          "new_events": 6,
+          "persistence_sql_count": 233,
+          "synthetic_callback_sql_count": 10,
+          "policy_shared_count": 12,
+          "plain_feed_shared_count": 6,
+          "joined_feed_item_shared_count": 6,
+          "active_label_reads": 18,
+          "locked_envelope_reads": 12,
+          "locked_source_reads": 12,
+          "aggregate_label_reads": 18,
+          "adjusted_instrumented_fetch_wall_ms": 163.487029,
+          "adjusted_instrumented_fetch_thread_cpu_ms": 106.132675,
+          "lineage_write_thread_cpu_ms": 42.034913,
+          "capture_errors": {}
+        },
+        {
+          "new_items": 0,
+          "new_events": 0,
+          "persistence_sql_count": 16,
+          "synthetic_callback_sql_count": 10,
+          "policy_shared_count": 0,
+          "plain_feed_shared_count": 0,
+          "joined_feed_item_shared_count": 0,
+          "active_label_reads": 0,
+          "locked_envelope_reads": 0,
+          "locked_source_reads": 0,
+          "aggregate_label_reads": 0,
+          "adjusted_instrumented_fetch_wall_ms": 18.186086000000003,
+          "adjusted_instrumented_fetch_thread_cpu_ms": 10.701951000000001,
+          "lineage_write_thread_cpu_ms": 0,
+          "capture_errors": {}
+        }
+      ],
+      "cleanup": {
+        "errors": [],
+        "remaining_owned_rows": 0,
+        "remaining_redis_keys": 0
+      },
+      "application_image_source_revision": "6141a7192e3d6970be9e67230da14b64da1c8894",
+      "runtime_source_sha256": {
+        "backend/app/services/data_access_envelopes.py": "7f5786779179d57bfd7b0e9f538a66bbe31d6605105f605167daed80df398909",
+        "backend/app/services/data_access_lineage.py": "2a80d11b0a344c260db6ad191add31ca2aa16ca48b29eae09cf743a385cb6541"
+      }
+    },
+    "optimized_e702": {
+      "dialect": "postgresql",
+      "offered_items": 6,
+      "body_bytes": 1249,
+      "autoflush": false,
+      "passes": [
+        {
+          "new_items": 6,
+          "new_events": 6,
+          "persistence_sql_count": 209,
+          "synthetic_callback_sql_count": 10,
+          "policy_shared_count": 12,
+          "plain_feed_shared_count": 6,
+          "joined_feed_item_shared_count": 6,
+          "active_label_reads": 18,
+          "locked_envelope_reads": 6,
+          "locked_source_reads": 6,
+          "aggregate_label_reads": 6,
+          "adjusted_instrumented_fetch_wall_ms": 196.294513,
+          "adjusted_instrumented_fetch_thread_cpu_ms": 109.685924,
+          "lineage_write_thread_cpu_ms": 35.945295,
+          "capture_errors": {}
+        },
+        {
+          "new_items": 0,
+          "new_events": 0,
+          "persistence_sql_count": 16,
+          "synthetic_callback_sql_count": 10,
+          "policy_shared_count": 0,
+          "plain_feed_shared_count": 0,
+          "joined_feed_item_shared_count": 0,
+          "active_label_reads": 0,
+          "locked_envelope_reads": 0,
+          "locked_source_reads": 0,
+          "aggregate_label_reads": 0,
+          "adjusted_instrumented_fetch_wall_ms": 37.001108,
+          "adjusted_instrumented_fetch_thread_cpu_ms": 12.819782,
+          "lineage_write_thread_cpu_ms": 0,
+          "capture_errors": {}
+        }
+      ],
+      "cleanup": {
+        "errors": [],
+        "remaining_owned_rows": 0,
+        "remaining_redis_keys": 0
+      },
+      "runtime_source_sha256": {
+        "backend/app/services/data_access_envelopes.py": "e7026fc44a06900cd6e40ba72330c5e40efeea979f88bb6e49f367ea23797b41",
+        "backend/app/services/data_access_lineage.py": "ada04c0265bde309c7f97267363215ba46df30ab43b02847dcbb5db7ece38475"
+      }
+    },
+    "query_count_improvement": {
+      "eliminated_reads": 24,
+      "percent_of_original_persistence_sql": 10.300429184549357
+    },
+    "measurement_applicability": "The optimized profile executed envelopes e7026fc4 / lineage ada04c02. The final guard adds reference revalidation only after an initial miss and actual unique-winner reload (created=False). The six-item profile uses successful fresh insertion (created=True) and replay emits no new envelopes. The profile is not relabeled as final-source timing evidence; final38 controls rerun normal new/replay read-count assurances.",
+    "timing_limit": "One synthetic fixed six-item fetch plus identical replay per source. Whole adjusted instrumented wall and CPU were higher after; no end-to-end speedup, statistical tail, earlier hosted-capacity attribution, or release-gate clearance is claimed. SQL execute wall excludes row fetch/ORM hydration and is not database CPU. Synthetic committed-visibility callbacks replace broker enqueue and are excluded from persistence totals.",
+    "identical_payload_sha256": {
+      "profile_recording.py": "e42d6270a1d6b265533ab4d0557e963c253932caa452d874112bc5f7b9ce0343",
+      "test_profile_recording.py": "cac8d85bbb80bd4501061f1cfa1d63d9fd6ec48c45611ae151601c231999d0f2",
+      "test_feed_six_items.py": "dd15d68a1998a4951c06abf95daf87987a3c6c12b9c9f0e8207d626d9b9499b0"
+    }
+  },
+  "failure_dispositions": {
+    "initial_four_regressions": "Two required-read budget failures and two unique-reload path controls. The latter force the insert-conflict/reload path; the old redundant pre-insert lookup found the winner early. These are not four correctness defects.",
+    "own_parent_race": "One actual internal writer invariant failure: a parent valid while target envelope_id is unknown becomes the target winner's own source. Unique-conflict reload now revalidates references before mutation. No exposed-caller bypass or public exploit has been established."
+  },
+  "checks": {
+    "source_size": {
+      "exit_code": 0,
+      "production_files": 1005
+    },
+    "backend_ruff_app_tests_scripts_exit_code": 0,
+    "git_diff_check_exit_code": 0
+  },
+  "bounds": {
+    "process_cpu_affinity_count": 1,
+    "process_address_space_bytes": 1073741824,
+    "process_cpu_seconds": 40,
+    "work_deadline_seconds": 150,
+    "total_with_cleanup_seconds": 180,
+    "postgres": {
+      "cpus": 0.5,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids": 128
+    },
+    "redis": {
+      "cpus": 0.5,
+      "memory_bytes": 134217728,
+      "memory_swap_bytes": 134217728,
+      "pids": 128
+    }
+  },
+  "preserved_semantics": [
+    "Initial locked envelope lookup and invalid source validation precede insertion.",
+    "Nested savepoint insert, unique IntegrityError locked reload and fail-closed missing reload remain.",
+    "Reused and concurrent-winner envelopes retain persisted source and aggregate reads.",
+    "Successful new inserts skip only proven-empty reads.",
+    "Flushed persisted source and actual label aggregate reads, active-label validation and invariant checks remain.",
+    "Policy, Feed, parent source and existing envelope/source locks remain.",
+    "Committed winning lineage, outer Session usability and rollback behavior are exercised."
+  ],
+  "contract": "No API/schema/migration/version or authorization-fence change. Prior full CI/native/capacity results belong to their recorded old source. New committed application still needs fresh qualification; previous failed capacity gates remain failed.",
+  "evidence_sha256": {
+    "private_controls_proof": "71b79edd9adb84ed1f1b623dd9030de4db6925d364f2eabaf645f0c61e2c33dc",
+    "envelope-read-reduction-before": {
+      "envelope-controls.xml": "61197a792008a9cef080da454a17b1d4744e32b0af495a5c9dcc7a1a3acb3672",
+      "result.json": "d73a7ab79b20a1c4c7a7fdeaea37521cdef8163cf2bf589458538b587abb2a43"
+    },
+    "envelope-read-reduction-after": {
+      "envelope-controls.xml": "460b52bd98f0f1e6733137fbb7419f57394199538fb38ef82fd07483152a082c",
+      "result.json": "24868bc007e439fe08a04fcb25281c68da62859bc7fc310d096c1373f4924597"
+    },
+    "envelope-own-parent-before": {
+      "envelope-own-parent-before.xml": "46ea483e1989c26b663f8ddf2054e96bc70dc6765254b342eb3d82ed2b329d0e",
+      "result.json": "5d445b6ad11e53561f3dd81be828045e2a7c21e3b4803554ff74693a20cf35d0"
+    },
+    "envelope-own-parent-after": {
+      "diff-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "envelope-own-parent-after.xml": "3d5b65d8f5198d69b90d393273c24c3c0f256ce034d05eeac5f10d49a611a156",
+      "result.json": "b9bd5947a3e19a77b442337fcd985f9464aad30c2209d267cf6ffeda3010dd17",
+      "ruff.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "source-size.log": "866af0e3e206ecb64bac48ba4cd92ea3a8602efdfec02769e1ede3ed741e6579"
+    },
+    "feed-six-item-profile": {
+      "measurements.json": "2e7bc25ad7c18ccbb66b60f420cd4b29e87c650ddba307978d16cfc471255ccc",
+      "recording-controls.xml": "31a06db7d0b3c8962a5757a7c9893824bfd7d801ddaec03eca862b3bd958b175",
+      "result.json": "86e13f468ea6061853df8241d05ec907b6caa0ce8456ae570b599c3fb3215ac2",
+      "six-item-profile.xml": "24050534a23f413226f6ae03df40e5337596bbbf077ccc61bb1860fc487db973"
+    },
+    "feed-six-item-profile-after": {
+      "measurements.json": "20a28c4c819a53674524e0dc9ee4e11746880994f996d5b4c023e015509465c9",
+      "recording-controls.xml": "dd9db2055f8d32db0d7104a9091a09e5e111283be2b3ae9a342798acb00509e9",
+      "result.json": "8bd80131fa534f4f6070df89ac41a57012d7b6f4f41ebe30777d902cb79efecf",
+      "six-item-profile.xml": "b5d9cbaed9ff8b054e923687928ae279eda7d6f33956e5ba1f9b8cd16252d318"
+    }
+  },
+  "environment": {
+    "interpreter_version": "Python 3.12.3",
+    "celery_version": "5.5.3",
+    "declared_unique_runtime_dev_mcp_pins_verified": 99,
+    "pip_check_exit_code": 0,
+    "pytest_parent_coverage_enabled": false,
+    "provider_http_smtp_external_calls": 0,
+    "fixtures": "Fresh owned PostgreSQL 16 and Redis 7; exact image identities, caps and URLs guarded before execution."
+  }
+}
