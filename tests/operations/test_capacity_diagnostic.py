@@ -41,17 +41,44 @@ class CapacityDiagnosticTests(unittest.TestCase):
         self.measurement = self.directory / "measurement.json"
         self.measurement.write_text(json.dumps({"git_revision": REVISION, "run_id": RUN_ID,
                                                "status": "passed",
+                                               "sampler": {"samples": 3, "errors": []},
+                                               "database": {"sampled_lock_waiting_query_age_peak_ms": 3.457,
+                                                            "lock_wait_samples": 3, "waiting_sessions_peak": 2},
                                                "workload_completed": {"governance": 2}}))
         self.output = self.directory / "diagnostics.json"
         self.record = {**self.runner.observer_identity(self.observer),
                        "capacity_run_id": RUN_ID, "application_source_revision": REVISION,
                        "workload_exit_code": 0,
-                       "status": "passed", "errors": [], "dropped_events": {"queries": 0},
+                       "status": "passed", "errors": [], "dropped_events": {"queries": 0, "original_sampler_samples": 0},
                        "coverage": {"governance_operations": 2, "operation_events": 2,
-                                    "query_events": 1, "lock_samples": 1, "host_samples": 1, "lane_starts": 5},
+                                    "query_events": 1, "lock_samples": 3, "host_samples": 1, "lane_starts": 5,
+                                    "original_sampler_samples": 3},
+                       "sampler": {"observations": 3, "gap_max_ns": 100, "gap_mean_ns": 100,
+                                   "original_query_age_peak_ms": 3.457, "original_lock_wait_samples": 3,
+                                   "original_waiting_sessions_peak": 2},
+                       "original_sampler_samples": [
+                           {"index": 0, "sample_ns": 100, "snapshot_elapsed_ns": 1, "query_ages_ms": []},
+                           {"index": 1, "sample_ns": 200, "snapshot_elapsed_ns": 1, "query_ages_ms": [1.23456, 2.34567]},
+                           {"index": 2, "sample_ns": 300, "snapshot_elapsed_ns": 1, "query_ages_ms": [3.45678]},
+                       ],
+                       "connection_alias_count": 1,
                        "operations": [{"lane": "governance"}, {"lane": "governance"}],
                        "lanes": [{"lane": name} for name in ("governance", "ai_connection", "export", "feed", "repair")],
-                       "queries": [{}], "locks": [{}], "host": [{}]}
+                       "queries": [{}], "locks": [self.graph(index) for index in range(3)], "host": [{}]}
+
+    @staticmethod
+    def graph(index):
+        sample_ns = (index + 1) * 100
+        return {"sample_ns": sample_ns, "observer_elapsed_ns": 10,
+                "observer_query_start_ns": sample_ns + 2, "observer_query_end_ns": sample_ns + 8,
+                "trigger": "periodic" if index == 0 else "new_original_query_age_peak",
+                "original_sample_index": index, "original_sample_peak_ms": (0, 2.34567, 3.45678)[index],
+                "connections": [] if index == 0 else [{
+                    "connection_id": 1, "category": "policy_shared", "wait_category": "transactionid",
+                    "blocker_ids": [0, 1], "is_waiter": True, "query_age_ms": 2.5,
+                    "transaction_age_ms": 4.0, "current_lock_wait_age_ms": None,
+                    "observed_fences": ["policy_shared"], "transaction_end_requested": False,
+                }]}
 
     def verify(self, record=None):
         self.output.write_text(json.dumps(self.record if record is None else record))
@@ -247,6 +274,204 @@ class CapacityDiagnosticTests(unittest.TestCase):
         record["coverage"]["lane_starts"] += 1
         with self.assertRaisesRegex(ValueError, "paced lanes"):
             self.verify(record)
+
+    def test_zero_lock_measurement_accepts_complete_empty_original_samples(self):
+        measured = json.loads(self.measurement.read_text())
+        measured["database"] = {"sampled_lock_waiting_query_age_peak_ms": 0,
+                                "lock_wait_samples": 0, "waiting_sessions_peak": 0}
+        self.measurement.write_text(json.dumps(measured))
+        for sample in self.record["original_sampler_samples"]:
+            sample["query_ages_ms"] = []
+        self.record["sampler"].update(original_query_age_peak_ms=0, original_lock_wait_samples=0,
+                                      original_waiting_sessions_peak=0)
+        for graph in self.record["locks"]:
+            graph.update(trigger="periodic", original_sample_peak_ms=0, connections=[])
+        self.record["connection_alias_count"] = 0
+        self.verify()
+
+    def test_original_sampler_counts_and_peaks_must_reconcile_independently(self):
+        for section, name, value in (
+            ("coverage", "original_sampler_samples", 2), ("sampler", "observations", 2),
+            ("sampler", "original_lock_wait_samples", 2), ("sampler", "original_waiting_sessions_peak", 1),
+            ("sampler", "original_query_age_peak_ms", 3.456),
+        ):
+            record = copy.deepcopy(self.record)
+            record[section][name] = value
+            with self.subTest(section=section, name=name), self.assertRaises(ValueError):
+                self.verify(record)
+        for section, name, value in (
+            ("sampler", "samples", 2), ("sampler", "errors", ["RuntimeError"]),
+            ("database", "lock_wait_samples", 2), ("database", "waiting_sessions_peak", 1),
+            ("database", "sampled_lock_waiting_query_age_peak_ms", 3.456),
+        ):
+            original = self.measurement.read_bytes()
+            measured = json.loads(original)
+            measured[section][name] = value
+            self.measurement.write_text(json.dumps(measured))
+            with self.subTest(section=section, name=name), self.assertRaises(ValueError):
+                self.verify()
+            self.measurement.write_bytes(original)
+
+    def test_original_sampler_coverage_cannot_be_missing_or_truncated(self):
+        for name in ("original_sampler_samples", "sampler"):
+            record = copy.deepcopy(self.record)
+            del record[name]
+            with self.subTest(missing=name), self.assertRaises(ValueError):
+                self.verify(record)
+        for section, name in (("coverage", "original_sampler_samples"),
+                              ("dropped_events", "original_sampler_samples")):
+            record = copy.deepcopy(self.record)
+            del record[section][name]
+            with self.subTest(section=section), self.assertRaises(ValueError):
+                self.verify(record)
+        for value in (None, [], "missing", self.record["original_sampler_samples"][:-1]):
+            record = copy.deepcopy(self.record)
+            record["original_sampler_samples"] = value
+            with self.subTest(shape=type(value).__name__), self.assertRaises(ValueError):
+                self.verify(record)
+        record = copy.deepcopy(self.record)
+        record["original_sampler_samples"][0] = None
+        with self.assertRaises(ValueError):
+            self.verify(record)
+
+    def test_original_sampler_indices_times_and_numeric_ages_have_exact_types(self):
+        for name, values in (
+            ("index", (True, -1, 1, "0", None)),
+            ("sample_ns", (True, -1, 1.0, "100", 2**63)),
+            ("snapshot_elapsed_ns", (True, -1, 1.0, "1", 2**63)),
+            ("query_ages_ms", (None, "0", [True], [-1], [float("nan")],
+                               [float("inf")], ["2.5"], [10**400])),
+        ):
+            for value in values:
+                record = copy.deepcopy(self.record)
+                record["original_sampler_samples"][0][name] = value
+                with self.subTest(name=name, value=repr(value)[:40]), self.assertRaises(ValueError):
+                    self.verify(record)
+        record = copy.deepcopy(self.record)
+        record["original_sampler_samples"][1]["sample_ns"] = 99
+        with self.assertRaises(ValueError):
+            self.verify(record)
+
+    def test_original_sampler_trace_has_bounded_rows_and_no_unrecognized_fields(self):
+        record = copy.deepcopy(self.record)
+        record["original_sampler_samples"] = [self.record["original_sampler_samples"][0]] * 40_001
+        record["coverage"]["original_sampler_samples"] = 40_001
+        with self.assertRaises(ValueError):
+            self.verify(record)
+        record = copy.deepcopy(self.record)
+        record["original_sampler_samples"][0]["query_ages_ms"] = [0.0] * 65
+        with self.assertRaises(ValueError):
+            self.verify(record)
+        for key in ("query", "parameters", "pid", "fixture_uuid", "private_path"):
+            record = copy.deepcopy(self.record)
+            record["original_sampler_samples"][0][key] = "private evidence"
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.verify(record)
+
+    def test_original_sampler_summary_numbers_cannot_be_booleans_or_nonfinite(self):
+        for name, values in (
+            ("observations", (True, -1, 3.0)),
+            ("original_lock_wait_samples", (True, -1, 3.0)),
+            ("original_waiting_sessions_peak", (True, -1, 2.0)),
+            ("original_query_age_peak_ms", (True, -1, float("nan"), float("inf"), 10**400)),
+            ("gap_max_ns", (True, -1, 1.0, 2**63)),
+            ("gap_mean_ns", (True, -1, 1.0, 2**63)),
+        ):
+            for value in values:
+                record = copy.deepcopy(self.record)
+                record["sampler"][name] = value
+                with self.subTest(name=name, value=repr(value)[:40]), self.assertRaises(ValueError):
+                    self.verify(record)
+        for section, name, values in (
+            ("sampler", "samples", (True, -1, 3.0)),
+            ("database", "lock_wait_samples", (True, -1, 3.0)),
+            ("database", "waiting_sessions_peak", (True, -1, 2.0)),
+            ("database", "sampled_lock_waiting_query_age_peak_ms", (True, -1, float("nan"), float("inf"))),
+        ):
+            for value in values:
+                original = self.measurement.read_bytes()
+                measured = json.loads(original)
+                measured[section][name] = value
+                self.measurement.write_text(json.dumps(measured))
+                with self.subTest(section=section, name=name), self.assertRaises(ValueError):
+                    self.verify()
+                self.measurement.write_bytes(original)
+
+    def test_lock_graph_provenance_and_new_maximum_context_are_required(self):
+        for name, value in (("original_sample_index", True), ("original_sample_index", -1),
+                            ("original_sample_index", 3), ("sample_ns", 201),
+                            ("original_sample_peak_ms", 2.346), ("trigger", "other"),
+                            ("trigger", "periodic")):
+            record = copy.deepcopy(self.record)
+            record["locks"][1][name] = value
+            with self.subTest(name=name, value=value), self.assertRaises(ValueError):
+                self.verify(record)
+        for mutation in ("duplicate", "missing", "false_maximum"):
+            record = copy.deepcopy(self.record)
+            if mutation == "duplicate":
+                record["locks"].append(copy.deepcopy(record["locks"][1]))
+            elif mutation == "missing":
+                record["locks"].pop(1)
+            else:
+                record["locks"][0]["trigger"] = "new_original_query_age_peak"
+            record["coverage"]["lock_samples"] = len(record["locks"])
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                self.verify(record)
+
+    def test_lock_graph_timestamps_and_numeric_values_are_bounded(self):
+        for name in ("sample_ns", "observer_elapsed_ns", "observer_query_start_ns", "observer_query_end_ns"):
+            for value in (True, -1, 1.0, "100", 2**63):
+                record = copy.deepcopy(self.record)
+                record["locks"][0][name] = value
+                with self.subTest(name=name, value=value), self.assertRaises(ValueError):
+                    self.verify(record)
+        for name, value in (("observer_query_start_ns", 99), ("observer_query_end_ns", 101),
+                            ("observer_elapsed_ns", 1), ("original_sample_peak_ms", True),
+                            ("original_sample_peak_ms", float("nan"))):
+            record = copy.deepcopy(self.record)
+            record["locks"][0][name] = value
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.verify(record)
+
+    def test_lock_connection_aliases_enums_and_ages_are_strict_and_private(self):
+        for name, values in (
+            ("connection_id", (True, 0, 2, "1")), ("category", ("SELECT secret", None)),
+            ("wait_category", ("pid=123", None)), ("blocker_ids", (None, [True], [-1], [2], [0] * 17)),
+            ("is_waiter", (1, None)), ("transaction_end_requested", (1, None)),
+            ("query_age_ms", (True, -1, float("nan"), float("inf"))),
+            ("transaction_age_ms", (True, -1, float("nan"))),
+            ("current_lock_wait_age_ms", (True, -1, float("nan"), "1")),
+            ("observed_fences", (None, ["policy_update"], ["policy_shared"] * 2)),
+        ):
+            for value in values:
+                record = copy.deepcopy(self.record)
+                record["locks"][1]["connections"][0][name] = value
+                with self.subTest(name=name, value=repr(value)[:40]), self.assertRaises(ValueError):
+                    self.verify(record)
+        for key in ("query", "pid", "blocker_pids", "parameters", "fixture_uuid"):
+            record = copy.deepcopy(self.record)
+            record["locks"][1]["connections"][0][key] = "private evidence"
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.verify(record)
+        self.record["locks"][1]["connections"][0]["current_lock_wait_age_ms"] = 0.75
+        self.verify()
+
+    def test_lock_graph_shapes_bounds_and_privacy_fields_fail_closed(self):
+        for value in (None, "missing", [None], [{}] * 65):
+            record = copy.deepcopy(self.record)
+            record["locks"][0]["connections"] = value
+            with self.subTest(shape=type(value).__name__), self.assertRaises(ValueError):
+                self.verify(record)
+        for key in ("sql", "pid", "original_query", "dsn"):
+            record = copy.deepcopy(self.record)
+            record["locks"][0][key] = "private evidence"
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.verify(record)
+        for value in (True, -1, 65, "1"):
+            record = copy.deepcopy(self.record)
+            record["connection_alias_count"] = value
+            with self.subTest(aliases=value), self.assertRaises(ValueError):
+                self.verify(record)
 
     def test_workflow_selects_original_or_identical_observer_for_both_refs(self):
         source = (ROOT / ".github/workflows/capacity-trends.yml").read_text().splitlines()

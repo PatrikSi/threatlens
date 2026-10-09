@@ -303,10 +303,22 @@ for the same peak. These pairs ran on different hosted machines; their absolute
 values cannot establish a causal cross-host comparison or dismiss the failure.
 The [source, result and cleanup evidence](evidence/2026-10-09-final-review/hosted-shared-epoch-pairs.json)
 retains both complete outcomes and the earlier failed pairs. The release capacity
-gate remains failed; a bounded original-sampler snapshot and current-wait-age
-diagnostic is being prepared to identify a sampled peak without consuming the
-original cursor result or changing the measurement. Required full quality on
-the final review head also remains pending.
+gate remains failed.
+
+The version 2 observer retains bounded numeric snapshots of the original sampler
+without consuming its cursor result, and records later waiter/blocker context
+when a new maximum appears. Its independent verifier reconstructs sample counts,
+waiting-row totals, concurrent-session maximum and the exact rounded query-age
+peak from retained arrays. The [observer controls](evidence/2026-10-09-final-review/diagnostic-v2-observer-controls.json)
+pass all 34 cases, and the [independent verifier controls](evidence/2026-10-09-final-review/diagnostic-v2-verifier-controls.json)
+pass all 24 selected methods; clean operations validation runs 140 cases with
+139 passed and one deliberate source-loss opt-in skip. The single
+[real ten-second integration probe](evidence/2026-10-09-final-review/diagnostic-v2-local-validation.json)
+passes with 537 original samples, five governance operations, all five lanes,
+zero capture errors or drops, strict verifier success and no cleanup remnants.
+This validates diagnostic correctness rather than sustained performance. A
+single corrected-protocol 600-second matched diagnostic pair and full quality
+on the frozen final review head are next; acceptance rules remain unchanged.
 
 ## Feature completion and release boundary
 

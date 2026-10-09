@@ -1,0 +1,72 @@
+{
+  "after": {
+    "errors": 0,
+    "existing_methods": 24,
+    "failures": 0,
+    "new_methods": 10,
+    "seconds": 0.304,
+    "test_methods": 34
+  },
+  "before": {
+    "new_peak_trigger": {
+      "errors": 1,
+      "failures": 1,
+      "seconds": 0.002,
+      "test_methods": 2
+    },
+    "original_sampler_and_waitstart": {
+      "errors": 3,
+      "seconds": 0.003,
+      "subcase_failures": 13,
+      "test_methods": 6
+    }
+  },
+  "contract": "threatlens-capacity-diagnostics-v2",
+  "diff_check": "passed",
+  "evidence_hashes": {
+    "all_controls_after": "d945bfa70e9e656b04b4ec71121c845cb0373fb9d2738dbfe813c536da01fb4c",
+    "complete_private_proof": "113dbc9ddba018dd6f5ade038e5390fb4ca0747ddace6372ffaaefdaf1ceb192",
+    "new_peak_trigger_before": "b67f94e5c04a3fa6e4bd326eabfc691bfac4ce70e2b407e8f74c00bccf1c0a81",
+    "original_sampler_and_waitstart_before": "919dcaecd653ccc4a1d85807668574c29e773abb0e824bbfea1fd8bd65fe67ec"
+  },
+  "independent_review": {
+    "reviewed_source_sha256": {
+      "scripts/operations/capacity_diagnostics.py": "4b8b05782412101e68fc13f65e882cc739b704405e717a99b6d019a8ba1d419e",
+      "scripts/operations/capacity_diagnostics_plugin.py": "e6010f669064735f50f5bb3d823e24cf627a4f1d6879c10d8dec1da3a1c83a77",
+      "tests/operations/test_capacity_diagnostics.py": "6fb64497ca2e199802bbe3fcbffba5da7ea7567127ff2bb9b828a34c52d4df19"
+    },
+    "scope": "Read-only production/backend reviewer checked pinned psycopg snapshot semantics, sample reconciliation, independent periodic/new-maximum trigger bounds, transaction isolation and privacy; no workload or test rerun",
+    "status": "passed"
+  },
+  "limits": {
+    "blockers_per_connection": 16,
+    "connection_aliases": 64,
+    "graph_connections_per_sample": 64,
+    "graph_samples": 40000,
+    "numeric_ages_per_sample": 64,
+    "observer_error_records": 100,
+    "original_sampler_samples": 40000,
+    "pgresult_numeric_text_bytes": 64
+  },
+  "observer_file_sha256": {
+    "capacity_diagnostics.py": "4b8b05782412101e68fc13f65e882cc739b704405e717a99b6d019a8ba1d419e",
+    "capacity_diagnostics_plugin.py": "e6010f669064735f50f5bb3d823e24cf627a4f1d6879c10d8dec1da3a1c83a77"
+  },
+  "observer_sha256": "24f7521559baeff97558cca177c480415bc1190224eaf9438132b522209b055c",
+  "owned_files": {
+    "scripts/operations/capacity_diagnostics.py": "4b8b05782412101e68fc13f65e882cc739b704405e717a99b6d019a8ba1d419e",
+    "scripts/operations/capacity_diagnostics_plugin.py": "e6010f669064735f50f5bb3d823e24cf627a4f1d6879c10d8dec1da3a1c83a77",
+    "tests/operations/test_capacity_diagnostics.py": "6fb64497ca2e199802bbe3fcbffba5da7ea7567127ff2bb9b828a34c52d4df19"
+  },
+  "ruff": "passed",
+  "schema_version": 1,
+  "scope": "isolated stdlib/unittest observer controls; no DB, service mutation, benchmark or dispatch",
+  "semantics": [
+    "Snapshots use client-buffered psycopg3.2.9 PGresult indexed access without advancing cursor fetch position.",
+    "Result-completion timestamp is not the exact original server row observation time.",
+    "Graph is extra later read-only SQL on original sampler transaction; pg_stat_activity snapshot may be cached while blockers/pg_locks are later observations.",
+    "Nullable waitstart age is a sampled current wait, not completed total wait duration.",
+    "Original measurement metrics, workload, fences and comparator remain unchanged."
+  ],
+  "verification_limit": "Isolated controls and independent source review; the real pinned PostgreSQL integration probe and full-duration diagnostic pair are separate evidence."
+}

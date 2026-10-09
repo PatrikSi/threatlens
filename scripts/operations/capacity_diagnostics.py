@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import resource
@@ -11,19 +12,26 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-CONTRACT = "threatlens-capacity-diagnostics-v1"
+CONTRACT = "threatlens-capacity-diagnostics-v2"
 FILES = ("capacity_diagnostics.py", "capacity_diagnostics_plugin.py")
-LIMITS = {"operations": 12000, "lanes": 32, "queries": 40000, "locks": 40000, "host": 4000, "transactions": 40000}
+LIMITS = {"operations": 12000, "lanes": 32, "queries": 40000, "locks": 40000, "host": 4000, "transactions": 40000, "original_sampler_samples": 40000}
 WAIT_SQL = """
 WITH waiting AS MATERIALIZED (
  SELECT pid, pg_blocking_pids(pid) AS blockers FROM pg_stat_activity
  WHERE datname=current_database() AND wait_event_type='Lock'
  AND application_name LIKE 'threatlens-capacity%'
+), pending_locks AS MATERIALIZED (
+ SELECT pid, min(waitstart) AS waitstart FROM pg_locks
+ WHERE NOT granted AND pid IN (
+  SELECT pid FROM waiting UNION SELECT unnest(blockers) FROM waiting
+ ) GROUP BY pid
 )
 SELECT a.pid, a.query, a.wait_event, w.blockers,
  extract(epoch FROM clock_timestamp()-a.query_start)*1000,
- extract(epoch FROM clock_timestamp()-a.xact_start)*1000
+ extract(epoch FROM clock_timestamp()-a.xact_start)*1000,
+ extract(epoch FROM clock_timestamp()-p.waitstart)*1000
 FROM pg_stat_activity a LEFT JOIN waiting w ON a.pid=w.pid
+LEFT JOIN pending_locks p ON a.pid=p.pid
 WHERE a.pid IN (SELECT pid FROM waiting UNION SELECT unnest(blockers) FROM waiting)
 """
 
@@ -119,6 +127,13 @@ def backend_pid(connection):
     return int(driver.info.backend_pid)
 
 
+def numeric_age(value):
+    result = float(value)
+    if not math.isfinite(result) or result < 0:
+        raise ValueError("numeric age shape")
+    return result
+
+
 class Recorder:
     def __init__(self, *, clock=time.monotonic_ns, limits=None):
         self.clock, self.epoch = clock, clock()
@@ -130,6 +145,7 @@ class Recorder:
         self.lock, self.local = threading.RLock(), threading.local()
         self.last_lock_sample = self.last_host_sample = -10**18
         self.sampler_count = self.sampler_gap_max = self.sampler_gap_sum = 0
+        self.original_query_age_peak = 0.0
         self.last_sampler = None
         self.overhead = {}
 
@@ -236,27 +252,55 @@ class Recorder:
             self.sampler_gap_max = max(self.sampler_gap_max, gap)
         self.last_sampler = now
         self.sampler_count += 1
-        if now - self.last_lock_sample >= 100_000_000:
-            self.last_lock_sample = now
+        started = self.now()
+        new_peak, sample_peak = False, 0.0
+        try:
+            # Psycopg 3.2.9 buffers this SELECT in PGresult. Indexed access
+            # reads libpq values without advancing or changing cursor state.
+            result = cursor.pgresult
+            if result is None or result.status != 2 or result.nfields != 1 or result.fformat(0) != 0 or result.ftype(0) != 1700:
+                raise ValueError("original sampler result shape")
+            if not 0 <= result.ntuples <= 64:
+                raise ValueError("original sampler row bound")
+            ages = []
+            for row in range(result.ntuples):
+                value = result.get_value(row, 0)
+                if not isinstance(value, bytes) or not 1 <= len(value) <= 64:
+                    raise ValueError("original sampler value shape")
+                ages.append(numeric_age(value))
+            sample_peak = max(ages, default=0.0)
+            new_peak = sample_peak > self.original_query_age_peak
+            self.original_query_age_peak = max(self.original_query_age_peak, sample_peak)
+            self.add("original_sampler_samples", {"index": self.sampler_count - 1, "sample_ns": now, "snapshot_elapsed_ns": self.now() - started, "query_ages_ms": ages})
+        except Exception as error:
+            self.error("original_sampler_snapshot", error)
+        finally:
+            self.observe_overhead("original_sampler_snapshot", self.now() - started)
+        periodic_due = now - self.last_lock_sample >= 100_000_000
+        if periodic_due or new_peak:
+            if periodic_due:
+                self.last_lock_sample = now
             observer, started = None, self.now()
             try:
                 # A distinct DBAPI cursor never consumes the original result,
                 # starts a new application transaction or invokes engine hooks.
                 observer = cursor.connection.cursor()
+                query_start = self.now()
                 observer.execute(WAIT_SQL)
                 rows = observer.fetchall()
+                query_end = self.now()
                 if len(rows) > 64:
                     raise ValueError("waiter/blocker row bound")
                 with self.lock:
                     fences = {alias: sorted(categories) for alias, categories in self.fences.items()}
                     ending = set(self.ending)
                 values = []
-                for pid, statement, wait, blockers, query_age, transaction_age in rows:
+                for pid, statement, wait, blockers, query_age, transaction_age, current_wait_age in rows:
                     alias = self.alias(pid)
                     if len(blockers or []) > 16:
                         raise ValueError("blocker bound")
-                    values.append({"connection_id": alias, "category": classify_sql(statement or ""), "wait_category": wait.lower() if (wait or "").lower() in {"transactionid", "tuple", "relation", "advisory", "extend"} else "other", "blocker_ids": [self.alias(value) for value in blockers or []], "is_waiter": blockers is not None, "query_age_ms": float(query_age or 0), "transaction_age_ms": float(transaction_age or 0), "observed_fences": fences.get(alias, []), "transaction_end_requested": alias in ending})
-                self.add("locks", {"sample_ns": now, "observer_elapsed_ns": self.now() - started, "connections": values})
+                    values.append({"connection_id": alias, "category": classify_sql(statement or ""), "wait_category": wait.lower() if (wait or "").lower() in {"transactionid", "tuple", "relation", "advisory", "extend"} else "other", "blocker_ids": [self.alias(value) for value in blockers or []], "is_waiter": blockers is not None, "query_age_ms": numeric_age(query_age or 0), "transaction_age_ms": numeric_age(transaction_age or 0), "current_lock_wait_age_ms": None if current_wait_age is None else numeric_age(current_wait_age), "observed_fences": fences.get(alias, []), "transaction_end_requested": alias in ending})
+                self.add("locks", {"sample_ns": now, "observer_elapsed_ns": self.now() - started, "observer_query_start_ns": query_start, "observer_query_end_ns": query_end, "trigger": "new_original_query_age_peak" if new_peak else "periodic", "original_sample_index": self.sampler_count - 1, "original_sample_peak_ms": sample_peak, "connections": values})
             except Exception as error:
                 self.error("waiter_observer", error)
             finally:
@@ -272,14 +316,29 @@ class Recorder:
             except Exception as error:
                 self.error("host_observer", error)
 
-    def finish(self, expected_governance):
+    def finish(self, expected_governance, *, measurement=None):
         counts = {name: len(values) for name, values in self.data.items()}
         counts["governance_operations"] = sum(value["lane"] == "governance" for value in self.data["operations"])
-        coverage = {"governance_operations": counts["governance_operations"], "operation_events": counts["operations"], "query_events": counts["queries"], "lock_samples": counts["locks"], "host_samples": counts["host"], "lane_starts": counts["lanes"]}
+        coverage = {"governance_operations": counts["governance_operations"], "operation_events": counts["operations"], "query_events": counts["queries"], "lock_samples": counts["locks"], "host_samples": counts["host"], "lane_starts": counts["lanes"], "original_sampler_samples": counts["original_sampler_samples"]}
         lanes = [value["lane"] for value in self.data["lanes"]]
         if expected_governance <= 0 or coverage["governance_operations"] != expected_governance or any(not coverage[key] for key in ["query_events", "lock_samples", "host_samples"]) or sorted(lanes) != ["ai_connection", "export", "feed", "governance", "repair"]:
             self.error("coverage", ValueError())
-        return {"status": "failed" if self.errors or any(self.dropped.values()) else "passed", "errors": self.errors, "workload_query_failures": self.workload_query_failures, "dropped_events": self.dropped, "coverage": coverage, "observer_overhead": self.overhead, "sampler": {"observations": self.sampler_count, "gap_max_ns": self.sampler_gap_max, "gap_mean_ns": self.sampler_gap_sum // max(1, self.sampler_count - 1)}, "connection_alias_count": len(self.aliases), "lock_semantics": "Sampled query age while Lock-waiting; successful fence observations retire at pool return or next begin; transaction-end requests are not exact release times", **self.data}
+        original = self.data["original_sampler_samples"]
+        sampler = {"observations": self.sampler_count, "gap_max_ns": self.sampler_gap_max, "gap_mean_ns": self.sampler_gap_sum // max(1, self.sampler_count - 1), "original_query_age_peak_ms": round(max((age for sample in original for age in sample["query_ages_ms"]), default=0), 3), "original_lock_wait_samples": sum(len(sample["query_ages_ms"]) for sample in original), "original_waiting_sessions_peak": max((len(sample["query_ages_ms"]) for sample in original), default=0)}
+        if not original or len(original) != self.sampler_count:
+            self.error("original_sampler_coverage", ValueError())
+        if measurement is not None:
+            try:
+                samples = measurement["sampler"]["samples"]
+                database = measurement["database"]
+                peak = database["sampled_lock_waiting_query_age_peak_ms"]
+                if type(peak) not in {int, float} or not math.isfinite(peak) or peak < 0 or any(type(database[key]) is not int or database[key] < 0 for key in ["lock_wait_samples", "waiting_sessions_peak"]):
+                    raise ValueError("original sampler metric shape")
+                if type(samples) is not int or samples != len(original) or any(database[key] != sampler[field] for key, field in [("sampled_lock_waiting_query_age_peak_ms", "original_query_age_peak_ms"), ("lock_wait_samples", "original_lock_wait_samples"), ("waiting_sessions_peak", "original_waiting_sessions_peak")]):
+                    raise ValueError("original sampler measurement mismatch")
+            except Exception as error:
+                self.error("original_sampler_link", error)
+        return {"status": "failed" if self.errors or any(self.dropped.values()) else "passed", "errors": self.errors, "workload_query_failures": self.workload_query_failures, "dropped_events": self.dropped, "coverage": coverage, "observer_overhead": self.overhead, "sampler": sampler, "connection_alias_count": len(self.aliases), "lock_semantics": "Original sample_ns is the result-completion hook time, not each row observation time. Graphs run later: pg_stat_activity can share the original transaction snapshot while pg_blocking_pids and pg_locks are later observations; graphs are sampled context, not atomic proof of the original peak. Nullable pg_locks.waitstart ages are current sampled waits, not completed total durations. Successful fence observations retire at pool return or next begin; transaction-end requests are not exact release times", **self.data}
 
 
 def host_sample(now):

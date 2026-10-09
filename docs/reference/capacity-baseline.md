@@ -362,6 +362,22 @@ ownership across unobserved savepoint or raw transaction commands. Preserve
 failed comparisons and correlate actual service timings with sampled blocker
 edges before attributing a tail change to application code.
 
+The version 2 observer snapshots the original sampler's buffered numeric result
+without fetching or advancing its cursor. Its retained sample count, waiting-row
+count, concurrent-session maximum and rounded query-age peak must exactly match
+the original measurement. Empty waiting-row samples are retained. A new peak
+also requests bounded waiter/blocker context, alongside periodic observations;
+the observer records both sample provenance and the later query interval.
+This context is not an atomic witness: activity fields can share the original
+transaction snapshot while blocking relationships are observed later.
+[PostgreSQL statistics documentation](https://www.postgresql.org/docs/16/monitoring-stats.html#MONITORING-STATS-VIEWS)
+describes transaction snapshot behavior. The nullable current-wait age comes
+from pending locks' `waitstart`; it measures the current sampled wait rather
+than a completed total duration, and can briefly be absent after a wait begins.
+[PostgreSQL lock documentation](https://www.postgresql.org/docs/16/view-pg-locks.html)
+describes that limitation. Earlier observer identities and failed artifacts
+remain historical evidence; the new contract does not reclassify them.
+
 For a target installation, retain the same target ID only while its measured
 hardware and resource allocation remain the same. Commit source first; each
 run captures its starting revision and whether measurement/application source
