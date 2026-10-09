@@ -1,0 +1,144 @@
+{
+  "bounds": {
+    "cpus": 0.5,
+    "memory_mib": 768,
+    "pids": 128,
+    "swap": false
+  },
+  "cleanup": {
+    "errors": [],
+    "remaining_container_count": 0,
+    "removed_count": 3
+  },
+  "database": {
+    "DownloadedAt": "2026-10-09T10:12:20.905538332Z",
+    "NextUpdate": "2026-10-10T07:05:00.081187086Z",
+    "UpdatedAt": "2026-10-09T07:05:00.081187346Z",
+    "Version": 2
+  },
+  "database_download": {
+    "actual_container_limits": {
+      "Memory": 805306368,
+      "MemorySwap": 805306368,
+      "NanoCpus": 500000000,
+      "NetworkMode": "bridge",
+      "PidsLimit": 128
+    },
+    "elapsed_seconds": 9.72,
+    "exit_code": 0,
+    "log_sha256": "31444c925c9cd7232f70918655e6c264dd4a7d8c1ed41d660debca811efae207"
+  },
+  "database_metadata_sha256_after": "f00b498cef18d1d140ef8d1adf2772f04914b4c9082474468fa7e2ce11cb2c38",
+  "database_metadata_sha256_before": "f00b498cef18d1d140ef8d1adf2772f04914b4c9082474468fa7e2ce11cb2c38",
+  "database_sha256_after": "e86a0753ce504f78d5721d898b33a125b6f886fd9c0ac1b7ae9a31ca2ed0f031",
+  "database_sha256_before": "e86a0753ce504f78d5721d898b33a125b6f886fd9c0ac1b7ae9a31ca2ed0f031",
+  "images": {
+    "backend": {
+      "actual_container_limits": {
+        "Memory": 805306368,
+        "MemorySwap": 805306368,
+        "NanoCpus": 500000000,
+        "NetworkMode": "none",
+        "PidsLimit": 128
+      },
+      "archive_bytes": 131710976,
+      "archive_identity": {
+        "configuration_digest": "sha256:67744eeb4ff93eb72179efaae725adbbb75e07e174c5b5fd2944d80e4112c339",
+        "docker_oci_manifest_digest": "sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9",
+        "manifest_and_config_content_hashes_verified": true,
+        "source_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+        "version": "2.1.0"
+      },
+      "archive_sha256": "85ab1437418e2cedc5d97ad44497c9eb5da74d46370bc0cd14017b64855a0afd",
+      "elapsed_seconds": 9.446,
+      "exit_code": 0,
+      "image_id": "sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9",
+      "log_sha256": "5c5288bf1cfab8444790c4d9ad5f1d22c636d8487c2eff997dbd1f73613d1b7e",
+      "reproducible_archive_removed_after_capture": true,
+      "scan_json_sha256": "55a7a7d3559b114dcfc04a506531ce992c12c78036a623a381afdb5ea2728107",
+      "secret_count": 0,
+      "secret_rule_ids": [],
+      "vulnerability_counts": {
+        "CRITICAL": 0,
+        "HIGH": 0
+      },
+      "vulnerability_ids": []
+    },
+    "web": {
+      "actual_container_limits": {
+        "Memory": 805306368,
+        "MemorySwap": 805306368,
+        "NanoCpus": 500000000,
+        "NetworkMode": "none",
+        "PidsLimit": 128
+      },
+      "archive_bytes": 30484992,
+      "archive_identity": {
+        "configuration_digest": "sha256:15818433da1616e046caa3c317b0672e3f3d5e0f784d1ba745d276e10227b507",
+        "docker_oci_manifest_digest": "sha256:e0061cfce6f1d10fa7c4c68fadb84d2bd8d9805486c638f1de6b3158b4344490",
+        "manifest_and_config_content_hashes_verified": true,
+        "source_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+        "version": "2.1.0"
+      },
+      "archive_sha256": "bb83fecbb237bc1ac04bbda3bcd4aeec9eab57d3d7c7ee33b0a4224139d12865",
+      "elapsed_seconds": 2.084,
+      "exit_code": 0,
+      "image_id": "sha256:e0061cfce6f1d10fa7c4c68fadb84d2bd8d9805486c638f1de6b3158b4344490",
+      "log_sha256": "3e9f2a8a2b85bd0a462cd7c38854ed9be64bf18d78f420e951e1b4c2d764cbd8",
+      "reproducible_archive_removed_after_capture": true,
+      "scan_json_sha256": "5c0853ee3c132eada68a275ba92a469a3818165eb26d1d018a4fba7bbe5e630e",
+      "secret_count": 0,
+      "secret_rule_ids": [],
+      "vulnerability_counts": {
+        "CRITICAL": 0,
+        "HIGH": 0
+      },
+      "vulnerability_ids": []
+    }
+  },
+  "independent_restoration_review_sha256": "32714e1823b80b836dfdccd92debdeb2d07ab72bb02ec2f021941c77a6459c04",
+  "independent_source_review_sha256": "15bad7b8e58020dcc833f4c00373dfa4f8dcbcb328e215d81611da5d8f2edf78",
+  "launcher_sha256": "79c53ffce3a0998db102a3269b6aef77ce84af97d034c1b33cf5c5fd7afd0bb1",
+  "limits": [
+    "Zero findings applies to selected HIGH/CRITICAL fixed vulnerabilities and secret checks; ignore-unfixed is enabled.",
+    "Raw logs, database and original result remain private; only hashes and safe policy/image/numeric metadata are projected.",
+    "The immutable registry-index restoration and two different current attempts remain separate records. Prior6141 storage/identity failures remain preserved.",
+    "Local image scan does not waive any prior capacity failure or replace fresh full release qualification.",
+    "Reproducible image archives were removed only after identities, hashes and results were captured."
+  ],
+  "policy": {
+    "exit_code": 1,
+    "ignore_unfixed": true,
+    "scanners": [
+      "vuln",
+      "secret"
+    ],
+    "severity": [
+      "HIGH",
+      "CRITICAL"
+    ]
+  },
+  "preserved_previous_controls": {
+    "identity_negative": 12,
+    "identity_positive": 4,
+    "original_exit_after": 2,
+    "original_exit_before": 2
+  },
+  "prior_current_attempt": {
+    "cleanup_errors": 0,
+    "images_scanned": 0,
+    "reason": "Pinned scanner image absent before database download or scan",
+    "remaining_owned_containers": 0,
+    "result_sha256": "6d264fdc6b939078c2144ea6c5ead498ade58aad82ea8705b6f70594ad2daaa2",
+    "scanner_processes": 0,
+    "status": "failed"
+  },
+  "restoration_proof_sha256": "897863ba3a98bcd46e5319405e8eb5aa8619e898b0796bc972916134bb7705ea",
+  "result_sha256": "03aa7e8e9e59b15381a0ea3bf0251be362ac6defa5b874b62d1c38b10237dc2e",
+  "same_database_and_metadata_for_both_scans": true,
+  "scanner_image_id": "sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e",
+  "schema_version": 1,
+  "scope": "Actual rebuilt aa92 native images; selected Trivy vulnerability and secret policy only.",
+  "source_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+  "status": "passed"
+}

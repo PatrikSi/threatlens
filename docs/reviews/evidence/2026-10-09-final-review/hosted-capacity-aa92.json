@@ -1,0 +1,935 @@
+{
+  "artifact_content_hashes": {
+    "baseline-cleanup-attestation.json": "581056fa211ef4694b9fad6d53cdaa234ec86446cdda03e8f407a1c2420584ff",
+    "baseline.json": "e4a4a85ac2f9531b4ad2075ef65230f31975db2bf434d09793a156de650db7ca",
+    "baseline.json.partial.json": "451736dba0e7de1f6a6c6546207ca1e98b42b43243023c21a32bc902e2f5d491",
+    "baseline.log": "a0aee4b3e7ad97519fb06245268d4798a114e4802bfdf97e63407903f34b9f52",
+    "candidate-cleanup-attestation.json": "c959b2efccbdba778541286d83e8dcde306792f899e46f118d9b4c1b93c18a4a",
+    "candidate.json": "33f1becaa5cfb1c2e33845818c26242324f253e12916fa5bda215ce02bcad1e2",
+    "candidate.json.partial.json": "0237fa4c9a8bf2b04d4477098abb3b48c73a6fadc58702bae12aee1de2bc2280",
+    "candidate.log": "11ee48c41c3d36b9f724f894d861dd880033948bc8a5eb9ced280c04de9ea2d4",
+    "comparison.json": "d5aaf184dd94c739b4f0754249227da982d6696b996dad80d3d3b837694b87a5"
+  },
+  "artifact_id": 11609669148,
+  "artifact_zip_sha256": "726f42ed193ce9332562075b1af9a7ab3da8fddd1aae359add5a255123c3c343",
+  "baseline_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+  "capture_controls": {
+    "independent_guard_cases": 15,
+    "independent_review_sha256": "af9324969d9abcc4b1a241d35570ff51b5d96a234dc74fd7c943ffff476747cb",
+    "passed": 52,
+    "proof_sha256": "6c211fdf8fe1a1f22c411aaaacec419232a7db5f504c5e895d0d2051dc861aeb"
+  },
+  "capture_execution": {
+    "artifact_capture_attempts": 1,
+    "driver_sha256": "4d655bd2c138122189107146f16fce07f4eab64e2c17ba719fdcff12183131d6",
+    "elapsed_seconds": 8.028,
+    "exit_code": 0,
+    "independent_review_sha256": "af9324969d9abcc4b1a241d35570ff51b5d96a234dc74fd7c943ffff476747cb",
+    "kind": "root_once_terminal_capacity_capture_execution",
+    "log_sha256": "37b53d26968d1c3853aea994994f66be1c52536d8e29b82c462023f66bb1f1f3",
+    "run_id": 37914335157,
+    "workflow_dispatches_by_capture": 0
+  },
+  "comparison": {
+    "baseline_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+    "candidate_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+    "compatible": true,
+    "conclusive": true,
+    "insufficient_required_samples": [],
+    "metrics": [
+      {
+        "baseline_p95_ms": 278.624,
+        "candidate_p95_ms": 271.394,
+        "change_percent": -2.595,
+        "name": "ai_connection",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 278.624,
+        "candidate_p95_ms": 271.394,
+        "change_percent": -2.595,
+        "name": "ai_connection:succeeded",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "minimum_samples": 20,
+        "name": "async_export",
+        "status": "insufficient_samples"
+      },
+      {
+        "minimum_samples": 20,
+        "name": "async_export:succeeded",
+        "status": "insufficient_samples"
+      },
+      {
+        "baseline_p95_ms": 100.702,
+        "candidate_p95_ms": 100.701,
+        "change_percent": -0.001,
+        "name": "deadline:dns",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 101.905,
+        "candidate_p95_ms": 101.183,
+        "change_percent": -0.709,
+        "name": "deadline:headers",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 491.126,
+        "candidate_p95_ms": 467.187,
+        "change_percent": -4.874,
+        "name": "export",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "minimum_samples": 20,
+        "name": "export:policy_conflict",
+        "status": "insufficient_samples"
+      },
+      {
+        "baseline_p95_ms": 262.317,
+        "candidate_p95_ms": 232.047,
+        "change_percent": -11.539,
+        "name": "export:succeeded",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 115.699,
+        "candidate_p95_ms": 103.397,
+        "change_percent": -10.633,
+        "name": "governance",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 1604.787,
+        "candidate_p95_ms": 1595.158,
+        "change_percent": -0.6,
+        "name": "queue_wait:classify_item",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 178.85,
+        "candidate_p95_ms": 167.452,
+        "change_percent": -6.373,
+        "name": "queue_wait:dispatch_processing_work",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 1692.532,
+        "candidate_p95_ms": 1304.574,
+        "change_percent": -22.922,
+        "name": "queue_wait:execute_processing_work",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 2818.29,
+        "candidate_p95_ms": 2819.662,
+        "change_percent": 0.049,
+        "name": "queue_wait:extract_item_iocs",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 1572.799,
+        "candidate_p95_ms": 1558.008,
+        "change_percent": -0.94,
+        "name": "queue_wait:fetch_article",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 321.33,
+        "candidate_p95_ms": 194.678,
+        "change_percent": -39.415,
+        "name": "queue_wait:fetch_feed",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 2425.604,
+        "candidate_p95_ms": 2430.098,
+        "change_percent": 0.185,
+        "name": "queue_wait:process_alert_evaluation",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 1361.886,
+        "candidate_p95_ms": 1368.7,
+        "change_percent": 0.5,
+        "name": "queue_wait:route_integration_event",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 134.015,
+        "candidate_p95_ms": 140.995,
+        "change_percent": 5.208,
+        "name": "task:classify_item",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 189.324,
+        "candidate_p95_ms": 153.775,
+        "change_percent": -18.777,
+        "name": "task:dispatch_processing_work",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 121.619,
+        "candidate_p95_ms": 102.982,
+        "change_percent": -15.324,
+        "name": "task:execute_processing_work",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 184.202,
+        "candidate_p95_ms": 157.943,
+        "change_percent": -14.256,
+        "name": "task:extract_item_iocs",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 82.548,
+        "candidate_p95_ms": 75.526,
+        "change_percent": -8.507,
+        "name": "task:fetch_article",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 778.198,
+        "candidate_p95_ms": 468.734,
+        "change_percent": -39.767,
+        "name": "task:fetch_feed",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 27.387,
+        "candidate_p95_ms": 28.008,
+        "change_percent": 2.267,
+        "name": "task:process_alert_evaluation",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 39.332,
+        "candidate_p95_ms": 34.568,
+        "change_percent": -12.112,
+        "name": "task:route_integration_event",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "absolute_change": -4542464,
+        "baseline": 79527936,
+        "candidate": 74985472,
+        "change_percent": -5.712,
+        "name": "memory.process_rss_increase_bytes",
+        "regressed": false,
+        "status": "single_run_observation"
+      },
+      {
+        "absolute_change": -5603328,
+        "baseline": 378019840,
+        "candidate": 372416512,
+        "change_percent": -1.482,
+        "name": "memory.process_rss_peak_bytes",
+        "regressed": false,
+        "status": "single_run_observation"
+      },
+      {
+        "absolute_change": -8151040,
+        "baseline": 405409792,
+        "candidate": 397258752,
+        "change_percent": -2.011,
+        "name": "watchdog.owned_process_tree_rss_peak_bytes",
+        "regressed": false,
+        "status": "single_run_observation"
+      },
+      {
+        "absolute_change": 0.2560000000000002,
+        "baseline": 19.902,
+        "candidate": 20.158,
+        "change_percent": 1.286,
+        "name": "queue.recovery_ms",
+        "regressed": false,
+        "status": "single_run_observation"
+      },
+      {
+        "absolute_change": -4,
+        "baseline": 22,
+        "candidate": 18,
+        "change_percent": -18.182,
+        "name": "queue.depth_peak",
+        "regressed": false,
+        "status": "single_run_observation"
+      },
+      {
+        "absolute_change": -87.04999999999973,
+        "baseline": 3268.245,
+        "candidate": 3181.195,
+        "change_percent": -2.664,
+        "name": "queue.oldest_pending_age_peak_ms",
+        "regressed": false,
+        "status": "single_run_observation"
+      },
+      {
+        "absolute_change": -251.139,
+        "baseline": 456.502,
+        "candidate": 205.363,
+        "change_percent": -55.014,
+        "name": "database.sampled_lock_waiting_query_age_peak_ms",
+        "regressed": false,
+        "status": "single_run_observation"
+      }
+    ],
+    "outcomes": {
+      "baseline": {
+        "ai_succeeded": 301,
+        "deadline_dns_observed": 6,
+        "deadline_headers_observed": 6,
+        "exports_policy_conflict": 7,
+        "exports_succeeded": 294,
+        "governance_succeeded": 300,
+        "ingestion_recovered": 1,
+        "processing_repair_dispatches": 120
+      },
+      "candidate": {
+        "ai_succeeded": 301,
+        "deadline_dns_observed": 6,
+        "deadline_headers_observed": 6,
+        "exports_policy_conflict": 5,
+        "exports_succeeded": 296,
+        "governance_succeeded": 300,
+        "ingestion_recovered": 1,
+        "processing_repair_dispatches": 120
+      }
+    },
+    "regression_threshold_percent": 20,
+    "regressions": []
+  },
+  "current_source_capacity_gate_passed": true,
+  "diagnostics_enabled": false,
+  "dispatch_request_sha256": "05c8cf38b31ed0178faa109832031e4f4142d758688dba8322f5a4f336030f0b",
+  "duration_seconds_per_ref": 600,
+  "guards": {
+    "actual_input_and_source_labels_verified": true,
+    "both_independent_cleanups_accepted": true,
+    "comparison_fingerprints_equal": true,
+    "comparison_source_revisions_and_threshold_match": true,
+    "no_diagnostic_artifact_present": true,
+    "reference_subprocess_zero_exit_verified": true
+  },
+  "hosted_job_log_sha256": "ecec38977ffeb6bc84c5bdf06cc2d99d68c038f536603bb516eb8d9aba7b9808",
+  "insufficient_optional_metrics": [
+    "async_export",
+    "async_export:succeeded",
+    "export:policy_conflict"
+  ],
+  "job_id": 113766747875,
+  "kind": "envelope_uninstrumented_capacity_public_projection",
+  "limitations": [
+    "One predeclared uninstrumented sequential pair on one fresh hosted VM; no cross-host comparison or variance estimate.",
+    "One predeclared fresh-source pair is not a run-to-run variance estimate.",
+    "The new common arrival protocol cannot retrospectively change earlier failed comparison outcomes.",
+    "Application source plus each revision locked dependencies are measured; historical baseline has exactly the matched harness backport.",
+    "A current-source pass cannot relabel earlier failed comparisons or prove their cause; read reduction and the parent-reference repair are not assigned as earlier capacity-failure causes.",
+    "Conclusive refers to required sample coverage, not statistical confidence or causal attribution.",
+    "Three optional distributions lack minimum samples and remain explicitly insufficient; no required sample is missing.",
+    "Baseline processing return counts include attention outcomes; zero task errors does not mean every task returned succeeded.",
+    "This one hosted reference pair does not qualify production hardware or authorize merge, tag, deployment, publication or model promotion.",
+    "Application supervision enforces CPU affinity and a sampled owned-process-tree RSS/time watchdog; it does not configure or attest application/host swap. No-swap applies to the Docker PostgreSQL/Redis fixtures. The preserved predeclared application swap:false is not claimed verified."
+  ],
+  "local_comparator_proof": {
+    "comparator_source_sha256": {
+      "capacity_results.py": "c3867d88520c78785943f2e9eddbacd2e69d27e65f87bce6d661be0512d45295",
+      "compare_capacity_runs.py": "7bf8b2edd1ddc8aa26f05fe5f3f9c5de9bf38cb4d053d196fd94665895c7eb53"
+    },
+    "hosted_comparison_sha256": "d5aaf184dd94c739b4f0754249227da982d6696b996dad80d3d3b837694b87a5",
+    "kind": "frozen_source_deterministic_comparator_replay",
+    "local_comparison_sha256": "f86c0be9b404e5fe0a69e7114d0313a128ad3ff92fad0bfa23a415e78b00a7f0",
+    "new_workload_or_api_calls": 0,
+    "original_exit_code": 0,
+    "regression_threshold_percent": 20,
+    "source_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+    "structural_equality_with_hosted_comparison": true
+  },
+  "measurements": {
+    "baseline": {
+      "budget_violations": {},
+      "budgets": {
+        "ai_connection_p95_ms": 5000,
+        "export_p95_ms": 10000,
+        "governance_p95_ms": 5000,
+        "process_rss_increase_bytes": 536870912,
+        "queue_recovery_ms": 60000,
+        "sampled_lock_waiting_query_age_peak_ms": 10000
+      },
+      "comparison_fingerprint": "5c3e85392d26bf60170b01b99b162d9bf510becece69f145171cfffeb92b303f",
+      "corrected_arrival_identity_and_limits_match": true,
+      "database": {
+        "lock_wait_samples": 285,
+        "sampled_lock_waiting_query_age_peak_ms": 456.502,
+        "waiting_sessions_peak": 2
+      },
+      "elapsed_seconds": 604.226,
+      "git_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+      "independent_cleanup": {
+        "accepted": true,
+        "docker_endpoint": "established_local_unix",
+        "errors": [],
+        "identity_matches_measurement": true,
+        "kind": "independent_capacity_cleanup",
+        "present": true,
+        "probe_count": 16,
+        "remaining_container_count": 0,
+        "schema_version": 1,
+        "status": "passed"
+      },
+      "latencies": {
+        "ai_connection": {
+          "count": 301,
+          "max_ms": 703.627,
+          "p50_ms": 194.492,
+          "p95_ms": 278.624
+        },
+        "ai_connection:succeeded": {
+          "count": 301,
+          "max_ms": 703.627,
+          "p50_ms": 194.492,
+          "p95_ms": 278.624
+        },
+        "async_export": {
+          "count": 4,
+          "max_ms": 1047.068,
+          "p50_ms": 494.79,
+          "p95_ms": 1047.068
+        },
+        "async_export:succeeded": {
+          "count": 4,
+          "max_ms": 1047.068,
+          "p50_ms": 494.79,
+          "p95_ms": 1047.068
+        },
+        "deadline:dns": {
+          "count": 6,
+          "max_ms": 100.702,
+          "p50_ms": 100.262,
+          "p95_ms": 100.702
+        },
+        "deadline:headers": {
+          "count": 6,
+          "max_ms": 101.905,
+          "p50_ms": 101.332,
+          "p95_ms": 101.905
+        },
+        "export": {
+          "count": 301,
+          "max_ms": 566.521,
+          "p50_ms": 149.929,
+          "p95_ms": 491.126
+        },
+        "export:policy_conflict": {
+          "count": 7,
+          "max_ms": 566.521,
+          "p50_ms": 555.335,
+          "p95_ms": 566.521
+        },
+        "export:succeeded": {
+          "count": 294,
+          "max_ms": 560.726,
+          "p50_ms": 149.53,
+          "p95_ms": 262.317
+        },
+        "governance": {
+          "count": 300,
+          "max_ms": 564.039,
+          "p50_ms": 7.448,
+          "p95_ms": 115.699
+        },
+        "queue_wait:classify_item": {
+          "count": 480,
+          "max_ms": 2009.398,
+          "p50_ms": 1191.494,
+          "p95_ms": 1604.787
+        },
+        "queue_wait:dispatch_processing_work": {
+          "count": 120,
+          "max_ms": 840.415,
+          "p50_ms": 9.147,
+          "p95_ms": 178.85
+        },
+        "queue_wait:execute_processing_work": {
+          "count": 164,
+          "max_ms": 2260.433,
+          "p50_ms": 875.392,
+          "p95_ms": 1692.532
+        },
+        "queue_wait:extract_item_iocs": {
+          "count": 480,
+          "max_ms": 3273.504,
+          "p50_ms": 1789.72,
+          "p95_ms": 2818.29
+        },
+        "queue_wait:fetch_article": {
+          "count": 480,
+          "max_ms": 1924.182,
+          "p50_ms": 803.538,
+          "p95_ms": 1572.799
+        },
+        "queue_wait:fetch_feed": {
+          "count": 120,
+          "max_ms": 476.204,
+          "p50_ms": 10.159,
+          "p95_ms": 321.33
+        },
+        "queue_wait:process_alert_evaluation": {
+          "count": 480,
+          "max_ms": 2867.73,
+          "p50_ms": 1405.224,
+          "p95_ms": 2425.604
+        },
+        "queue_wait:route_integration_event": {
+          "count": 1440,
+          "max_ms": 1637.168,
+          "p50_ms": 487.213,
+          "p95_ms": 1361.886
+        },
+        "task:classify_item": {
+          "count": 480,
+          "max_ms": 551.497,
+          "p50_ms": 98.248,
+          "p95_ms": 134.015
+        },
+        "task:dispatch_processing_work": {
+          "count": 120,
+          "max_ms": 474.131,
+          "p50_ms": 139.973,
+          "p95_ms": 189.324
+        },
+        "task:execute_processing_work": {
+          "count": 164,
+          "max_ms": 608.312,
+          "p50_ms": 49.368,
+          "p95_ms": 121.619
+        },
+        "task:extract_item_iocs": {
+          "count": 480,
+          "max_ms": 544.693,
+          "p50_ms": 111.156,
+          "p95_ms": 184.202
+        },
+        "task:fetch_article": {
+          "count": 480,
+          "max_ms": 424.291,
+          "p50_ms": 45.615,
+          "p95_ms": 82.548
+        },
+        "task:fetch_feed": {
+          "count": 120,
+          "max_ms": 1031.379,
+          "p50_ms": 435.218,
+          "p95_ms": 778.198
+        },
+        "task:process_alert_evaluation": {
+          "count": 480,
+          "max_ms": 177.786,
+          "p50_ms": 17.762,
+          "p95_ms": 27.387
+        },
+        "task:route_integration_event": {
+          "count": 1440,
+          "max_ms": 360.642,
+          "p50_ms": 20.789,
+          "p95_ms": 39.332
+        }
+      },
+      "memory": {
+        "process_rss_increase_bytes": 79527936,
+        "process_rss_peak_bytes": 378019840,
+        "process_rss_start_bytes": 298491904
+      },
+      "outcomes": {
+        "ai_succeeded": 301,
+        "deadline_dns_observed": 6,
+        "deadline_headers_observed": 6,
+        "exports_policy_conflict": 7,
+        "exports_succeeded": 294,
+        "governance_succeeded": 300,
+        "ingestion_recovered": 1,
+        "processing_repair_dispatches": 120
+      },
+      "present": true,
+      "processing_execution_returned_status_counts": {
+        "attention": 8,
+        "succeeded": 156
+      },
+      "profile": "sustained",
+      "queue": {
+        "depth_peak": 22,
+        "expected_ingested_articles": 480,
+        "feed_batches": 60,
+        "oldest_pending_age_peak_ms": 3268.245,
+        "outage_backlog": 2,
+        "recovery_ms": 19.902,
+        "recovery_scope": "post_load_drain"
+      },
+      "raw_error_and_budget_shape_verified": true,
+      "reference_subprocess_zero_exit_verified": true,
+      "sampler": {
+        "error_count": 0,
+        "interval_ms": 20,
+        "samples": 24307
+      },
+      "source_dirty": false,
+      "source_revision_matches": true,
+      "status": "passed",
+      "task_error_count": 0,
+      "watchdog": {
+        "elapsed_seconds": 628.518,
+        "failure": null,
+        "limits": {
+          "container_cpus": 0.5,
+          "cpu_count": 1,
+          "max_rss_bytes": 1073741824,
+          "nice": 10,
+          "postgres_memory_mib": 512,
+          "redis_memory_mib": 128,
+          "wall_timeout_seconds": 840
+        },
+        "memory_scope": "sum of owned process RSS; shared pages counted per process; excludes Docker services",
+        "owned_process_count_peak": 2,
+        "owned_process_tree_rss_peak_bytes": 405409792,
+        "sample_interval_ms": 100
+      },
+      "workload_completed": {
+        "ai": 300,
+        "exports": 300,
+        "governance": 300
+      }
+    },
+    "candidate": {
+      "budget_violations": {},
+      "budgets": {
+        "ai_connection_p95_ms": 5000,
+        "export_p95_ms": 10000,
+        "governance_p95_ms": 5000,
+        "process_rss_increase_bytes": 536870912,
+        "queue_recovery_ms": 60000,
+        "sampled_lock_waiting_query_age_peak_ms": 10000
+      },
+      "comparison_fingerprint": "5c3e85392d26bf60170b01b99b162d9bf510becece69f145171cfffeb92b303f",
+      "corrected_arrival_identity_and_limits_match": true,
+      "database": {
+        "lock_wait_samples": 259,
+        "sampled_lock_waiting_query_age_peak_ms": 205.363,
+        "waiting_sessions_peak": 1
+      },
+      "elapsed_seconds": 603.604,
+      "git_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+      "independent_cleanup": {
+        "accepted": true,
+        "docker_endpoint": "established_local_unix",
+        "errors": [],
+        "identity_matches_measurement": true,
+        "kind": "independent_capacity_cleanup",
+        "present": true,
+        "probe_count": 16,
+        "remaining_container_count": 0,
+        "schema_version": 1,
+        "status": "passed"
+      },
+      "latencies": {
+        "ai_connection": {
+          "count": 301,
+          "max_ms": 846.604,
+          "p50_ms": 195.51,
+          "p95_ms": 271.394
+        },
+        "ai_connection:succeeded": {
+          "count": 301,
+          "max_ms": 846.604,
+          "p50_ms": 195.51,
+          "p95_ms": 271.394
+        },
+        "async_export": {
+          "count": 4,
+          "max_ms": 1087.826,
+          "p50_ms": 476.666,
+          "p95_ms": 1087.826
+        },
+        "async_export:succeeded": {
+          "count": 4,
+          "max_ms": 1087.826,
+          "p50_ms": 476.666,
+          "p95_ms": 1087.826
+        },
+        "deadline:dns": {
+          "count": 6,
+          "max_ms": 100.701,
+          "p50_ms": 100.297,
+          "p95_ms": 100.701
+        },
+        "deadline:headers": {
+          "count": 6,
+          "max_ms": 101.183,
+          "p50_ms": 100.697,
+          "p95_ms": 101.183
+        },
+        "export": {
+          "count": 301,
+          "max_ms": 679.696,
+          "p50_ms": 148.565,
+          "p95_ms": 467.187
+        },
+        "export:policy_conflict": {
+          "count": 5,
+          "max_ms": 679.696,
+          "p50_ms": 578.932,
+          "p95_ms": 679.696
+        },
+        "export:succeeded": {
+          "count": 296,
+          "max_ms": 511.528,
+          "p50_ms": 146.937,
+          "p95_ms": 232.047
+        },
+        "governance": {
+          "count": 300,
+          "max_ms": 261.681,
+          "p50_ms": 7.167,
+          "p95_ms": 103.397
+        },
+        "queue_wait:classify_item": {
+          "count": 480,
+          "max_ms": 1821.451,
+          "p50_ms": 1186.087,
+          "p95_ms": 1595.158
+        },
+        "queue_wait:dispatch_processing_work": {
+          "count": 120,
+          "max_ms": 312.043,
+          "p50_ms": 7.927,
+          "p95_ms": 167.452
+        },
+        "queue_wait:execute_processing_work": {
+          "count": 155,
+          "max_ms": 2165.424,
+          "p50_ms": 878.338,
+          "p95_ms": 1304.574
+        },
+        "queue_wait:extract_item_iocs": {
+          "count": 480,
+          "max_ms": 3187.17,
+          "p50_ms": 1803.767,
+          "p95_ms": 2819.662
+        },
+        "queue_wait:fetch_article": {
+          "count": 480,
+          "max_ms": 1629.906,
+          "p50_ms": 794.319,
+          "p95_ms": 1558.008
+        },
+        "queue_wait:fetch_feed": {
+          "count": 120,
+          "max_ms": 893.117,
+          "p50_ms": 98.252,
+          "p95_ms": 194.678
+        },
+        "queue_wait:process_alert_evaluation": {
+          "count": 480,
+          "max_ms": 2783.911,
+          "p50_ms": 1402.118,
+          "p95_ms": 2430.098
+        },
+        "queue_wait:route_integration_event": {
+          "count": 1440,
+          "max_ms": 1630.983,
+          "p50_ms": 476.922,
+          "p95_ms": 1368.7
+        },
+        "task:classify_item": {
+          "count": 480,
+          "max_ms": 174.996,
+          "p50_ms": 96.54,
+          "p95_ms": 140.995
+        },
+        "task:dispatch_processing_work": {
+          "count": 120,
+          "max_ms": 427.51,
+          "p50_ms": 134.529,
+          "p95_ms": 153.775
+        },
+        "task:execute_processing_work": {
+          "count": 155,
+          "max_ms": 443.517,
+          "p50_ms": 49.384,
+          "p95_ms": 102.982
+        },
+        "task:extract_item_iocs": {
+          "count": 480,
+          "max_ms": 517.736,
+          "p50_ms": 103.199,
+          "p95_ms": 157.943
+        },
+        "task:fetch_article": {
+          "count": 480,
+          "max_ms": 126.029,
+          "p50_ms": 44.733,
+          "p95_ms": 75.526
+        },
+        "task:fetch_feed": {
+          "count": 120,
+          "max_ms": 1082.408,
+          "p50_ms": 410.509,
+          "p95_ms": 468.734
+        },
+        "task:process_alert_evaluation": {
+          "count": 480,
+          "max_ms": 110.93,
+          "p50_ms": 17.466,
+          "p95_ms": 28.008
+        },
+        "task:route_integration_event": {
+          "count": 1440,
+          "max_ms": 340.787,
+          "p50_ms": 20.447,
+          "p95_ms": 34.568
+        }
+      },
+      "memory": {
+        "process_rss_increase_bytes": 74985472,
+        "process_rss_peak_bytes": 372416512,
+        "process_rss_start_bytes": 297431040
+      },
+      "outcomes": {
+        "ai_succeeded": 301,
+        "deadline_dns_observed": 6,
+        "deadline_headers_observed": 6,
+        "exports_policy_conflict": 5,
+        "exports_succeeded": 296,
+        "governance_succeeded": 300,
+        "ingestion_recovered": 1,
+        "processing_repair_dispatches": 120
+      },
+      "present": true,
+      "processing_execution_returned_status_counts": {
+        "succeeded": 155
+      },
+      "profile": "sustained",
+      "queue": {
+        "depth_peak": 18,
+        "expected_ingested_articles": 480,
+        "feed_batches": 60,
+        "oldest_pending_age_peak_ms": 3181.195,
+        "outage_backlog": 2,
+        "recovery_ms": 20.158,
+        "recovery_scope": "post_load_drain"
+      },
+      "raw_error_and_budget_shape_verified": true,
+      "reference_subprocess_zero_exit_verified": true,
+      "sampler": {
+        "error_count": 0,
+        "interval_ms": 20,
+        "samples": 24372
+      },
+      "source_dirty": false,
+      "source_revision_matches": true,
+      "status": "passed",
+      "task_error_count": 0,
+      "watchdog": {
+        "elapsed_seconds": 619.012,
+        "failure": null,
+        "limits": {
+          "container_cpus": 0.5,
+          "cpu_count": 1,
+          "max_rss_bytes": 1073741824,
+          "nice": 10,
+          "postgres_memory_mib": 512,
+          "redis_memory_mib": 128,
+          "wall_timeout_seconds": 840
+        },
+        "memory_scope": "sum of owned process RSS; shared pages counted per process; excludes Docker services",
+        "owned_process_count_peak": 2,
+        "owned_process_tree_rss_peak_bytes": 397258752,
+        "sample_interval_ms": 100
+      },
+      "workload_completed": {
+        "ai": 300,
+        "exports": 300,
+        "governance": 300
+      }
+    }
+  },
+  "original_public_projection_sha256": "f5f5d77bfd719a79c6e7144c3cf76878b00833fcd9944f7fcb1a877424453ff8",
+  "predeclared_plan_sha256": "2503543d1c65cc8430420d3c8cb0daf1b56319eac2b5764458316164858db4b7",
+  "prior_failed_pairs_retained": [
+    37876316405,
+    37880757288,
+    37885492555,
+    37888628612,
+    37903114128
+  ],
+  "reference_exit_evidence": {
+    "job_id": 113766747875,
+    "kind": "unique_completed_successful_sequential_measure_step",
+    "run_id": 37914335157,
+    "scope": "The actual Bash-e sequential step calls the frozen wrapper preserving each original workload exit; no raw process_exit_code field exists.",
+    "source_sha256": {
+      ".github/workflows/capacity-trends.yml": "8b02921cdb6e2f5e4cf39a88d6402bba12ee89b6c3068e36cbf4d7876c8f5061",
+      "scripts/operations/run_capacity_reference.py": "345dd3c3bc5f61895b241976a8cc2c79f667785b8ff08f297f312190eb279325"
+    },
+    "step": "Measure both releases sequentially on this runner",
+    "step_success_and_shell_bash_e_verified": true,
+    "workflow_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514"
+  },
+  "regression_threshold_percent": 20,
+  "release_clearance": false,
+  "resource_control_scope": {
+    "application": {
+      "application_no_swap_verified": false,
+      "application_or_host_swap_policy_observed": false,
+      "cpu_count": 1,
+      "cpu_enforcement": "inherited process affinity",
+      "rss_sample_interval_ms": 100,
+      "sampled_owned_process_tree_rss_ceiling_bytes": 1073741824,
+      "watchdog_wall_seconds": 840
+    },
+    "docker_fixtures": {
+      "no_swap_enforced_by_frozen_memory_swap_equals_memory_flags": true,
+      "postgres_cpus": 0.5,
+      "postgres_memory_mib": 512,
+      "redis_cpus": 0.5,
+      "redis_memory_mib": 128
+    },
+    "immutable_plan_application_swap_false": "Predeclared intent; not an implemented or measured application control. The configured comparator and its actual resource contract are unchanged."
+  },
+  "retained_evidence_sha256": {
+    "capture_evidence": "b2e198fadfe82557e0c57c0503f0217fbe4e177b424d5b87613ab670adb7a692",
+    "capture_status": "61de5983acb37c46d7ada69b050ba6f9d711f21577ae3b5405026dd283c89ed7",
+    "local_comparator_proof": "bf0fc2c27b8132cc5b58fe6fc2ca8a2d3684ea14fcb8bcdc9e160cb2c6bf3fe9",
+    "root_once_execution": "8f492b99bf0009a873835ab746f441b90a842c7380ce37916a0284a71f8b0260"
+  },
+  "run_id": 37914335157,
+  "schema_version": 2,
+  "source_and_harness_preparation_sha256": "533cfdd0feef60b37379a6b3f8bf25f9872dd2f5f85496c87a27efcb005bb1e7",
+  "source_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+  "workflow_head_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514"
+}

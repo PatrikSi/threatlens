@@ -1,0 +1,123 @@
+{
+  "actual_images": {
+    "backend": "sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9",
+    "web": "sha256:e0061cfce6f1d10fa7c4c68fadb84d2bd8d9805486c638f1de6b3158b4344490"
+  },
+  "attempt_2": {
+    "native_workflows": {
+      "axe_rendered_surfaces": 28,
+      "axe_violations": 0,
+      "container_cleanup": {
+        "owned_containers_remaining": 0,
+        "status": "passed"
+      },
+      "engines": {
+        "chromium": {
+          "failed": 0,
+          "passed": 11
+        },
+        "firefox": {
+          "failed": 0,
+          "passed": 11
+        },
+        "webkit": {
+          "failed": 1,
+          "not_executed": 4,
+          "passed": 6
+        }
+      },
+      "executed": 29,
+      "expected": 33,
+      "failed": 1,
+      "failed_case": {
+        "cause": "unassigned; auth/transport/navigation timeline was not captured",
+        "engine": "webkit",
+        "failure": "post-login URL predicate did not complete within 30000 ms; observed navigation to /start",
+        "retained_screenshot_sha256": "032b94e1b58428f695b93c13c8afefa9be98d1861482d92210e4d249cb08cee1",
+        "step_elapsed_seconds": 61.36,
+        "theme": "light",
+        "workflow": "real local cookie login"
+      },
+      "launcher_result_sha256": "c70a7080e9d8fffbbaf7092401f5b3b1f1c9f8d7d5b308ced45f4bda81c4ccc2",
+      "not_executed": 4,
+      "original_browser_exit": 1,
+      "passed": 28,
+      "private_log_sha256": "3aece3843041e9cb64474c39b761413724a179623b19c86c69b095eff7da49bf",
+      "result_sha256": "be649f2a74ec9bbd25f81f8cd2cbab742d94807356f161ad8fc49237574cd36c",
+      "runtime_errors": {
+        "apiServerErrors": 0,
+        "blockedExternalRequests": 0,
+        "consoleErrors": 0,
+        "pageErrors": 0
+      },
+      "synthetic_cleanup_failures": 0,
+      "synthetic_resources_created": 0
+    },
+    "permission_workflows": {
+      "cleanup_checks": 6,
+      "cleanup_failures": 0,
+      "container_cleanup": {
+        "owned_containers_remaining": 0,
+        "status": "passed"
+      },
+      "executed": 7,
+      "failed": 0,
+      "launcher_result_sha256": "f08a9d10259947407ebe2de6c141f04c5988831da394cb326819708c2cc88c07",
+      "original_browser_exit": 0,
+      "passed": 7,
+      "result_sha256": "3a7f4fef860a0de2d7b0377e97c453693f5b0597f9eb92616464ee45919cd6a5"
+    },
+    "seed_original_exit": 0,
+    "seed_status": "passed"
+  },
+  "controls": {
+    "action_timeout_ms": 30000,
+    "assertion_timeout_ms": 5000,
+    "browser_workers": 1,
+    "cpu_count": 2,
+    "engines_serial": true,
+    "external_requests_allowed": false,
+    "frozen_plan_sha256": "1ce9a7103aba63e11dcddc85f0f05e634b8968321bd42d0ab0a873ae351ab757",
+    "generic_error_listeners_unchanged": true,
+    "memory_bytes": 3221225472,
+    "memory_swap_bytes": 3221225472,
+    "outer_timeout_seconds": 900,
+    "payload_sha256": {
+      "frontend-native-regressions/launch.py": "c93e7eb5e294f84fcc8afffdbd5cc2e65059b6c4e015b3d6042cf9c2cedf703c",
+      "frontend-native-regressions/review.mjs": "cab76541f3d51ffe58ef8d89f6dcfd084445f5f4750c3d99cfe8d6567ff00b9c",
+      "frontend-native-regressions/seed_compensation.py": "2e9501191e9bce23dbf9f6464d6c20a8c4a7f8e22a21e01b049cd484c194d291",
+      "frontend-native-regressions/seed_regressions.py": "ee9ef24b91d497b060d151392f973ba79fd2ef4c10136c3b18328b6f038e30a6",
+      "frontend-native33/review.mjs": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c"
+    },
+    "pids_limit": 768,
+    "real_case_retries": 0,
+    "source_binding_after_failure_passed": true,
+    "source_binding_proof_sha256": "b40bf9ec209ca8dae108ac94d44187cc538f2130073d69fe489b9322505356cf"
+  },
+  "immutable_prerequisite_restoration": {
+    "pinned_browser_image": "mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27",
+    "proof_sha256": "d8f6ec35c58ee92e31ad4b9bcbc336ade932f5f6ceb26df7c70113948f759a16",
+    "status": "passed"
+  },
+  "original_failure_retained": {
+    "attempt": 1,
+    "browser_cases": 0,
+    "browser_containers_created": 0,
+    "cause": "pinned_browser_image_missing",
+    "original_exit": 1,
+    "owned_seed_compensation_checks": 4,
+    "owned_seed_compensation_failures": 0,
+    "phase": "browser_container_precreation"
+  },
+  "preserved_limits": [
+    "Earlier native and provider/permission failures remain retained independently.",
+    "Screenshot shows a blank sign-in form with pending SSO availability; it cannot establish final route or authentication response.",
+    "API listener captures server errors only; no typed auth/me response, cookie values, non-server auth status or failed-request timeline was retained.",
+    "No application defect, driver predicate defect or infrastructure cause has been established."
+  ],
+  "qualification_limit": "One actual WebKit light login timed out; four scoped WebKit light workflows did not execute. This is not complete native frontend qualification.",
+  "schema": "threatlens-native-frontend-evidence-v1",
+  "source_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+  "status": "failed",
+  "version": "2.1.0"
+}

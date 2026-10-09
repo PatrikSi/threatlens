@@ -1,0 +1,50 @@
+{
+  "kind": "new_envelope_source_predeclared_qualification",
+  "candidate_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+  "baseline_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+  "workflow_head_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+  "review_branch": "review/2.1.0-qualification-20261009",
+  "quality_trigger": "One automatic pull_request run after source push",
+  "capacity_dispatch_count": 1,
+  "capacity_inputs": {
+    "baseline_ref": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+    "candidate_ref": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+    "runner": "ubuntu-latest",
+    "target_id": "github-hosted-reference-shared-epoch-envelope-oct9",
+    "profile": "sustained",
+    "diagnostics": "false"
+  },
+  "capacity_duration_seconds": 600,
+  "relative_regression_limit_percent": 20,
+  "diagnostics_enabled": false,
+  "attempt": 1,
+  "capacity_harness_blobs": {
+    "backend/tests/capacity/sustained.py": "ea813300de160f805cebc2f782e13b5d871a7359",
+    "backend/tests/capacity/workload_support.py": "ec7d64b800d1d9dac2287c37dc1e0fa062192569",
+    "backend/tests/capacity/test_concurrent_workload.py": "32e9e8210660fd3a7c6b102ef92d4a60561d9882"
+  },
+  "app_limits": {
+    "cpus": 1,
+    "memory_mib": 1024,
+    "swap": false
+  },
+  "database_limits": {
+    "cpus": 0.5,
+    "memory_mib": 512,
+    "swap": false
+  },
+  "redis_limits": {
+    "cpus": 0.5,
+    "memory_mib": 128,
+    "swap": false
+  },
+  "prior_failed_runs_retained": [
+    37876316405,
+    37880757288,
+    37888628612,
+    37903114128
+  ],
+  "automatic_retry_or_threshold_waiver": false,
+  "merge_tag_publication_model_promotion": false,
+  "created_at_utc": "2026-10-09T09:54:49.088232+00:00"
+}
