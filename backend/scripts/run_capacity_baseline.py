@@ -13,7 +13,7 @@ import uuid
 import json
 from pathlib import Path
 
-from capacity_process import execute_bounded
+from capacity_process import execute_bounded, require_local_docker
 
 
 def main() -> int:
@@ -59,6 +59,10 @@ def main() -> int:
         parser.error(
             "unset THREATLENS_TEST_DATABASE_URL and THREATLENS_TEST_REDIS_URL; this harness creates disposable Docker services"
         )
+    try:
+        docker_environment = require_local_docker()
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+        parser.exit(2, "capacity requires an established local Docker Unix socket\n")
     allowed = {
         "PATH",
         "HOME",
@@ -76,6 +80,8 @@ def main() -> int:
         for name, value in os.environ.items()
         if name in allowed or name.startswith(("DOCKER_", "LC_"))
     }
+    env.update(docker_environment)
+    env.pop("DOCKER_CONTEXT", None)
     run_id = uuid.uuid4().hex
     output = args.output.resolve()
     backend = Path(__file__).resolve().parents[1]

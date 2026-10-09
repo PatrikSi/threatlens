@@ -112,10 +112,13 @@ def compare_results(baseline, candidate, *, regression_percent=20):
             )
         if fingerprint(run["comparison_identity"]) != run.get("comparison_fingerprint"):
             raise ValueError("measurement identity fingerprint is invalid")
+        if "cleanup" in run and not isinstance(run["cleanup"], dict):
+            raise ValueError("cleanup evidence must be an object")
         if (
             run.get("budget_violations")
             or run.get("task_errors")
             or run.get("sampler", {}).get("errors")
+            or ("cleanup" in run and run["cleanup"].get("status") != "passed")
             or run.get("status") == "failed"
         ):
             raise ValueError(
