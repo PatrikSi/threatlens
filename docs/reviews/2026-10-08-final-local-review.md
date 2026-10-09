@@ -1,7 +1,11 @@
 # Final local review — 2026-10-08
 
-The owned ThreatLens **2.1.0** instance is running at
-**http://127.0.0.1:3001**. The application candidate is
+This report records the Oct8 checkpoint. Current instance and qualification
+results are recorded in the [Oct9 review](2026-10-09-final-review.md); the
+revisions, counts and limitations below retain their original applicability.
+
+At that checkpoint, the owned ThreatLens **2.1.0** instance was running at
+**http://127.0.0.1:3001**. The application candidate was
 `31eb1bc698f1b3a246160863ccde144cafd05d9b`. This follows the
 [remediation checkpoint](2026-10-08-remediation.md) and records the additional
 source and production-browser review, fixes and qualification separately.
@@ -11,7 +15,7 @@ Every change was committed as `Patrik <patrik@local>`.
 open for comparative capacity and intended-source hosted quality/platform
 checks.** Version 2.1.0 is already prepared. No further version bump is needed
 for these pre-merge corrections. No remote push, merge, tag, public image or
-model promotion was performed.
+model promotion was performed during that checkpoint.
 
 ## Further findings corrected
 
