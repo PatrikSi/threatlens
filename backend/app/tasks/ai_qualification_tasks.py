@@ -24,7 +24,10 @@ def _finish_error(db: Session, run_id: uuid.UUID, *, reason: str, error: str) ->
         return {"status": "skipped", "reason": "task_not_found"}
     if ai_ops.ai_task_run_stop_reason(run) == "superseded_delivery":
         return {"status": "skipped", "reason": "superseded_delivery"}
-    return {"status": run.status, "reason": run.reason or reason}
+    outcome = {"status": run.status}
+    if run.reason is not None:
+        outcome["reason"] = run.reason
+    return outcome
 
 
 @celery_app.task(name="app.tasks.ai_qualification_tasks.generate_ai_qualification", bind=True, acks_late=True)
