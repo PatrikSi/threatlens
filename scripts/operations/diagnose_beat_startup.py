@@ -14,7 +14,13 @@ import sys
 
 DUMP_DELAY_SECONDS = 60
 ORIGINAL_CONSOLE_PATH = "/usr/local/bin/celery"
-BEAT_ARGUMENT_PREFIX = ("-A", "app.tasks.celery_app.celery_app", "beat")
+BEAT_ARGUMENT_PREFIXES = frozenset(
+    {
+        # Retain the frozen runtime target used by the original diagnostic.
+        ("-A", "app.tasks.celery_app.celery_app", "beat"),
+        ("-A", "app.tasks.beat_app.beat_app", "beat"),
+    }
+)
 BEAT_ARGUMENT_SUFFIX = (
     "--scheduler=app.tasks.beat_scheduler:WatchdogPersistentScheduler",
     "--schedule=/tmp/threatlens-celerybeat-schedule",
@@ -24,7 +30,7 @@ BEAT_ARGUMENT_SUFFIX = (
 def watchdog_beat_invocation(arguments: list[str]) -> bool:
     return (
         len(arguments) == 7
-        and tuple(arguments[1:4]) == BEAT_ARGUMENT_PREFIX
+        and tuple(arguments[1:4]) in BEAT_ARGUMENT_PREFIXES
         and arguments[4].startswith("--loglevel=")
         and tuple(arguments[5:]) == BEAT_ARGUMENT_SUFFIX
     )

@@ -145,6 +145,15 @@ class BeatStartupDiagnosticTests(unittest.TestCase):
                 expected[0] = "/usr/local/bin/celery"
                 self.assertEqual(self.seen, [expected])
 
+    def test_current_lightweight_watchdog_target_is_instrumented(self):
+        arguments = list(ARGUMENTS)
+        arguments[2] = "app.tasks.beat_app.beat_app"
+        self.assertEqual(self.run_console(lambda: 0, arguments=arguments), 0)
+        self.assertEqual(self.events, ["arm", "import", "console", "cancel"])
+        expected = list(arguments)
+        expected[0] = "/usr/local/bin/celery"
+        self.assertEqual(self.seen, [expected])
+
     def test_environment_and_termination_handlers_are_unchanged(self):
         handlers = {number: signal.getsignal(number) for number in (signal.SIGINT, signal.SIGTERM)}
         with patch.dict(os.environ, {"DIAGNOSTIC_PRIVATE_FIXTURE": "sentinel"}, clear=True):
@@ -212,7 +221,9 @@ class BeatStartupDiagnosticTests(unittest.TestCase):
         source = ast.parse((ROOT / "backend/app/tasks/beat_watchdog.py").read_text())
         prefix = next(node.value for node in source.body if isinstance(node, ast.Assign)
                       and any(isinstance(target, ast.Name) and target.id == "BEAT_COMMAND_PREFIX" for target in node.targets))
-        self.assertEqual(ast.literal_eval(prefix), ("celery", *self.helper.BEAT_ARGUMENT_PREFIX))
+        command = ast.literal_eval(prefix)
+        self.assertEqual(command[0], "celery")
+        self.assertIn(command[1:], self.helper.BEAT_ARGUMENT_PREFIXES)
 
 
 if __name__ == "__main__":
