@@ -1,0 +1,92 @@
+{
+  "after_pinned_controls": {
+    "errors": 0,
+    "existing_controls": 25,
+    "failures": 0,
+    "git_diff_check": "passed",
+    "new_fingerprint_control": 1,
+    "new_shared_start_controls": 15,
+    "passed": 41,
+    "ruff": "passed",
+    "sha256": "42dc617188d4416eae12904755cd97e800ae2d76428c69b51704a9d0f9b1141b",
+    "skipped": 0,
+    "test_seconds": 0.24,
+    "tests": 41
+  },
+  "application_or_scripts_changed": false,
+  "cancellation_scope": "Pre-stopped participant aborts the barrier. A stop set after entering wait is checked after admission or bounded30-second timeout; it is not promptly polled. Current five sustained callsites supply no stop.",
+  "changed_source_sha256": {
+    "backend/tests/capacity/sustained.py": "c39ef2a4a729fc65a8cc95bc8b65e67ea989a7db6c30a1126df88a650b11cef0",
+    "backend/tests/capacity/test_concurrent_workload.py": "1a1288ef7775b4353896b7ca2d233f1a1688eb8ef5af0a79f7adf28418899303",
+    "backend/tests/capacity/test_result_contract.py": "ddf2696496765ffe1132058c4cf57866a3216ef8c167abbf641458946be3d141",
+    "backend/tests/capacity/test_sustained_start.py": "0c666f656965ecb4dc14c3d7067c4cea6c40e9bc9436d4cfe9d9f1f44ac0481c",
+    "backend/tests/capacity/workload_support.py": "93abb59cb9108be654be311babb709624f84ea0d84723ecb8a855aa35a575de9"
+  },
+  "controls": [
+    "Intentionally late participant cannot admit the other four lanes; all five receive exactly the same action epoch.",
+    "Five lane offsets/intervals use a common fake-clock epoch and duration deadline.",
+    "Delayed post-admission wakeup does not extend the common duration.",
+    "Slow operations retain no catchup pacing.",
+    "Missing fifth lane times out and breaks all waiters.",
+    "Pre-stopped lane aborts other participants.",
+    "Stop after admission prevents the first operation.",
+    "Action failure breaks peers and preserves the action exception.",
+    "Operation exceptions propagate unchanged.",
+    "Default independent pacing/stop behavior and prior slow-operation control remain valid.",
+    "Old arrival fingerprints refuse new protocol; matching new fingerprints accept source comparison."
+  ],
+  "epoch_scope": "The five actual callsites each wait once on the same gate; one action sets their common epoch. The underlying Barrier is reusable if a future caller incorrectly reuses this gate.",
+  "finding": {
+    "cause": "Each paced lane initialized a separate monotonic epoch on executor entry, so nominal phases did not determine actual relative arrival schedule.",
+    "full_trace_evidence": {
+      "artifact_id": 11595849507,
+      "baseline_export_to_governance_lane_entry_ms": 0.647826,
+      "candidate_export_to_governance_lane_entry_ms": 304.057788,
+      "observer_sha256": "f837261dc33c255f15b774bd72c0f6ea607c416fd613f2f767a0b2c7354df033",
+      "source_refs": [
+        "35ac120b28820b6e5b1222a50b5f70f7a6b85c3b",
+        "a6c07f7f2718cd4f9a6caab823b481fc2ac7525e"
+      ]
+    },
+    "source": "backend/tests/capacity/sustained.py"
+  },
+  "heavy_workload_or_docker_db_run": false,
+  "kind": "bounded_shared_epoch_sustained_harness_fix_proof",
+  "observer_scope": "Frozen observer lane.start remains pre-barrier executor entry, not the shared epoch. Actual operation timestamps must validate post-gate alignment.",
+  "primary_actual_behavior_before": {
+    "errors": 0,
+    "failure": "Deterministic fake clock: late executor entry107.0 with common epoch100.0 incorrectly rebased a0.5-second phase to107.5; expected immediate107.0 because the absolute phase was already due.",
+    "failures": 1,
+    "sha256": "1582a7b597ca29db60e1cb2108401af893b8deda8afc3a6c9f2ba62201fa270e",
+    "skipped": 0,
+    "test_seconds": 0.129,
+    "tests": 1
+  },
+  "protocol": {
+    "ai_offset_seconds": 0.25,
+    "arrival_contract": "five-lanes-shared-monotonic-epoch-v2",
+    "duration_seconds": 600,
+    "executor_workers": 6,
+    "feed_interval_seconds": 10,
+    "governance_offset_seconds": 0.5,
+    "no_catchup_preserved": true,
+    "old_independent_paced_lane_default_preserved": true,
+    "old_new_fingerprints_incompatible": true,
+    "participants": 5,
+    "repair_interval_seconds": 5,
+    "requires_new_matching_baseline": true,
+    "service_interval_seconds": 2,
+    "timeout_seconds": 30
+  },
+  "qualification": "Original failed comparisons preserved. Passing unit controls do not qualify capacity. Parent owns one bounded real ten-second integration validation and any controlled new-baseline experiment.",
+  "reviewer_commits_staging_remote_writes": false,
+  "secondary_before_api_presence": {
+    "classification": "Ten missing-new-gate API/signature failures, separate from actual behavior proof; one old independent default/stop control passed.",
+    "errors": 0,
+    "failures": 10,
+    "sha256": "aab9c05ff4d56156e006553fc9b4a171a9b274e3995e12eb86bcc5b5a1364a1c",
+    "skipped": 0,
+    "test_seconds": 0.136,
+    "tests": 11
+  }
+}

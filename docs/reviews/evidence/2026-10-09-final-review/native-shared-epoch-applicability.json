@@ -1,0 +1,83 @@
+{
+  "backend_changed_paths": [
+    "backend/tests/capacity/sustained.py",
+    "backend/tests/capacity/test_concurrent_workload.py",
+    "backend/tests/capacity/test_result_contract.py",
+    "backend/tests/capacity/test_sustained_start.py",
+    "backend/tests/capacity/workload_support.py"
+  ],
+  "backend_dockerignore_sha256": "794395ee1a8d8126ba8a013690981fb5cb8fe9f50b027742e616f2076009b009",
+  "candidate_revision": "79001439677cae246faef0a398ddea50c47faf80",
+  "docker_ignored_directory": "backend/tests/",
+  "kind": "native_build_input_applicability_after_measurement_only_correction",
+  "native_actual_build_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+  "schema_version": 1,
+  "scope": "All backend changes since the qualified build are tests excluded by its unchanged Docker ignore rules; native images retain their actual build revision.",
+  "unchanged_input_objects": [
+    {
+      "git_object": "991a8472a31f63c8dcdfc22ee735e83b7d03dd26",
+      "identical": true,
+      "path": "backend/.dockerignore"
+    },
+    {
+      "git_object": "eb7e337a5dfcae89b536e6f2dee9b89bbaa8d941",
+      "identical": true,
+      "path": "backend/app"
+    },
+    {
+      "git_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "identical": true,
+      "path": "backend/alembic"
+    },
+    {
+      "git_object": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+      "identical": true,
+      "path": "backend/scripts"
+    },
+    {
+      "git_object": "73b8e55f452a248483fd118fe2265b09f8f034f1",
+      "identical": true,
+      "path": "backend/requirements.txt"
+    },
+    {
+      "git_object": "53c239ffd4679ce835cd86d122df93ba9a11862a",
+      "identical": true,
+      "path": "backend/requirements-lock.txt"
+    },
+    {
+      "git_object": "529e143333d0075b32f4c5a51845ad0a0fb57abf",
+      "identical": true,
+      "path": "backend/compliance"
+    },
+    {
+      "git_object": "33bc4dbe0ddb10a1c0ddd44868b022feb9815f10",
+      "identical": true,
+      "path": "web"
+    },
+    {
+      "git_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "identical": true,
+      "path": "docker"
+    },
+    {
+      "git_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "identical": true,
+      "path": "docker-compose.yml"
+    },
+    {
+      "git_object": "15b1b8a21d80a46680fdf528635b216383285131",
+      "identical": true,
+      "path": "docker-compose.build.yml"
+    },
+    {
+      "git_object": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab",
+      "identical": true,
+      "path": "LICENSE"
+    },
+    {
+      "git_object": "7ec1d6db40877765247db18e7f9a4e36a0def4ad",
+      "identical": true,
+      "path": "VERSION"
+    }
+  ]
+}

@@ -261,10 +261,33 @@ The trace exposes a measurement defect: each paced lane starts an independent
 monotonic epoch on executor entry. Baseline lane entry spread is 2.890 ms;
 candidate spread is 304.392 ms, despite equal nominal workload fingerprints.
 Same-index governance starts about 500.660 versus 804.061 ms after export,
-changing actual overlap. A bounded five-lane readiness barrier with a shared
-epoch is being corrected under a new arrival contract. This requires a fresh,
-matched harness baseline; the prior failures remain recorded. The budget,
+changing actual overlap. The [independent phase analysis](evidence/2026-10-09-final-review/diagnostic-phase-analysis.json)
+records numeric timings, host counters and source-object checks. A bounded
+five-lane readiness barrier with a shared epoch is corrected in `7900143`
+under the new `five-lanes-shared-monotonic-epoch-v2` arrival contract. A fresh,
+matched harness baseline retains the original application; prior failures remain recorded. The budget,
 600-second duration, nominal offsets and 20% threshold remain unchanged.
+
+The [regression proof](evidence/2026-10-09-final-review/sustained-shared-start-regression.json)
+records the actual delayed-entry phase failure before correction and 41 passing
+controls afterward. Both independent reviews found no blocker. The
+[single ten-second PostgreSQL/Redis validation](evidence/2026-10-09-final-review/shared-epoch-local-validation.json)
+passes with five operations per service, complete capture, no budget violations
+and clean teardown; median actual AI/governance offsets from export are
+250.001/500.019 ms. Scheduling can still delay operations after the shared epoch.
+
+The actual matched baseline commit is
+`b73a3363fc0cb7354e36d3f92b2394448a459d02`, derived from original application
+`35ac120b28820b6e5b1222a50b5f70f7a6b85c3b`. Only three measurement files
+are backported; their blobs match candidate
+`79001439677cae246faef0a398ddea50c47faf80`. The
+[source attestation](evidence/2026-10-09-final-review/shared-epoch-source-applicability.json)
+checks unchanged application, migrations, dependencies, helpers and budgets.
+The [native applicability proof](evidence/2026-10-09-final-review/native-shared-epoch-applicability.json)
+confirms that the five candidate changes are Docker-excluded tests and all
+runtime/image inputs still match the qualified native build. Fresh, uninstrumented
+600-second baseline/candidate and unchanged-candidate control pairs are planned
+with the same caps and threshold; neither is an automatic retry of a failed pair.
 
 ## Feature completion and release boundary
 

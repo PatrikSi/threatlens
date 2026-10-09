@@ -1,0 +1,36 @@
+{
+  "conclusion": "No blocking defect found in the frozen five-file implementation. Proceed to separately authorized real injection/cleanup probe; pure controls alone do not qualify capacity.",
+  "confirmed": {
+    "all_five_call_sites": "Static AST inspection finds exactly five executor.submit(paced_lane,...) calls. Each receives the same start_gate variable and duration; intervals remain2/2/2/10/5 seconds and offsets0/0.5/0.25/0/0.",
+    "deadline": "Loop and sleep bound use the common started epoch; a lane waking after epoch+duration does not invoke a callback or receive a fresh duration. An already-started callback may finish after the duration, preserving prior closed-loop semantics.",
+    "executor_capacity": "Six worker slots retain one unchanged disjoint export job and five paced participants; the barrier can admit all five without requiring the disjoint job to finish.",
+    "failure_visibility": "Barrier errors propagate via the existing futures result path; no broad suppression, retry, threshold adjustment or workload/provider modification is introduced.",
+    "fingerprint": "Sustained profile includes arrival_contract=five-lanes-shared-monotonic-epoch-v2, start_gate_participants=5 and start_gate_timeout_seconds=30. result.workload contains the complete profile; seal_result includes it in comparison_identity/fingerprint. New regression rejects old/new arrival pairing and accepts matched new contracts.",
+    "no_catchup": "Existing due=max(previous_due+interval,current_monotonic_after_callback) is retained. Slow callbacks do not produce catch-up bursts.",
+    "shared_epoch": "Barrier action calls monotonic exactly once for the single five-participant admission. Each of the five lanes calls wait once, then anchors its configured phase and duration to that shared value.",
+    "stop": "A pre-stopped lane aborts the gate and returns zero. Broken, missing or aborted admission raises RuntimeError within the at-most30 second gate timeout. Stop after admission retains the prior per-lane check."
+  },
+  "optional_calibration_plan": {
+    "criteria": "Both roles must complete unchanged absolute/sample/cleanup contracts. A self-source relative flag is a failed calibration and evidence that this one-pair protocol can flag unchanged code; it does not prove historical noise, clear failures or authorize threshold changes. A clean self-pair provides limited protocol repeatability evidence and still does not explain or clear the baseline/candidate failure.",
+    "design": "One explicitly predeclared same-source A/A pair, with the exact frozen candidate application commit, same committed new harness and own identical locked dependencies used for both roles in two clean worktrees. Preserve600seconds per role, dataset, intervals/phases, worker/CPU/RSS/container/time limits, original comparator and20percent threshold. Use the same uninstrumented protocol as intended qualification, unless a diagnostic observer is separately declared identically for both roles.",
+    "next_if_inconclusive": "Stop for causal source/timing diagnosis or an explicitly predeclared replication/order-control design; do not collect until green. Calibration alone never grants release readiness.",
+    "retention": "Record both roles, original comparator verdict, all latency/outcome distributions, absolute budgets, required samples, complete independent cleanup and source/fingerprint identities. No retries, selection of favorable runs or replacement of prior failures.",
+    "trigger": "Only if a single fresh uninstrumented matched-new-harness600-second baseline/candidate pair still has relative export or alert flags after source/protocol verification."
+  },
+  "review_scope": "independent_read_only_shared_start_diff",
+  "schema_version": 1,
+  "scope_limits": [
+    "A stop event set after gate.wait begins is checked only after admission or the bounded timeout; no prompt mid-wait cancellation is claimed. Current five callsites supply no stop.",
+    "The Barrier abstraction is reusable, but run immutability relies on exactly one wait at each of the five verified callsites.",
+    "No independent tests or real workload were run by this reviewer. Backend-owned controls report41passes0.25s and separate release review is parent-owned evidence.",
+    "Observer lane.start_ns remains pre-barrier entry. Actual service starts/ends remain sufficient for the planned short injection sanity check; no new hook is needed.",
+    "Legacy failed uninstrumented/diagnostic pairs remain retained and are not compared to the new arrival contract."
+  ],
+  "source_file_sha256": {
+    "backend/tests/capacity/sustained.py": "c39ef2a4a729fc65a8cc95bc8b65e67ea989a7db6c30a1126df88a650b11cef0",
+    "backend/tests/capacity/test_concurrent_workload.py": "1a1288ef7775b4353896b7ca2d233f1a1688eb8ef5af0a79f7adf28418899303",
+    "backend/tests/capacity/test_result_contract.py": "ddf2696496765ffe1132058c4cf57866a3216ef8c167abbf641458946be3d141",
+    "backend/tests/capacity/test_sustained_start.py": "0c666f656965ecb4dc14c3d7067c4cea6c40e9bc9436d4cfe9d9f1f44ac0481c",
+    "backend/tests/capacity/workload_support.py": "93abb59cb9108be654be311babb709624f84ea0d84723ecb8a855aa35a575de9"
+  }
+}
