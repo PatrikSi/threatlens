@@ -4,8 +4,8 @@ ThreatLens **2.1.0** is prepared, and the rebuilt synthetic local instance is
 running at **http://127.0.0.1:3001**. Current application/image candidate
 `6141a7192e3d6970be9e67230da14b64da1c8894` contains the Beat producer dependency
 correction and the shared-start capacity harness. Its actual native images have
-been rebuilt and basic readiness verified; fresh native browser, backend helper
-and image scan qualification remains in progress at this checkpoint. Earlier
+been rebuilt and basic readiness verified; fresh browser and permission qualification passes. Backend helper and image
+scan qualification is being completed at this checkpoint. Earlier
 native evidence applies to `fec81ca` and its recorded equivalent image inputs.
 Images retain their actual build revision. All corrections were committed as
 `Patrik <patrik@local>`.
@@ -15,8 +15,9 @@ capacity. Fresh quality at `6141a719` passes fourteen jobs, including the full
 ARM64 smoke/scan job, but fails one raw queue-configuration assertion in the
 backend suite. The uninstrumented 600-second pair fails two p95 comparisons,
 at +21.064% and +22.583% against the unchanged 20% threshold.** Both reference
-workloads pass absolute budgets and independent cleanup. The assertion's mutable
-queue state is under source review; capacity causes remain unassigned. Reviewed
+workloads pass absolute budgets and independent cleanup. A test-only queue-normalization isolation correction passes its deterministic
+regression and all 67 focused Beat controls; fresh full backend qualification is
+still required. Capacity causes remain unassigned. Reviewed
 CodeQL dispositions cleared its failure, leaving a neutral check with a
 baseline-configuration warning.
 Version 2.1.0 is already aligned across the version file, frontend metadata,
@@ -75,8 +76,16 @@ retains its first successful build. Each owned builder cleanup reports zero
 remaining containers and volumes. The
 [preliminary current runtime record](evidence/2026-10-09-final-review/native-runtime-6141-preliminary.json)
 preserves all attempts, image identities, numeric limits and readiness checks.
-Fresh full browser, HTTP/helper and selected image scans are pending here; basic
-readiness does not complete those checks.
+Fresh native browser qualification passes **33/33 cases** across all three
+engines, including 33 Axe surfaces with zero violations, runtime errors or
+external requests. Permission-transition workflows pass **seven/seven**, with
+all six owned fixture cleanup checks successful. The seed passes, and every
+browser container is removed. The
+[current frontend record](evidence/2026-10-09-final-review/native-frontend-6141.json)
+also preserves the inherited seed-cleanup exit defect: two mocked failure
+outcomes exited zero before correction and correctly exit nonzero afterward.
+Original cleanup status remains recorded. HTTP/helper and selected image scans
+are still being completed; basic readiness does not complete those checks.
 
 The following completed native qualification is retained for the earlier
 `fec81ca` image inputs. It does not qualify the changed Beat producer at `6141a719`.
@@ -127,9 +136,17 @@ All fifteen checkouts match the immutable synthetic merge tree, equal to the
 candidate tree. Backend pytest reports **4,732 passed / one failed / five skipped**
 in 1234.33 seconds. The only failure is
 `test_scheduler_configuration_is_an_independent_copy_of_worker_configuration`:
-the raw `task_queues` objects differ after lazy queue normalization. Focused
-test isolation is under review; this observation does not establish a broken
-production routing contract. Overall coverage reaches **87.07%** against the
+the raw `task_queues` objects differ after lazy queue normalization. A deterministic control reproduces this lazy normalization mismatch. The
+test-only correction compares complete initial configuration and independent
+mutable copies in a fresh child, then deliberately normalizes one app before
+the other and compares every effective scheduled route. The original control
+fails; the corrected control and **67/67 focused Beat cases** pass under the
+unchanged one-CPU, 1 GiB and 40 CPU-second bounds. Both independent source
+reviews are clear.
+[Test isolation evidence](evidence/2026-10-09-final-review/beat-queue-isolation-controls.json)
+retains the original failure and all before/after outcomes. The producer,
+watchdog and Docker inputs are unchanged; fresh full hosted validation remains
+required. This observation does not establish a broken production routing contract. Overall coverage reaches **87.07%** against the
 79% floor. The 58 critical module rows are captured, but their strict coverage
 gate and subsequent capacity smoke, OpenAPI, lockfile, preview-policy and Python
 audit steps are **skipped** after the test failure.

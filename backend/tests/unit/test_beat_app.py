@@ -32,6 +32,22 @@ _PUBLICATION_ATTRIBUTES = {
 }
 
 
+def _isolated_environment(*, ai_enabled=False):
+    environment = dict(os.environ)
+    environment.update(
+        APP_ENV="development",
+        JWT_SECRET="",
+        APP_DATA_ENCRYPTION_KEY="",
+        APP_DATA_ENCRYPTION_PREVIOUS_KEYS="",
+        REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY="false",
+        AI_ENABLED=str(ai_enabled).lower(),
+        AI_API_KEY="",
+        PYTHONPATH=str(_BACKEND),
+        PYTHONDONTWRITEBYTECODE="1",
+    )
+    return environment
+
+
 @lru_cache
 def _periodic_declarations():
     declarations = {}
@@ -189,16 +205,49 @@ def test_optional_ai_canaries_preserve_queue_arguments_and_expiry(queue, publica
     assert old[0]["headers"]["expires"] is not None
 
 
-def test_scheduler_configuration_is_an_independent_copy_of_worker_configuration():
-    old = dict(worker_app.conf)
-    new = dict(beat_app.conf)
-    assert len(old.pop("include")) == 15
-    assert not old.pop("imports")
-    assert not new.pop("include")
-    assert not new.pop("imports")
-    assert old == new
-    for key in ("beat_schedule", "task_routes", "task_queues", "broker_transport_options", "result_backend_transport_options"):
-        assert worker_app.conf[key] is not beat_app.conf[key]
+def test_scheduler_configuration_is_an_independent_copy_of_worker_configuration(tmp_path):
+    # Celery lazily normalizes Queue declarations in place when an app's router
+    # is used. Compare initial declarations in a fresh interpreter so earlier
+    # tests cannot change the observed stage of either app's configuration.
+    script = """
+from app.tasks.beat_app import beat_app
+from app.tasks.celery_app import celery_app as worker_app
+
+old = dict(worker_app.conf)
+new = dict(beat_app.conf)
+assert len(old.pop('include')) == 15
+assert not old.pop('imports')
+assert not new.pop('include')
+assert not new.pop('imports')
+assert old == new
+for key in ('beat_schedule', 'task_routes', 'task_queues', 'broker_transport_options', 'result_backend_transport_options'):
+    assert worker_app.conf[key] is not beat_app.conf[key]
+
+# Exercise the exact one-sided mutation seen in the full suite, then compare
+# effective routing after both apps have initialized their routing tables.
+beat_app.amqp.queues
+assert worker_app.conf.task_queues != beat_app.conf.task_queues
+worker_app.amqp.queues
+assert worker_app.conf.task_queues == beat_app.conf.task_queues
+for definition in worker_app.conf.beat_schedule.values():
+    options = definition.get('options', {})
+    old_route = worker_app.amqp.router.route(dict(options), definition['task'])
+    new_route = beat_app.amqp.router.route(dict(options), definition['task'])
+    assert old_route == new_route
+assert worker_app.finalized is False
+print('independent_config_and_effective_routes=passed')
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env=_isolated_environment(),
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == "independent_config_and_effective_routes=passed"
 
 
 def test_unregistered_sends_follow_configured_result_default_and_honor_override(publication_apps, monkeypatch):
@@ -241,22 +290,10 @@ assert not any(entry['task'] in selected_app.tasks for entry in selected_app.con
 assert len(selected_app.conf.beat_schedule) == (34 if sys.argv[1] == 'true' else 31)
 print('selected_beat_loader_without_worker_imports=passed')
 """
-    environment = dict(os.environ)
-    environment.update(
-        APP_ENV="development",
-        JWT_SECRET="",
-        APP_DATA_ENCRYPTION_KEY="",
-        APP_DATA_ENCRYPTION_PREVIOUS_KEYS="",
-        REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY="false",
-        AI_ENABLED=str(ai_enabled).lower(),
-        AI_API_KEY="",
-        PYTHONPATH=str(Path(__file__).resolve().parents[2]),
-        PYTHONDONTWRITEBYTECODE="1",
-    )
     completed = subprocess.run(
         [sys.executable, "-c", script, str(ai_enabled).lower()],
         cwd=tmp_path,
-        env=environment,
+        env=_isolated_environment(ai_enabled=ai_enabled),
         capture_output=True,
         text=True,
         timeout=20,

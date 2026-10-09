@@ -1,0 +1,160 @@
+{
+  "actual_images": {
+    "backend": {
+      "build_revision": "6141a7192e3d6970be9e67230da14b64da1c8894",
+      "image_id": "sha256:30fac76ff3470d9445f11cb5ee5b6a86e760eb8035069c1eff2b1b8fd3c47d1a"
+    },
+    "web": {
+      "build_revision": "6141a7192e3d6970be9e67230da14b64da1c8894",
+      "image_id": "sha256:509c66d0360ab6d6a3220473fe4ee67fb39498289c4b69c26f49d75fc12d1368"
+    }
+  },
+  "execution_contract": {
+    "action_timeout_ms": 30000,
+    "actual_limits": {
+      "Memory": 3221225472,
+      "MemorySwap": 3221225472,
+      "NanoCpus": 2000000000,
+      "PidsLimit": 768
+    },
+    "assertion_timeout_ms": 5000,
+    "automatic_retries": 0,
+    "browser_image": "mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27",
+    "browser_image_id": "sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27",
+    "browser_outer_timeout_seconds": 900,
+    "delivery_requested": false,
+    "provider_calls_requested": 0,
+    "runtime_events_suppressed": false,
+    "workers": 1
+  },
+  "instance_manifest_sha256": "f85779ca9fe19318de618676b13c8b8cd977f8228598a8614bd36257ed6d643c",
+  "limits": [
+    "Scope is the recorded33 responsive/navigation/accessibility checks and7 current-image permission/draft transitions, including setup; this is not an exhaustive new AI-generation or integration-delivery qualification.",
+    "The provider iframe remains scripts-disabled and is checked for content/title/sandbox; application-shell Axe traversal retains its original exclusion for that external document.",
+    "Owned investigation/account audit history remains in the disposable instance after archive/deactivation. Existing source fixtures and instance credentials are preserved.",
+    "Earlier failed capacity and ARM outcomes remain retained. This current-image UI result does not waive separate backend, architecture or capacity release gates."
+  ],
+  "permission_transitions": {
+    "attempts": 1,
+    "browser_container_cleanup": {
+      "owned_containers_remaining": 0,
+      "status": "passed"
+    },
+    "cleanup_checks": [
+      {
+        "name": "delete owned generated report",
+        "status": "passed"
+      },
+      {
+        "name": "remove actor membership and archive owned investigation",
+        "status": "passed"
+      },
+      {
+        "name": "remove owned role assignment",
+        "status": "passed"
+      },
+      {
+        "name": "delete owned custom role",
+        "status": "passed"
+      },
+      {
+        "name": "deactivate owned actor and revoke sessions",
+        "status": "passed"
+      },
+      {
+        "name": "close browser contexts and browser",
+        "status": "passed"
+      }
+    ],
+    "driver_sha256": "cab76541f3d51ffe58ef8d89f6dcfd084445f5f4750c3d99cfe8d6567ff00b9c",
+    "finished_at_utc": "2026-10-09T08:42:42.645583+00:00",
+    "metadata_sha256": "1b609700bcca16a83c7fbcdbe14cc95e3e355fe5859aed3a0a33277ae03a702c",
+    "results_sha256": "1ad29c00a4ab7594a0369581217a0d2bf18d5255837e93ac36c9fc22ffff5bbe",
+    "started_at_utc": "2026-10-09T08:41:02.940266+00:00",
+    "summary": {
+      "apiServerErrors": 0,
+      "blockedExternalRequests": 0,
+      "cleanupChecks": 6,
+      "cleanupFailures": 0,
+      "consoleErrors": 0,
+      "driverFailures": 0,
+      "expectedCases": 7,
+      "failed": 0,
+      "pageErrors": 0,
+      "passed": 7,
+      "requestedCases": 7
+    }
+  },
+  "prior_outcomes_preserved": {
+    "older_corrected_one_case_followup": true,
+    "older_policy_six_pass_one_driver_failure": true,
+    "older_retiring_document_native_browser_failure": true
+  },
+  "private_launcher_correction": {
+    "after_failed_outcome_exit_codes": [
+      1,
+      1
+    ],
+    "after_proof_sha256": "05db2b4c88f3c18be8585ba5661b85786ad97ab8b73c5890a113251846caf0b0",
+    "after_success_exit_code": 0,
+    "before_failed_outcome_exit_codes": [
+      0,
+      0
+    ],
+    "before_proof_sha256": "6a2cab032e8381936b1c0e7b6c11f24e63f71cbc22f13ec95a73272f4e633157",
+    "frozen_plan_sha256": "bb18dafef20bf71b4a7999afee9b91a6a7cd1af3c64ef8ee1f0379544bcf521c",
+    "launcher_sha256": "db73bc7f5eae7f0bae54b73f8db25ea82ae4ccb79c784a93562d9172e3afd014",
+    "mock_cases": 3,
+    "original_mock_process_exits_retained": [
+      17,
+      0,
+      0
+    ],
+    "scope": "Seed-cleanup metadata failure previously returned process success; correction preserves failed result and exits nonzero"
+  },
+  "responsive_browser": {
+    "attempts": 1,
+    "axe_surfaces_recorded": 33,
+    "axe_violations": 0,
+    "browser_container_cleanup": {
+      "owned_containers_remaining": 0,
+      "status": "passed"
+    },
+    "checks_by_engine": {
+      "chromium": 11,
+      "firefox": 11,
+      "webkit": 11
+    },
+    "driver_sha256": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c",
+    "finished_at_utc": "2026-10-09T08:45:03.595525+00:00",
+    "metadata_sha256": "2240f21db50361eaea0bb093dbea493f9f36f1f63aaf04ff47dbfa7c0f0ec539",
+    "results_sha256": "ab57f0f0c244d086de1fb97420118905845688f9939db828a5ce341fc331840a",
+    "started_at_utc": "2026-10-09T08:43:36.118045+00:00",
+    "summary": {
+      "apiServerErrors": 0,
+      "blockedExternalRequests": 0,
+      "cleanupFailures": 0,
+      "consoleErrors": 0,
+      "createdSyntheticResources": 0,
+      "executedChecks": 33,
+      "expectedCheckCount": 33,
+      "expectedCountMatched": true,
+      "failed": 0,
+      "pageErrors": 0,
+      "passed": 33
+    }
+  },
+  "schema": "native-frontend-6141-qualification-v1",
+  "seed": {
+    "attempts": 1,
+    "driver_failures": 0,
+    "finished_at_utc": "2026-10-09T08:39:57.178940+00:00",
+    "metadata_sha256": "c7cfb90b63ec28bf480dc22fc4ce793ceaf117207291486e65ecb1f191b2eb58",
+    "process_exit": 0,
+    "started_at_utc": "2026-10-09T08:39:53.056104+00:00",
+    "status": "passed"
+  },
+  "source_revision": "6141a7192e3d6970be9e67230da14b64da1c8894",
+  "status": "passed_for_recorded_scope",
+  "version": "2.1.0"
+}

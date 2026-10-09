@@ -1,0 +1,71 @@
+{
+  "application_image_source_revision": "6141a7192e3d6970be9e67230da14b64da1c8894",
+  "changed_tracked_path": "backend/tests/unit/test_beat_app.py",
+  "checks": {
+    "git_diff_check_exit_code": 0,
+    "ruff_exit_code": 0
+  },
+  "deterministic_after_driver_sha256": "4dbeeea19ed3c64daf73434639ac3f03dbe2abb33e03959dceb4bdabbe5d9442",
+  "deterministic_before_driver_sha256": "509dcd1952b50263634d826510a4407b5f97f91923b6bc8ef2fb11989f56ef1e",
+  "frozen_original_test_sha256": "a32c8c23d21c8c92c653387fd12b4b100f7499bc7e38b3d6b7e7a5ae14718c91",
+  "original_hosted_result": {
+    "elapsed_seconds": 1234.33,
+    "failed": 1,
+    "failure": "test_scheduler_configuration_is_an_independent_copy_of_worker_configuration; task_queues lazy normalization state differs",
+    "log_sha256": "40e5b850ef6a70d0ef0a65d9c6b7c058a2060ac525ea3075f17ebde57ffbdaa9",
+    "passed": 4732,
+    "skipped": 5
+  },
+  "runs": {
+    "all_focused_beat_controls": {
+      "address_space_limit_bytes": 1073741824,
+      "cpu_affinity_count": 1,
+      "cpu_seconds_limit": 40,
+      "elapsed_seconds": 3.258,
+      "errors": 0,
+      "failures": 0,
+      "junit_sha256": "224929e7169a9cc718bc1af479533da0dc18de02529989c21a76bedb803fcd1c",
+      "log_sha256": "9a44e3573333e8f4b0b74848016cc277a1f27bcf8ea60028b84c3e4bd3de018f",
+      "skipped": 0,
+      "tests": 67
+    },
+    "corrected_deterministic_control": {
+      "address_space_limit_bytes": 1073741824,
+      "cpu_affinity_count": 1,
+      "cpu_seconds_limit": 40,
+      "elapsed_seconds": 0.411,
+      "errors": 0,
+      "failures": 0,
+      "junit_sha256": "16c0a9612231291a766a24ca2af137ba6a881c4c06ea4a63c6cb989c7bb0f2ce",
+      "log_sha256": "8c8571602d5fb36fbe26bdfcff3324618e83870e9a5e061e0808d0d01cc5233d",
+      "skipped": 0,
+      "tests": 1
+    },
+    "original_deterministic_failure": {
+      "address_space_limit_bytes": 1073741824,
+      "cpu_affinity_count": 1,
+      "cpu_seconds_limit": 40,
+      "elapsed_seconds": 0.248,
+      "errors": 0,
+      "failures": 1,
+      "junit_sha256": "8cad8a06f3b742cdfc9be1438e87004c67e93a85de07586062bdcca490d3bffc",
+      "log_sha256": "7aa02adbc99412b6a4f9a302f8bfdd7397ca856cc0147f970d5aa886aa48eb55",
+      "skipped": 0,
+      "tests": 1
+    }
+  },
+  "scope": "test isolation for Celery queue normalization; production application and image inputs unchanged",
+  "source_assessment": "Celery Queue initialization mutates declarations lazily; fresh-child full-copy and effective-route parity preserve the contract without depending on parent collection/test order.",
+  "test_file_sha256": "c76742a8f151cd4e1f1f034cd2fb5cbbcff65fd96230d2a7c93d34c5f8186793",
+  "tracked_diff_paths": [
+    "backend/tests/unit/test_beat_app.py"
+  ],
+  "schema_version": 1,
+  "kind": "beat_queue_normalization_test_isolation_proof",
+  "independent_source_reviews_sha256": [
+    "8db43ef50696506321b2938dc7d9c3ae434cc753a5b7808bbf66420f0d0c3d4a",
+    "5a66c7c61078fd1db28eb3f0a6bfce0b5d2f65b2bd1b17c43442966e2dfebad1"
+  ],
+  "release_clearance": false,
+  "scope_limitation": "Focused repair does not replace a fresh complete hosted backend and downstream gate run"
+}
