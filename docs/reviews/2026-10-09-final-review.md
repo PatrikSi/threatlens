@@ -1,20 +1,24 @@
 # Iterative code review and qualification — 2026-10-09
 
 ThreatLens **2.1.0** is prepared, and the rebuilt synthetic local instance is
-running at **http://127.0.0.1:3001**. The frozen application/image revision is
-`fec81cabf6cdcabca8111ed2c78ac8c4e895c433`; the original hosted application
-qualification candidate is `a6c07f7f2718cd4f9a6caab823b481fc2ac7525e`.
-Those two revisions have identical backend, web, Docker, Compose, license and
-version Git objects. Current measurement candidate `7900143` includes the
-subsequent observer tooling and shared-start harness correction; its runtime/image
-inputs still match the qualified native build. Images retain their actual build
-revision. All corrections were committed as `Patrik <patrik@local>`.
+running at **http://127.0.0.1:3001**. Current application/image candidate
+`6141a7192e3d6970be9e67230da14b64da1c8894` contains the Beat producer dependency
+correction and the shared-start capacity harness. Its actual native images have
+been rebuilt and basic readiness verified; fresh native browser, backend helper
+and image scan qualification remains in progress at this checkpoint. Earlier
+native evidence applies to `fec81ca` and its recorded equivalent image inputs.
+Images retain their actual build revision. All corrections were committed as
+`Patrik <patrik@local>`.
 
-**Decision at this checkpoint: native qualification and earlier all-fifteen-job
-quality runs pass. Fresh quality at `1251826` fails ARM64 Beat startup, and the
-uninstrumented corrected-protocol capacity comparison remains failed. A Beat
-producer change passes focused controls and awaits fresh runtime qualification.** Reviewed CodeQL dispositions
-cleared its failure, leaving a neutral check with a baseline-configuration warning.
+**Decision at this checkpoint: held for backend validation and comparative
+capacity. Fresh quality at `6141a719` passes fourteen jobs, including the full
+ARM64 smoke/scan job, but fails one raw queue-configuration assertion in the
+backend suite. The uninstrumented 600-second pair fails two p95 comparisons,
+at +21.064% and +22.583% against the unchanged 20% threshold.** Both reference
+workloads pass absolute budgets and independent cleanup. The assertion's mutable
+queue state is under source review; capacity causes remain unassigned. Reviewed
+CodeQL dispositions cleared its failure, leaving a neutral check with a
+baseline-configuration warning.
 Version 2.1.0 is already aligned across the version file, frontend metadata,
 OpenAPI and deployment defaults. These pre-merge corrections need no further
 version bump. [Draft PR #31](https://github.com/PatrikSi/threatlens/pull/31)
@@ -23,6 +27,10 @@ model promotion remain unchanged.
 
 This follows the [Oct8 review](2026-10-08-final-local-review.md), preserving its
 original sources, failures and qualification limits.
+The [current release/source consistency proof](evidence/2026-10-09-final-review/release-consistency-6141.json)
+records aligned version values, the distinct OpenAPI contract anchor and file
+hash, bounded writer shutdown before migration, and exactly matched baseline/
+candidate capacity harness blobs.
 
 ## Corrections completed in this pass
 
@@ -49,6 +57,29 @@ original sources, failures and qualification limits.
 records pinned environments, before/after failures, hashes and scope limits.
 
 ## Actual native runtime
+
+The current native images are built at `6141a719`, and actual inspection verifies
+twelve services: eleven running, ten healthy and a completed migration, with no
+restarts. JSON readiness and live contract checks pass. The current image IDs are:
+
+| Image | Actual image ID | Runtime user |
+|---|---|---|
+| Backend | `sha256:30fac76ff3470d9445f11cb5ee5b6a86e760eb8035069c1eff2b1b8fd3c47d1a` | `app` |
+| Web | `sha256:509c66d0360ab6d6a3220473fe4ee67fb39498289c4b69c26f49d75fc12d1368` | `nginx` |
+
+Two unsuccessful aggregate build attempts remain recorded. The host filesystem
+was confirmed nearly full, with 6,492,160 free bytes. Removing only about 1.7 GB
+of owned reproducible image archives and scanner cache allowed the fresh web-only
+third attempt to complete with unchanged source and limits. The backend image
+retains its first successful build. Each owned builder cleanup reports zero
+remaining containers and volumes. The
+[preliminary current runtime record](evidence/2026-10-09-final-review/native-runtime-6141-preliminary.json)
+preserves all attempts, image identities, numeric limits and readiness checks.
+Fresh full browser, HTTP/helper and selected image scans are pending here; basic
+readiness does not complete those checks.
+
+The following completed native qualification is retained for the earlier
+`fec81ca` image inputs. It does not qualify the changed Beat producer at `6141a719`.
 
 Both native AMD64 images were built from a fresh tracked Git archive, without
 local environment files, the untracked developer lock, backups or dependency
@@ -89,6 +120,32 @@ lookup only for its deliberate real refetch behind the modal; ordinary operator
 selectors, assertions, deadlines and generic error listeners remain unchanged.
 
 ## Hosted quality and preserved failures
+
+Fresh [quality run 37903060980](https://github.com/PatrikSi/threatlens/actions/runs/37903060980)
+at `6141a719` completes with **fourteen passed jobs and one backend failure**.
+All fifteen checkouts match the immutable synthetic merge tree, equal to the
+candidate tree. Backend pytest reports **4,732 passed / one failed / five skipped**
+in 1234.33 seconds. The only failure is
+`test_scheduler_configuration_is_an_independent_copy_of_worker_configuration`:
+the raw `task_queues` objects differ after lazy queue normalization. Focused
+test isolation is under review; this observation does not establish a broken
+production routing contract. Overall coverage reaches **87.07%** against the
+79% floor. The 58 critical module rows are captured, but their strict coverage
+gate and subsequent capacity smoke, OpenAPI, lockfile, preview-policy and Python
+audit steps are **skipped** after the test failure.
+
+Frontend passes **1,374 tests / 164 files**, lint, build, production smoke and a
+zero-vulnerability audit. All browser engines pass **210 cases**, with six
+deliberate split skips and zero retry markers. Recovery unit discovery records
+**121 passes / four skips**; operations records **152 passes / one skip**.
+Separate disposable recovery and source-loss drills pass all **four plus one**
+actual cases without skips. Both AMD64 and ARM64 pass running-stack smoke,
+startup modes, access-log checks, login, proxy upload and the selected image
+vulnerability scans with zero HIGH/CRITICAL findings. Legal/dependency inventory
+runs on AMD64 and is deliberately skipped on ARM64. The
+[complete current quality record](evidence/2026-10-09-final-review/hosted-quality-6141.json)
+keeps all step outcomes, counts, image IDs and log hashes. The earlier ARM64
+failure remains a separate result; the fresh pass does not establish its cause.
 
 The original `c4faef4` quality run passed frontend, migrations, OpenSearch, MCP,
 recovery tooling and both platform image build/scan/smoke jobs. Backend pytest
@@ -219,6 +276,10 @@ opt-in skip**. Both independent source reviews are clear. This is a supported
 startup dependency improvement, not a proved cause of the earlier unframed
 failure. Fresh native, complete hosted quality and uninstrumented capacity
 qualification are required for this changed runtime before release clearance.
+The [independent candidate source review](evidence/2026-10-09-final-review/beat-producer-source-applicability-6141.json)
+pins the producer, selected watchdog and parity-test hashes while retaining
+unchanged worker, scheduler, dependency, Docker and Compose objects. Its source
+review status is separate from the failed full-suite result above.
 
 ## Security finding review
 
@@ -244,8 +305,44 @@ warning. The current PR scope has ten open alerts, matching the earlier snapshot
 the default-main scope has eleven. The extra default-main alert belongs to an
 older configuration whose updated PR flow was already reviewed. These are
 different ref scopes, not an additional disposition or a zero-alert result.
+Fresh `6141a719` analyses also retain **25 Python and one JavaScript results**,
+with no result located in the new producer or changed watchdog file. The separate
+aggregate remains **neutral**, with zero annotations and the historical
+configuration warning. The current PR scope remains ten open alerts and the
+default-main listing eleven; no further dispositions, query changes or severity
+changes were made. Exact analysis IDs and SARIF hashes are retained in the
+current quality record.
 
 ## Capacity comparison
+
+The current uninstrumented
+[release pair 37903114128](https://github.com/PatrikSi/threatlens/actions/runs/37903114128)
+compares matched-harness baseline `b73a3363` with new application candidate
+`6141a719`, using each reference's locked dependencies. Both 600-second workloads
+pass absolute budgets, required sample coverage and independent cleanup, with
+zero task/sampler errors and zero owned remnants. The comparator remains
+**failed**: processing-dispatch queue p95 is **160.009 → 193.713 ms (+21.064%)**,
+and feed-task p95 is **590.117 → 723.382 ms (+22.583%)**. The sampled query-age
+peak is **610.478 → 219.283 ms (−64.08%)**; that earlier peak failure does not
+recur in this pair, which does not retrospectively clear the previous result.
+All source labels, inputs, shared-arrival identities, fingerprints, resource
+limits and the unchanged 20% threshold are verified. The
+[current result record](evidence/2026-10-09-final-review/hosted-capacity-6141.json)
+retains the actual failed comparison and every metric. Here, `conclusive` means
+required samples exist; it does not establish statistical confidence or cause.
+Bounded task/query/phase diagnosis is planned; no causal performance correction
+or threshold change is claimed.
+
+The first private evidence predicate expected a nonexistent raw process-exit
+field and list-shaped budget violations. A retained-artifact-only projection
+correction uses the actual empty budget dictionary and typed error arrays, with
+zero workload exits inferred narrowly from the unique successful sequential
+measurement step and the exact exit-preserving wrapper under Bash `-e`.
+The [projection controls](evidence/2026-10-09-final-review/capacity-capture-projection-controls.json)
+record one failing actual-schema control before correction and 44 passing
+controls afterward, including exact wrapper return propagation. Original
+capture evidence is retained; no artifact was downloaded again and the actual
+comparator failure is unchanged.
 
 The first hosted reference comparison ran sequential **600-second** workloads
 at exact baseline `35ac120b28820b6e5b1222a50b5f70f7a6b85c3b` and candidate
@@ -444,10 +541,11 @@ outputs and named human review of the twelve prepared cases. Provider-contract
 and configuration tests do not complete that approval; ordinary ingestion and
 classification do not require model promotion.
 
-Uninstrumented comparative capacity and ARM64 startup remain unresolved release
-gates. The earlier native qualification and `a6c07f7`/`b06b364`
-hosted backend/coverage, architecture and browser results apply to their recorded
-runtime/image inputs; they do not qualify the new Beat producer or corrected
-sustained harness.
+The current unresolved gates are the full backend validation failure and the
+uninstrumented comparative capacity failure. Fresh `6141a719` ARM64 qualification
+passes; its earlier failed outcome remains recorded. Current native behavior and
+scan checks are still being completed. The earlier native qualification and
+`a6c07f7`/`b06b364` hosted results apply to their recorded runtime/image inputs;
+they do not replace the fresh candidate's failing or pending checks.
 The CodeQL neutral baseline-configuration warning and chosen-model
 promotion limits remain explicit; no merge, tag or publication has occurred.
