@@ -119,6 +119,7 @@ def pytest_sessionfinish(session, exitstatus):
     for target, name, original in reversed(_patches):
         setattr(target, name, original)
     _patches.clear()
+    measurement = None
     try:
         measurement = json.loads(Path(os.environ["THREATLENS_CAPACITY_OUTPUT"]).read_text())
         if measurement["run_id"] != os.environ.get("THREATLENS_CAPACITY_RUN_ID") or measurement["git_revision"] != os.environ.get("THREATLENS_CAPACITY_SOURCE_REVISION"):
@@ -134,7 +135,7 @@ def pytest_sessionfinish(session, exitstatus):
         digest, hashes = None, {}
     if digest != os.environ.get("THREATLENS_CAPACITY_DIAGNOSTICS_OBSERVER_SHA256") or CONTRACT != os.environ.get("THREATLENS_CAPACITY_DIAGNOSTICS_CONTRACT"):
         _recorder.error("observer_identity", ValueError())
-    result = _recorder.finish(expected)
+    result = _recorder.finish(expected, measurement=measurement)
     result.update(schema_version=1, contract=CONTRACT, observer_sha256=digest, observer_file_sha256=hashes, capacity_run_id=os.environ.get("THREATLENS_CAPACITY_RUN_ID"), application_source_revision=os.environ.get("THREATLENS_CAPACITY_SOURCE_REVISION"), workload_exit_code=int(exitstatus), observation_scope="Opt-in diagnostic perturbation; original workload/metrics/comparator unchanged")
     try:
         path = Path(os.environ["THREATLENS_CAPACITY_DIAGNOSTICS_OUTPUT"])

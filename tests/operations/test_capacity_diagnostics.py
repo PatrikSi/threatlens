@@ -41,6 +41,37 @@ class ObserverCursor:
         self.closed = True
 
 
+class SnapshotResult:
+    def __init__(self, values=(), *, fields=1, format=0, oid=1700, status=2):
+        self.values, self.nfields = list(values), fields
+        self.format, self.oid, self.status = format, oid, status
+        self.ntuples = len(self.values)
+        self.reads = []
+
+    def fformat(self, column):
+        return self.format
+
+    def ftype(self, column):
+        return self.oid
+
+    def get_value(self, row, column):
+        self.reads.append((row, column))
+        return self.values[row]
+
+
+class OriginalCursor:
+    def __init__(self, observer, values=()):
+        self.connection = types.SimpleNamespace(cursor=lambda: observer)
+        self.pgresult = SnapshotResult(values)
+        self.position, self.fetch_calls = 0, 0
+
+    def fetchall(self):
+        self.fetch_calls += 1
+        values = self.pgresult.values[self.position:]
+        self.position = self.pgresult.ntuples
+        return [(float(value),) for value in values]
+
+
 class RecorderTests(unittest.TestCase):
     def setUp(self):
         self.clock = Clock()
@@ -128,12 +159,142 @@ class RecorderTests(unittest.TestCase):
         self.assertFalse(any(self.recorder.dropped.values()))
 
     def sample(self, observer):
-        original = types.SimpleNamespace(connection=types.SimpleNamespace(cursor=lambda: observer))
+        original = OriginalCursor(observer)
         with patch.object(diagnostics, "host_sample", return_value={"sample_ns": self.clock.value}):
             self.recorder.sampler(original)
 
+    def test_original_sampler_snapshot_preserves_fetch_position_and_result(self):
+        original = OriginalCursor(ObserverCursor(), [b"123.456789", b"0"])
+        result = original.pgresult
+        with patch.object(diagnostics, "host_sample", return_value={}):
+            self.recorder.sampler(original)
+        self.assertIs(original.pgresult, result)
+        self.assertEqual(original.position, 0)
+        self.assertEqual(original.fetch_calls, 0)
+        self.assertEqual(original.fetchall(), [(123.456789,), (0.0,)])
+        self.assertEqual(result.reads, [(0, 0), (1, 0)])
+        self.assertEqual(self.recorder.data["original_sampler_samples"][0]["query_ages_ms"], [123.456789, 0.0])
+        self.assertNotIn("SELECT", json.dumps(self.recorder.data))
+
+    def test_original_sampler_snapshot_records_empty_samples_and_monotonic_time(self):
+        original = OriginalCursor(ObserverCursor())
+        with patch.object(diagnostics, "host_sample", return_value={}):
+            self.recorder.sampler(original)
+            self.clock.value = 20_000_000
+            self.recorder.sampler(original)
+        rows = self.recorder.data["original_sampler_samples"]
+        self.assertEqual([row["sample_ns"] for row in rows], [0, 20_000_000])
+        self.assertEqual([row["query_ages_ms"] for row in rows], [[], []])
+        self.assertEqual(original.fetch_calls, 0)
+
+    def test_new_original_peak_triggers_bounded_graph_without_shifting_periodic_schedule(self):
+        observers = []
+        for at, age in [(0, b"100"), (20_000_000, b"200"), (40_000_000, b"200"), (80_000_000, b"150"), (100_000_000, b"0")]:
+            self.clock.value = at
+            observer = ObserverCursor()
+            observers.append(observer)
+            with patch.object(diagnostics, "host_sample", return_value={}):
+                self.recorder.sampler(OriginalCursor(observer, [age]))
+        self.assertEqual([bool(value.executed) for value in observers], [True, True, False, False, True])
+        rows = self.recorder.data["locks"]
+        self.assertEqual([row["trigger"] for row in rows], ["new_original_query_age_peak", "new_original_query_age_peak", "periodic"])
+        self.assertEqual([row["original_sample_index"] for row in rows], [0, 1, 4])
+        self.assertEqual([row["original_sample_peak_ms"] for row in rows], [100.0, 200.0, 0.0])
+        self.assertTrue(all(row["sample_ns"] <= row["observer_query_start_ns"] <= row["observer_query_end_ns"] for row in rows))
+
+    def test_zero_age_is_not_new_peak_and_graph_overflow_is_failed_capture(self):
+        self.recorder.limit["locks"] = 1
+        for at, age in [(0, b"0"), (20_000_000, b"0"), (40_000_000, b"1")]:
+            self.clock.value = at
+            with patch.object(diagnostics, "host_sample", return_value={}):
+                self.recorder.sampler(OriginalCursor(ObserverCursor(), [age]))
+        self.assertEqual(self.recorder.data["locks"][0]["trigger"], "periodic")
+        self.assertEqual(self.recorder.dropped["locks"], 1)
+        self.assertEqual(self.recorder.finish(1)["status"], "failed")
+
+    def test_original_sampler_snapshot_rejects_unexpected_shape_or_private_values(self):
+        variants = [SnapshotResult(fields=2), SnapshotResult(format=1), SnapshotResult(oid=25), SnapshotResult(status=1), None,
+                    SnapshotResult([None]), SnapshotResult([b"private SQL credential"]), SnapshotResult([b"NaN"]),
+                    SnapshotResult([b"Infinity"]), SnapshotResult([b"-1"]), SnapshotResult([b"1" * 65])]
+        for result in variants:
+            with self.subTest(result=result):
+                recorder = diagnostics.Recorder(clock=self.clock)
+                original = OriginalCursor(ObserverCursor())
+                original.pgresult = result
+                with patch.object(diagnostics, "host_sample", return_value={}):
+                    recorder.sampler(original)
+                self.assertTrue(any(row["phase"] == "original_sampler_snapshot" for row in recorder.errors))
+                self.assertEqual(original.fetch_calls, 0)
+                self.assertNotIn("private", json.dumps(recorder.finish(1)))
+
+    def test_original_sampler_row_and_event_bounds_fail_capture(self):
+        original = OriginalCursor(ObserverCursor(), [b"1"] * 65)
+        with patch.object(diagnostics, "host_sample", return_value={}):
+            self.recorder.sampler(original)
+        self.assertTrue(any(row["phase"] == "original_sampler_snapshot" for row in self.recorder.errors))
+        self.recorder.limit["original_sampler_samples"] = 1
+        original.pgresult = SnapshotResult()
+        with patch.object(diagnostics, "host_sample", return_value={}):
+            self.recorder.sampler(original)
+            self.recorder.sampler(original)
+        self.assertEqual(self.recorder.dropped["original_sampler_samples"], 1)
+        self.assertEqual(self.recorder.finish(1)["status"], "failed")
+
+    def test_original_sampler_peak_counts_reconcile_with_unchanged_measurement(self):
+        original = OriginalCursor(ObserverCursor(), [b"123.456789", b"0"])
+        with patch.object(diagnostics, "host_sample", return_value={}):
+            self.recorder.sampler(original)
+        self.recorder.add("operations", {"lane": "governance"})
+        self.recorder.query_end(self.recorder.query_start(self.connection, "SELECT * FROM data_policy_state"))
+        for lane in ["governance", "ai_connection", "export", "feed", "repair"]:
+            self.recorder.add("lanes", {"lane": lane})
+        measurement = {"sampler": {"samples": 1}, "database": {"sampled_lock_waiting_query_age_peak_ms": 123.457, "lock_wait_samples": 2, "waiting_sessions_peak": 2}}
+        record = self.recorder.finish(1, measurement=measurement)
+        self.assertEqual(record["status"], "passed")
+        self.assertEqual(record["coverage"]["original_sampler_samples"], 1)
+        self.assertEqual(record["sampler"]["original_query_age_peak_ms"], 123.457)
+        self.assertEqual(record["sampler"]["original_lock_wait_samples"], 2)
+        self.assertEqual(record["sampler"]["original_waiting_sessions_peak"], 2)
+        for group, key, invalid in [("sampler", "samples", 2), ("sampler", "samples", True),
+                                    ("database", "sampled_lock_waiting_query_age_peak_ms", 123.456),
+                                    ("database", "sampled_lock_waiting_query_age_peak_ms", float("nan")),
+                                    ("database", "sampled_lock_waiting_query_age_peak_ms", True),
+                                    ("database", "lock_wait_samples", 1), ("database", "waiting_sessions_peak", 1),
+                                    ("database", "lock_wait_samples", True)]:
+            with self.subTest(group=group, key=key, invalid=invalid):
+                self.recorder.errors.clear()
+                bad = json.loads(json.dumps(measurement))
+                bad[group][key] = invalid
+                failed = self.recorder.finish(1, measurement=bad)
+                self.assertEqual(failed["status"], "failed")
+                self.assertEqual(failed["errors"], [{"phase": "original_sampler_link", "error_type": "ValueError"}])
+
+    def test_waiter_current_lock_wait_age_preserves_null_zero_and_distinct_query_age(self):
+        rows = [(976123456 + index, "SELECT 1", "transactionid", [], 1000.0, 2000.0, value)
+                for index, value in enumerate([None, 0, 25.125])]
+        self.sample(ObserverCursor(rows))
+        values = self.recorder.data["locks"][0]["connections"]
+        self.assertEqual([row["current_lock_wait_age_ms"] for row in values], [None, 0.0, 25.125])
+        self.assertEqual([row["query_age_ms"] for row in values], [1000.0] * 3)
+        self.assertIn("pg_locks", diagnostics.WAIT_SQL)
+        self.assertIn("waitstart", diagnostics.WAIT_SQL)
+        self.assertIn("NOT granted", diagnostics.WAIT_SQL)
+
+    def test_waiter_current_lock_wait_age_rejects_bad_shape_and_nonfinite_values(self):
+        for row in [(976123456, "private SQL credential", "transactionid", [], 1, 2),
+                    (976123456, "private SQL credential", "transactionid", [], 1, 2, float("nan")),
+                    (976123456, "private SQL credential", "transactionid", [], 1, 2, -1)]:
+            with self.subTest(size=len(row)):
+                recorder = diagnostics.Recorder(clock=self.clock)
+                observer = ObserverCursor([row])
+                with patch.object(diagnostics, "host_sample", return_value={}):
+                    recorder.sampler(OriginalCursor(observer))
+                self.assertEqual(recorder.errors[0]["phase"], "waiter_observer")
+                self.assertTrue(observer.closed)
+                self.assertNotIn("private", json.dumps(recorder.finish(1)))
+
     def test_separate_sampler_cursor_closes_and_exposes_only_numeric_categories(self):
-        rows = [(976123456, "SELECT * FROM data_policy_state FOR UPDATE", "transactionid", [976123457], 125.0, 200.0), (976123457, "SELECT 'private-content'", None, None, 3.0, 180.0)]
+        rows = [(976123456, "SELECT * FROM data_policy_state FOR UPDATE", "transactionid", [976123457], 125.0, 200.0, 50.0), (976123457, "SELECT 'private-content'", None, None, 3.0, 180.0, None)]
         observer = ObserverCursor(rows)
         self.sample(observer)
         self.assertTrue(observer.closed)
@@ -172,7 +333,7 @@ class RecorderTests(unittest.TestCase):
 
         recorder.fences[1] = CheckedSet(["policy_shared"])
         recorder.alias(976123456)
-        cursor = CheckedCursor([(976123456, "SELECT 1", None, None, 1.0, 1.0)])
+        cursor = CheckedCursor([(976123456, "SELECT 1", None, None, 1.0, 1.0, None)])
         self.sample(cursor)
         self.assertEqual(recorder.errors, [])
         self.assertEqual(recorder.data["locks"][0]["connections"][0]["observed_fences"], ["policy_shared"])
@@ -216,7 +377,7 @@ class PluginTests(unittest.TestCase):
         self.directory = Path(self.temporary.name)
         digest, _ = diagnostics.observer_identity(DIRECTORY)
         self.environment = {"THREATLENS_CAPACITY_PROFILE": "sustained", "THREATLENS_CAPACITY_DIAGNOSTICS_OUTPUT": str(self.directory / "diagnostics.json"), "THREATLENS_CAPACITY_OUTPUT": str(self.directory / "measurement.json"), "THREATLENS_CAPACITY_DIAGNOSTICS_CONTRACT": diagnostics.CONTRACT, "THREATLENS_CAPACITY_DIAGNOSTICS_OBSERVER_SHA256": digest, "THREATLENS_CAPACITY_RUN_ID": "a" * 32, "THREATLENS_CAPACITY_SOURCE_REVISION": "b" * 40}
-        (self.directory / "measurement.json").write_text(json.dumps({"run_id": "a" * 32, "git_revision": "b" * 40, "workload_completed": {"governance": 1}}))
+        (self.directory / "measurement.json").write_text(json.dumps({"run_id": "a" * 32, "git_revision": "b" * 40, "workload_completed": {"governance": 1}, "sampler": {"samples": 1}, "database": {"sampled_lock_waiting_query_age_peak_ms": 0.0, "lock_wait_samples": 0, "waiting_sessions_peak": 0}}))
 
     def populate(self):
         recorder = self.plugin._recorder
@@ -224,6 +385,8 @@ class PluginTests(unittest.TestCase):
         recorder.add("queries", {})
         recorder.add("locks", {})
         recorder.add("host", {})
+        recorder.add("original_sampler_samples", {"sample_ns": 0, "snapshot_elapsed_ns": 0, "query_ages_ms": []})
+        recorder.sampler_count = 1
         for lane in ["governance", "ai_connection", "export", "feed", "repair"]:
             recorder.add("lanes", {"lane": lane})
 
@@ -245,6 +408,18 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(session.exitstatus, 0)
         self.assertEqual(record["status"], "passed")
         self.assertEqual(record["workload_exit_code"], 0)
+
+    def test_original_sampler_measurement_mismatch_fails_successful_workload(self):
+        measured = json.loads((self.directory / "measurement.json").read_text())
+        measured["database"]["sampled_lock_waiting_query_age_peak_ms"] = 1.0
+        (self.directory / "measurement.json").write_text(json.dumps(measured))
+        with patch.dict(os.environ, self.environment, clear=True):
+            self.plugin.pytest_configure(None)
+            self.populate()
+            session, record = self.finish()
+        self.assertEqual(int(session.exitstatus), 1)
+        self.assertEqual(record["status"], "failed")
+        self.assertEqual(record["errors"], [{"phase": "original_sampler_link", "error_type": "ValueError"}])
 
     def test_observer_failure_turns_successful_workload_exit_nonzero(self):
         with patch.dict(os.environ, self.environment, clear=True):

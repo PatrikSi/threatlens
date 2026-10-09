@@ -1,0 +1,75 @@
+{
+  "application_source_revision": "79001439677cae246faef0a398ddea50c47faf80",
+  "budget_violations": {},
+  "cleanup_error_count": 0,
+  "cleanup_remaining_count": 0,
+  "cleanup_status": "passed",
+  "contract": "threatlens-capacity-diagnostics-v2",
+  "coverage": {
+    "governance_operations": 5,
+    "host_samples": 14,
+    "lane_starts": 5,
+    "lock_samples": 120,
+    "operation_events": 17,
+    "original_sampler_samples": 537,
+    "query_events": 321
+  },
+  "current_lock_wait_age_null_count": 2,
+  "current_lock_wait_ages_present": 2,
+  "diagnostic_errors": [],
+  "diagnostic_sha256": "27f5f51dd7c8982c3eaa6d9bd0216e6c1049a2593a1049bc5523d07fccfb7eb4",
+  "diagnostic_status": "passed",
+  "dropped_events": {
+    "host": 0,
+    "lanes": 0,
+    "locks": 0,
+    "operations": 0,
+    "original_sampler_samples": 0,
+    "queries": 0,
+    "transactions": 0
+  },
+  "duration_seconds": 10,
+  "elapsed_seconds": 29.51,
+  "exit_code": 0,
+  "frozen_application_sources_unchanged": true,
+  "independent_verifier_exit_code": 0,
+  "kind": "short-local-original-sampler-integration-validation",
+  "limits": {
+    "container_cpus": 0.5,
+    "cpu_count": 1,
+    "max_rss_bytes": 1073741824,
+    "nice": 10,
+    "postgres_memory_mib": 512,
+    "redis_memory_mib": 128,
+    "wall_timeout_seconds": 250
+  },
+  "log_sha256": "dd8793e0b552c99d7fc84858fed9b19f1f2a3c603fd877d509080e07f3a83cc2",
+  "measurement_status": "passed",
+  "new_original_maximum_graph_count": 2,
+  "observer_sha256": "24f7521559baeff97558cca177c480415bc1190224eaf9438132b522209b055c",
+  "observer_source_sha256": {
+    "capacity_diagnostics.py": "4b8b05782412101e68fc13f65e882cc739b704405e717a99b6d019a8ba1d419e",
+    "capacity_diagnostics_plugin.py": "e6010f669064735f50f5bb3d823e24cf627a4f1d6879c10d8dec1da3a1c83a77",
+    "run_capacity_diagnostic.py": "0991f06c1f60efc639ada22c88606e7f7687cd103600e7d6e705368c64cd85ba"
+  },
+  "original_database_measurement": {
+    "lock_wait_samples": 2,
+    "sampled_lock_waiting_query_age_peak_ms": 7.919,
+    "waiting_sessions_peak": 1
+  },
+  "reconciled_sampler": {
+    "gap_max_ns": 390620686,
+    "gap_mean_ns": 25578060,
+    "observations": 537,
+    "original_lock_wait_samples": 2,
+    "original_query_age_peak_ms": 7.919,
+    "original_waiting_sessions_peak": 1
+  },
+  "release_capacity_qualification": false,
+  "source_dirty": false,
+  "workload_completed": {
+    "ai": 5,
+    "exports": 5,
+    "governance": 5
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "before": {
+    "elapsed_seconds": 0.314,
+    "errors": 0,
+    "failed_assertions_including_subtests": 162,
+    "log_sha256": "a6c1856cdfa0ee427f1a074133e01a954e8e8ee17b9b6a01d7bbd0baafec4b8b",
+    "skipped": 0,
+    "test_methods_failed": 9,
+    "test_methods_passed": 15,
+    "tests_run": 24
+  },
+  "before_verifier_source_sha256": "91aee260744f5b27e5744f02e7ef042af91c2d3950c2b717cf69317a38a4e857",
+  "contract": "threatlens-capacity-diagnostics-v2",
+  "controls": {
+    "bounded_graph_aliases_and_numeric_nullable_current_wait_age": true,
+    "bounded_snapshot_count_40000_and_waiters_64": true,
+    "complete_zero_lock_snapshot_control_passed": true,
+    "each_new_original_maximum_has_unique_provenance_graph": true,
+    "numeric_snapshot_privacy_allowlist": true,
+    "original_lock_count_and_waiting_session_peak_reconstructed": true,
+    "original_query_age_peak_reconstructed_at_3_decimal_precision": true,
+    "original_sample_count_equals_coverage_observations_and_measurement": true,
+    "original_workload_exit_status_and_artifacts_preserved": true,
+    "sample_indices_and_timestamps_validated": true,
+    "sampler_gap_counters_reconstructed": true,
+    "strict_nonbool_finite_nonnegative_ages": true
+  },
+  "diff_check_passed": true,
+  "focused_after": {
+    "elapsed_seconds": 0.295,
+    "errors": 0,
+    "failed_assertions_including_subtests": 0,
+    "log_sha256": "726f7c7fc4efe19a9cc06f8a6f34e0efdac05c909d027a4b4e1b53c1f06ce416",
+    "skipped": 0,
+    "test_methods_failed": 0,
+    "test_methods_passed": 24,
+    "tests_run": 24
+  },
+  "full_operations_after": {
+    "elapsed_seconds": 0.865,
+    "errors": 0,
+    "failed_assertions_including_subtests": 0,
+    "log_sha256": "9507dd3ade1b88bd74cc5368e7a9fb6017b551c64f695eed440c78e7397930a2",
+    "skipped": 1,
+    "test_methods_failed": 0,
+    "test_methods_passed": 139,
+    "tests_run": 140
+  },
+  "limitations": [
+    "Lightweight unit controls do not establish workload performance or release clearance.",
+    "Old diagnostic artifacts retain their immutable earlier observer identity and verifier.",
+    "Graph snapshots are later context, not atomic original-query or total-wait proof.",
+    "One source-loss unit case is deliberately opt-in and skipped here; separate disposable hosted drill evidence remains distinct."
+  ],
+  "ruff_passed": true,
+  "schema_version": 1,
+  "scope": "strict original sampler snapshot and lock-graph verification",
+  "source_sha256": {
+    "scripts/operations/capacity_diagnostics.py": "4b8b05782412101e68fc13f65e882cc739b704405e717a99b6d019a8ba1d419e",
+    "scripts/operations/capacity_diagnostics_plugin.py": "e6010f669064735f50f5bb3d823e24cf627a4f1d6879c10d8dec1da3a1c83a77",
+    "scripts/operations/run_capacity_diagnostic.py": "0991f06c1f60efc639ada22c88606e7f7687cd103600e7d6e705368c64cd85ba",
+    "tests/operations/test_capacity_diagnostic.py": "66ef7dfd6ae32a070905f786f279779732c2e5b6b89ef7c325ca3fe380afe1d6",
+    "tests/operations/test_capacity_diagnostics.py": "6fb64497ca2e199802bbe3fcbffba5da7ea7567127ff2bb9b828a34c52d4df19"
+  },
+  "status": "passed",
+  "unchanged_acceptance": {
+    "comparative_regression_threshold_percent": 20,
+    "duration_seconds": 600,
+    "original_measurement_and_comparator": true,
+    "per_reference_cpu_rss_wall_caps": true
+  }
+}
