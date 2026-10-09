@@ -245,12 +245,15 @@ docker compose stop --timeout 300 api beat worker worker-ai worker-exports worke
 docker compose up -d
 ```
 
-Update to a pinned release:
+Update to a pinned published release. Replace `YOUR_PUBLISHED_VERSION` with a
+published version compatible with your installation and follow that version's
+upgrade steps:
 
 ```bash
-THREATLENS_IMAGE_TAG=1.0.0 docker compose pull
+export THREATLENS_IMAGE_TAG='YOUR_PUBLISHED_VERSION'
+docker compose pull
 docker compose stop --timeout 300 api beat worker worker-ai worker-exports worker-maintenance worker-notifications
-THREATLENS_IMAGE_TAG=1.0.0 docker compose up -d
+docker compose up -d
 ```
 
 Stopping every API and worker process before recreation is required for schema

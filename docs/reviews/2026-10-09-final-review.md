@@ -2,13 +2,17 @@
 
 ThreatLens **2.1.0** is prepared, and the rebuilt synthetic local instance is
 running at **http://127.0.0.1:3001**. The frozen application/image revision is
-`fec81cabf6cdcabca8111ed2c78ac8c4e895c433`; the qualification candidate is
-`a6c07f7f2718cd4f9a6caab823b481fc2ac7525e`. Their backend, web, Docker,
-Compose, license and version Git objects are identical. Images retain their
-actual build revision. All corrections were committed as `Patrik <patrik@local>`.
+`fec81cabf6cdcabca8111ed2c78ac8c4e895c433`; the original hosted application
+qualification candidate is `a6c07f7f2718cd4f9a6caab823b481fc2ac7525e`.
+Those two revisions have identical backend, web, Docker, Compose, license and
+version Git objects. Current measurement candidate `7900143` includes the
+subsequent observer tooling and shared-start harness correction; its runtime/image
+inputs still match the qualified native build. Images retain their actual build
+revision. All corrections were committed as `Patrik <patrik@local>`.
 
 **Decision at this checkpoint: native qualification and all fifteen hosted quality
-jobs pass; comparative capacity still fails.** Reviewed CodeQL dispositions
+jobs at `a6c07f7` and `b06b364` pass. Comparative capacity and required quality
+on the final review head remain unresolved.** Reviewed CodeQL dispositions
 cleared its failure, leaving a neutral check with a baseline-configuration warning.
 Version 2.1.0 is already aligned across the version file, frontend metadata,
 OpenAPI and deployment defaults. These pre-merge corrections need no further
@@ -195,8 +199,8 @@ fence through the synthetic 100 ms provider call. Governance median stays
 near 8 ms, but existing aggregate artifacts lack operation timing and waiter/
 blocker identities needed to explain its higher tail. The sampled lock metric
 is query age while waiting, not actual lock-wait duration. Neither finding is
-dismissed as noise; a bounded diagnostic capture is being prepared without
-changing workloads, authorization fences, budgets or comparison thresholds.
+dismissed as noise; a bounded diagnostic capture was then prepared and executed
+without changing workloads, authorization fences, budgets or comparison thresholds.
 
 The opt-in observer lives outside the backend/web build contexts and is supplied
 identically to both untouched frozen references. Twenty isolated observer
@@ -231,14 +235,14 @@ negative controls failed before correction. The operations suite reports
 [query-outcome proof](evidence/2026-10-09-final-review/diagnostic-query-outcomes.json)
 and [workload-verification proof](evidence/2026-10-09-final-review/diagnostic-workload-verification.json)
 preserve the results. Neither correction changes the frozen observer used by
-the running hosted diagnostic or the application workload.
+the completed frozen hosted diagnostic or the application workload.
 
-Each pair has matching fingerprints internally, but the two hosted pairs used
-different CPU models. Cross-run absolute improvements cannot establish the
-effect of a fix. Both are GitHub-hosted reference comparisons, not qualification
+Each pair has matching fingerprints internally, but the first two uninstrumented
+hosted pairs used different CPU models. Cross-run absolute improvements cannot
+establish the effect of a fix. Both are GitHub-hosted reference comparisons, not qualification
 of an operator's intended hardware. Earlier failures remain recorded. The
 [first comparison](evidence/2026-10-09-final-review/hosted-capacity-c4fa.json) and
-[final planned pair](evidence/2026-10-09-final-review/hosted-capacity-a6.json)
+[second uninstrumented pair](evidence/2026-10-09-final-review/hosted-capacity-a6.json)
 preserve exact sources, unchanged budgets, offered/completed work and flagged
 measurements.
 
@@ -285,9 +289,12 @@ are backported; their blobs match candidate
 checks unchanged application, migrations, dependencies, helpers and budgets.
 The [native applicability proof](evidence/2026-10-09-final-review/native-shared-epoch-applicability.json)
 confirms that the five candidate changes are Docker-excluded tests and all
-runtime/image inputs still match the qualified native build. Fresh, uninstrumented
-600-second baseline/candidate and unchanged-candidate control pairs are planned
-with the same caps and threshold; neither is an automatic retry of a failed pair.
+runtime/image inputs still match the qualified native build. The predeclared,
+uninstrumented 600-second
+[matched baseline/candidate pair](https://github.com/PatrikSi/threatlens/actions/runs/37888628612)
+and [unchanged-candidate control pair](https://github.com/PatrikSi/threatlens/actions/runs/37888630228)
+are running with the same caps and 20% threshold. Their outcomes and required
+quality on the final review head remain pending; neither replaces a failed pair.
 
 ## Feature completion and release boundary
 
@@ -307,7 +314,9 @@ outputs and named human review of the twelve prepared cases. Provider-contract
 and configuration tests do not complete that approval; ordinary ingestion and
 classification do not require model promotion.
 
-Comparative capacity remains the unresolved release gate. The completed native,
-hosted backend/coverage, architecture and browser results apply to the frozen
-candidate. The CodeQL neutral baseline-configuration warning and chosen-model
+Comparative capacity and required full quality on the final review head remain
+unresolved release gates. The completed native qualification and `a6c07f7`/`b06b364`
+hosted backend/coverage, architecture and browser results apply to the unchanged
+runtime/image inputs; they do not qualify the corrected sustained harness.
+The CodeQL neutral baseline-configuration warning and chosen-model
 promotion limits remain explicit; no merge, tag or publication has occurred.
