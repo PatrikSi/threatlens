@@ -2,6 +2,8 @@
   "after_exit_code": 0,
   "before_exit_code": 1,
   "binary_wheels_only": true,
+  "count_correction_scope": "Original logs and hashes retained unchanged; tests-run totals are distinct from passed tests",
+  "deliberate_skip": "opt-in disposable source-loss reconstruction; actual hosted opt-in drill tracked separately",
   "direct_pins": [
     "cryptography==50.0.0",
     "SQLAlchemy==2.0.42",
@@ -84,13 +86,23 @@
       "duration_seconds": 0.749,
       "missing_pytest_errors": 0,
       "missing_sqlalchemy_errors": 0,
-      "tests_run": 114
+      "terminal_summary": "OK (skipped=1)",
+      "test_errors": 0,
+      "test_failures": 0,
+      "tests_passed": 113,
+      "tests_run": 114,
+      "tests_skipped": 1
     },
     "before": {
       "duration_seconds": 0.584,
       "missing_pytest_errors": 7,
       "missing_sqlalchemy_errors": 0,
-      "tests_run": 114
+      "terminal_summary": "FAILED (errors=7, skipped=1)",
+      "test_errors": 7,
+      "test_failures": 0,
+      "tests_passed": 106,
+      "tests_run": 114,
+      "tests_skipped": 1
     }
   }
 }

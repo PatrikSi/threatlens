@@ -318,6 +318,32 @@ Results, logs, and compatibility/regression output are retained for
 90 days. Incompatible measurement contracts fail visibly; changing start
 phases, repair cadence, caps, or dataset shape requires a new baseline.
 
+Before each reference advances, an independent outer driver verifies that no
+running or stopped containers remain under that supervisor's exact run label
+on the established local Docker endpoint. It observes late daemon completion
+within the existing bounded grace and fails on unknown ownership or remnants.
+The driver preserves the measured artifact and workload exit code; its separate
+cleanup attestation also covers older references without internal cleanup JSON.
+
+For transaction diagnosis, select `sustained` and enable the optional
+`diagnostics` workflow input. It defaults to false. The workflow supplies one
+hashed observer outside both frozen backend trees; neither reference is edited.
+Additional artifacts include its shared identity and each reference's bounded
+operation timings, query categories, sampled waiter/blocker aliases and numeric
+host counters. SQL, parameters, exception messages and database PIDs are not
+serialized. The recorded hook overhead and extra sampler queries perturb
+timing, so retain the original metrics and classify the run as diagnostic.
+
+Capture errors, dropped events, incomplete governance/lane coverage and
+mismatched source/run/observer identities fail verification. Captured workload
+query failures have separate type/count summaries; successful recovery keeps
+the original workload outcome. The verifier requires a passing measured
+workload and an integer zero workload exit. Sampled query age is still not
+exact lock-wait duration, and acquisition histories do not prove continuous
+ownership across unobserved savepoint or raw transaction commands. Preserve
+failed comparisons and correlate actual service timings with sampled blocker
+edges before attributing a tail change to application code.
+
 For a target installation, retain the same target ID only while its measured
 hardware and resource allocation remain the same. Commit source first; each
 run captures its starting revision and whether measurement/application source
