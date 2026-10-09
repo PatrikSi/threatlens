@@ -1,0 +1,403 @@
+{
+  "actual_disposable_recovery_drill": {
+    "log_sha256": "6c11dfff8fe36de21b05abc2e978eadf659b89f54e0a24b0e98ca96e33a0d1b0",
+    "source_loss_artifact": {
+      "artifact_id": 11595954233,
+      "artifact_record_sha256": "4548f81543343c651b4593e8974f4201ba81e30b889fac73deeee05843e4903f",
+      "artifact_zip_sha256": "98677d0216e4d553df968ae022d8dcd336de61a81e0338e512e4d4d2e3ce2b47",
+      "backend_image_id": "sha256:5b13765ea4d44918739a3964c3c1c02f613e59b52974a8bbcee49680d18c250b",
+      "backend_source_sha256": "ace944abf18ab3ca36ce92d03243f442167bddf7123b59859f7ce412a482a3c8",
+      "cleanup": {
+        "completed": true
+      },
+      "comparison_scope": "Disposable hosted source-loss reconstruction; immutable merge tree equals b06, application/image inputs equal frozen a6; not deployment fault-domain clearance",
+      "exact_source_matches_verified_merge": true,
+      "finished_at": "2026-10-09T04:54:49.671581+00:00",
+      "independent_key_used": true,
+      "kind": "host_loss_qualification",
+      "migration_head": "0125_webhook_article_text",
+      "outbound_quarantined": true,
+      "production_qualified": false,
+      "quality_run_id": 37885451758,
+      "restore_verified": true,
+      "schema_version": 1,
+      "scope": "disposable_local_fault_domain_simulation",
+      "source_environment_removed": true,
+      "source_loss_case_tests_passed": 1,
+      "source_loss_case_tests_skipped": 0,
+      "source_revision": "5972587377ea293ef34e9c3669b03bf7dacdbc81",
+      "started_at": "2026-10-09T04:53:43.536942+00:00",
+      "status": "passed",
+      "workflow_head_revision": "b06b364d41fee438f854a5fe9a13a8d8183a5a2e"
+    },
+    "test_summaries": [
+      {
+        "duration_seconds": 185.922,
+        "stage": "unittest",
+        "terminal_summary": "OK",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 4,
+        "tests_run": 4,
+        "tests_skipped": 0
+      },
+      {
+        "duration_seconds": 66.192,
+        "stage": "unittest",
+        "terminal_summary": "OK",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 1,
+        "tests_run": 1,
+        "tests_skipped": 0
+      }
+    ]
+  },
+  "all_quality_checkout_revisions_match_immutable_merge": true,
+  "application_source_revision": "a6c07f7f2718cd4f9a6caab823b481fc2ac7525e",
+  "backend": {
+    "all_job_steps_succeeded": true,
+    "critical_module_floor_count": 58,
+    "log_sha256": "28c0b6e8c9d88c715d9780f4c010bfc2953fdb52e83d8cd6fa807592e9fdb8cb",
+    "overall_coverage_percent": 87.06,
+    "reporting_coverage_percent": 87.21,
+    "test_summaries": [
+      {
+        "counts": {
+          "passed": 4674,
+          "skipped": 5
+        },
+        "duration_seconds": 1047.56,
+        "stage": "pytest"
+      }
+    ]
+  },
+  "browsers": [
+    {
+      "conclusion": "success",
+      "log_sha256": "f55aed9392797221874e66fd50afbc2686d50a8ea666f0d67b67f76bc592529c",
+      "name": "Browser workflows (webkit)",
+      "retry_markers": 0,
+      "test_summaries": [
+        {
+          "count": 49,
+          "duration": 1.4,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_interactions"
+        },
+        {
+          "count": 2,
+          "duration": null,
+          "duration_unit": null,
+          "outcome": "skipped",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 19,
+          "duration": 1.4,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 2,
+          "duration": 48.1,
+          "duration_unit": "s",
+          "outcome": "passed",
+          "stage": "browser_real_server_ai_statistics"
+        }
+      ]
+    },
+    {
+      "conclusion": "success",
+      "log_sha256": "96b3f75a0a309594c45f9983b2b925023c33b2a10463cf05539e591822be0cc9",
+      "name": "Browser workflows (firefox)",
+      "retry_markers": 0,
+      "test_summaries": [
+        {
+          "count": 49,
+          "duration": 1.7,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_interactions"
+        },
+        {
+          "count": 2,
+          "duration": null,
+          "duration_unit": null,
+          "outcome": "skipped",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 19,
+          "duration": 1.8,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 2,
+          "duration": 52.4,
+          "duration_unit": "s",
+          "outcome": "passed",
+          "stage": "browser_real_server_ai_statistics"
+        }
+      ]
+    },
+    {
+      "conclusion": "success",
+      "log_sha256": "82cf08ba8998edc2bd0d1c44943f999a2d3684777c9b880b44c6385f6fc02e56",
+      "name": "Browser workflows (chromium)",
+      "retry_markers": 0,
+      "test_summaries": [
+        {
+          "count": 49,
+          "duration": 1.4,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_interactions"
+        },
+        {
+          "count": 2,
+          "duration": null,
+          "duration_unit": null,
+          "outcome": "skipped",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 19,
+          "duration": 1.7,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 2,
+          "duration": 52.4,
+          "duration_unit": "s",
+          "outcome": "passed",
+          "stage": "browser_real_server_ai_statistics"
+        }
+      ]
+    }
+  ],
+  "capacity": {
+    "diagnostic_run_id": 37885492555,
+    "prior_uninstrumented_failures_retained": [
+      37876316405,
+      37880757288
+    ],
+    "regressions": [
+      "export:succeeded",
+      "task:process_alert_evaluation"
+    ],
+    "release_clearance": false,
+    "workflow_conclusion": "failure"
+  },
+  "codeql_aggregate": [
+    {
+      "annotations_count": 0,
+      "completed_at": "2026-10-09T04:48:15Z",
+      "conclusion": "neutral",
+      "head_sha": "b06b364d41fee438f854a5fe9a13a8d8183a5a2e",
+      "html_url": "https://github.com/PatrikSi/threatlens/runs/113674705241",
+      "id": 113674705241,
+      "name": "CodeQL",
+      "started_at": "2026-10-09T04:48:13Z",
+      "status": "completed"
+    }
+  ],
+  "codeql_scope": "Both current language analyses succeeded; aggregate neutral warns that two historical main publication configurations are missing. Successful jobs are not zero-finding or complete branch-introduction proof.",
+  "containers": [
+    {
+      "built_image_ids": {
+        "threatlens-backend:dev": "sha256:6074cd478316a702fe5bc4c67516d585d126986c1fd0ddf2ec9032dd99a1710d",
+        "threatlens-web:dev": "sha256:9ab593b6a623a9b035b47046c275c65582f38f8b4e597ee6e9a4a89fb3c8af71"
+      },
+      "conclusion": "success",
+      "log_sha256": "a3fc448f648781863256c273a099cd1c3d67c39906f8e41d3e4191e901df59d5",
+      "name": "Container smoke and image scan (amd64)",
+      "selected_vulnerability_scans": [
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-backend:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 95,
+          "target_type_counts": {
+            "debian": 1,
+            "python-pkg": 94
+          }
+        },
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-web:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 1,
+          "target_type_counts": {
+            "alpine": 1
+          }
+        }
+      ],
+      "skipped_steps": [
+        "Set up ARM64 emulation",
+        "Show container logs after failure"
+      ]
+    },
+    {
+      "built_image_ids": {
+        "threatlens-backend:dev": "sha256:bf635c0a4bf41a3a33c9c3299cb00e85c045993c54b1617338e33d6744b00c32",
+        "threatlens-web:dev": "sha256:f1c9b5875b8bedb54d530c4ce868c5e4d163bdd14b450d40373180344f997f93"
+      },
+      "conclusion": "success",
+      "log_sha256": "ea73d055b2f617b065766af24db1084c17bf9e89a4b51b0eaa11a9e29f72c2c1",
+      "name": "Container smoke and image scan (arm64)",
+      "selected_vulnerability_scans": [
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-backend:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 95,
+          "target_type_counts": {
+            "debian": 1,
+            "python-pkg": 94
+          }
+        },
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-web:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 1,
+          "target_type_counts": {
+            "alpine": 1
+          }
+        }
+      ],
+      "skipped_steps": [
+        "Verify checked-in dependency and legal artifacts",
+        "Show container logs after failure"
+      ]
+    }
+  ],
+  "frontend": {
+    "frontend_test_files_passed": 164,
+    "frontend_test_files_total": 164,
+    "frontend_tests_passed": 1374,
+    "frontend_tests_total": 1374,
+    "log_sha256": "4aaee4d9f81adf443232ff45f9766b786035d7dadf4919158b199ec5c229ef3b",
+    "npm_audit_vulnerability_counts": {
+      "critical": 0,
+      "high": 0,
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "total": 0
+    },
+    "npm_security_audit_pass_marker": true
+  },
+  "job_log_hashes": {
+    "Backend tests and contract": "28c0b6e8c9d88c715d9780f4c010bfc2953fdb52e83d8cd6fa807592e9fdb8cb",
+    "Browser workflows (chromium)": "82cf08ba8998edc2bd0d1c44943f999a2d3684777c9b880b44c6385f6fc02e56",
+    "Browser workflows (firefox)": "96b3f75a0a309594c45f9983b2b925023c33b2a10463cf05539e591822be0cc9",
+    "Browser workflows (webkit)": "f55aed9392797221874e66fd50afbc2686d50a8ea666f0d67b67f76bc592529c",
+    "CodeQL (javascript-typescript)": "8488172635a537d080becbd8ae4ffdd8f94f56f24f04242e7f8088e53bc42100",
+    "CodeQL (python)": "d4113cf4a47a874ba4e64ada2f16c67e00c5dc073c76e185185e5ba8039e46f5",
+    "Container smoke and image scan (amd64)": "a3fc448f648781863256c273a099cd1c3d67c39906f8e41d3e4191e901df59d5",
+    "Container smoke and image scan (arm64)": "ea73d055b2f617b065766af24db1084c17bf9e89a4b51b0eaa11a9e29f72c2c1",
+    "Disposable PostgreSQL recovery drill": "6c11dfff8fe36de21b05abc2e978eadf659b89f54e0a24b0e98ca96e33a0d1b0",
+    "Frontend tests and build": "4aaee4d9f81adf443232ff45f9766b786035d7dadf4919158b199ec5c229ef3b",
+    "MCP protocol and pinned SDK interoperability": "ab43fa0c1869efc7178dd0db773ce7b8bd2f2456a0a56ce610123b8140416f33",
+    "OpenSearch connector vendor contract": "56918d189d5c2d02d6802b81af9550180b6e94712ad1a32f8bdc96912bd2817d",
+    "PostgreSQL migration round trip": "3c0a70ed2630de83e712b03f750b7b9e081f3b91713d36e2513d18dc4c6d3c23",
+    "Recovery tooling tests": "64454635636ad8b1486bb0e70bf092e808a49790eb85dbd220eecd3e27b82334",
+    "Repository diff hygiene": "87ae17beaebae4682b7cc453615d5dbd5a1e054f10a51af29fda32ebb711dc9e"
+  },
+  "kind": "hosted_quality_b06_public_projection",
+  "limitations": [
+    "Quality applies to immutable b06 tree. Later local observer and verifier fixes have separate focused proofs.",
+    "Hosted image scans select HIGH and CRITICAL vulnerabilities; these summaries do not assert a secret scan.",
+    "Source-loss drill is disposable simulation; production_qualified remains false."
+  ],
+  "quality_run": {
+    "conclusion": "success",
+    "id": 37885451758,
+    "job_count": 15,
+    "passed_job_count": 15,
+    "url": "https://github.com/PatrikSi/threatlens/actions/runs/37885451758"
+  },
+  "recovery_tooling": {
+    "log_sha256": "64454635636ad8b1486bb0e70bf092e808a49790eb85dbd220eecd3e27b82334",
+    "skip_scope": "Four Docker recovery cases and one source-loss reconstruction are opt-in in unit discovery and exercised separately by the disposable hosted drill",
+    "test_summaries": [
+      {
+        "duration_seconds": 157.705,
+        "stage": "unittest",
+        "terminal_summary": "OK (skipped=4)",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 121,
+        "tests_run": 125,
+        "tests_skipped": 4
+      },
+      {
+        "duration_seconds": 0.892,
+        "stage": "unittest",
+        "terminal_summary": "OK (skipped=1)",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 113,
+        "tests_run": 114,
+        "tests_skipped": 1
+      }
+    ]
+  },
+  "schema_version": 1,
+  "source_applicability": {
+    "application_and_image_input_objects": [
+      {
+        "frozen_application_git_object": "1bf26eff9074ee4f765a8d2ffb60d99b802d612c",
+        "identical": true,
+        "path": "backend",
+        "workflow_head_git_object": "1bf26eff9074ee4f765a8d2ffb60d99b802d612c"
+      },
+      {
+        "frozen_application_git_object": "33bc4dbe0ddb10a1c0ddd44868b022feb9815f10",
+        "identical": true,
+        "path": "web",
+        "workflow_head_git_object": "33bc4dbe0ddb10a1c0ddd44868b022feb9815f10"
+      },
+      {
+        "frozen_application_git_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+        "identical": true,
+        "path": "docker",
+        "workflow_head_git_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69"
+      }
+    ],
+    "application_and_image_inputs_match_frozen_source": true,
+    "synthetic_merge_tree": "a525e836ae38846c421de42ac0ebbeff2540da90",
+    "synthetic_merge_tree_matches_review_head": true,
+    "workflow_head_tree": "a525e836ae38846c421de42ac0ebbeff2540da90"
+  },
+  "synthetic_merge_revision": "5972587377ea293ef34e9c3669b03bf7dacdbc81",
+  "workflow_head_revision": "b06b364d41fee438f854a5fe9a13a8d8183a5a2e"
+}
