@@ -554,11 +554,106 @@ jobs:
           fi
           test -z "$remaining_networks"
 
+      - name: Encrypt raw diagnostic logs before artifact upload
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          root = Path(os.environ.get("THREATLENS_BEAT_DIAGNOSTIC_ROOT", os.environ["RUNNER_TEMP"] + "/threatlens-beat-diagnostic"))
+          evidence = root / "evidence"
+          evidence.mkdir(mode=0o700, parents=True, exist_ok=True)
+          recipient = root / "artifact-recipient.pem"
+          certificate = """-----BEGIN CERTIFICATE-----
+          MIIEPzCCAqegAwIBAgIUXqguR5R3wnCL6SYvN0e0+ohZhPgwDQYJKoZIhvcNAQEL
+          BQAwLzEtMCsGA1UEAwwkVGhyZWF0TGVucyBib3VuZGVkIGRpYWdub3N0aWMgcmV2
+          aWV3MB4XDTI2MTAwOTA3MTUzOFoXDTI2MTEwODA3MTUzOFowLzEtMCsGA1UEAwwk
+          VGhyZWF0TGVucyBib3VuZGVkIGRpYWdub3N0aWMgcmV2aWV3MIIBojANBgkqhkiG
+          9w0BAQEFAAOCAY8AMIIBigKCAYEAmba+pu1omkgvWT8hpp1Fy+wPILU2Jh63ANmb
+          tuhfGlJX1EXeJzuUOIDwuKyDNYJC9f0QSvsQSkWlJw9owcRDzv3oSWLZuk0VlfSk
+          LQ+IDLmzpb5ri3mD50o1zMh1DKuKIr4eEXVlpT3eaeSvFhLraJhF83u4XfMaTEK/
+          reWQqC43Vbhjt9w7cryIhHk3iyP7Rm+A6pBlRVvRz4UFg9uXoCiAmueWGwSpEYnP
+          zMhTnJaTyx8AhR7ErfgWF/lE4rkXrleZZ+xkxtr0SCicjN18Hn0shkpIrPKK0MVg
+          aldQEDBjYWGJgLrzAm9YzNc+50Ys82Atkp6OW71ofqXmxsVAbmvxyy0FdjmVPtrb
+          d1bsd7a7AYTiu8GxhCKPQ8YXIq02cUl0Pr0Bkf1yEiFnYvg7mjddQocws11z+8qJ
+          PlJcsO6FnsOcsODuGlenYNpQltphksLD3fV/EWeFMKWnCdyNjXYzbOOLr78zgmcf
+          5q3eAjjYg4wPBa1D83zt1Q2fV/1HAgMBAAGjUzBRMB0GA1UdDgQWBBSIx3CE0KN4
+          nBCapGWBPcArRips0TAfBgNVHSMEGDAWgBSIx3CE0KN4nBCapGWBPcArRips0TAP
+          BgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBgQBoBds1jZ5YCepqUn4a
+          CrR6ORaWA9g0l3KJCUbSQzkkqHYWoDNZM0HCOiKC7ZmmqSEVWXjiRcmIuztbHs44
+          Z866A/b1YmyGtN7z9qIRPeCPHLM+WkqgW6LRPBoqs6PBcl4EPmXrzpsWuSQqoTnH
+          xiulHcTAKtVb4j+My/M4PWQGkPtbOT0sNMrmKfXPh73H9dclCxTPWXvVoSxQSapt
+          dFtRhTz33uS7y7n33x5D55phY78tzBKLCr1Uu6hYYV/wF/F0b9Nu77xLbbhDOIJ1
+          toJCKKGoyuG6w502UkYCgvz90kokhIcUZc0Z4T9DUkPOaX3YiJPwpBIz/X8R0WJ/
+          xZW70gM5uVhRY3auFdSjNEXuyx7sv8heLCgTEV83pJFkJWu7B1sTXZ1lUWyiOvgO
+          HZ6Mr3/2+L9ui4D+IInmvOXXXl3Oj2qO8huJuNHYN9lBAN6pACapeb5WqSDldb5c
+          lC02bEQdUw3GWq7tIGQS9OOVozu5C/nq8cHEhNneqDEdekE=
+          -----END CERTIFICATE-----
+          """
+          expected_recipient_sha256 = "d69c0e627529a5a7c125d99b56c5d5f5c20b07655714bd23bc76190c47dcf5a2"
+          recipient.write_text(certificate)
+          recipient.chmod(0o644)
+          rows, errors = [], []
+          limits = {"startup-tail.log": 262144, "beat-traces-tail.log": 524288}
+          def digest(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+          try:
+              if digest(recipient) != expected_recipient_sha256:
+                  raise ValueError("recipient identity")
+              sources = sorted(evidence.glob("*.log"))
+              if len(sources) > len(limits) or any(source.name not in limits for source in sources):
+                  raise ValueError("raw log allowlist")
+              for source in sources:
+                  target = source.with_name(source.name + ".cms")
+                  temporary = source.with_name(source.name + ".cms.tmp")
+                  phase = "raw_log_bound"
+                  try:
+                      if source.is_symlink() or not source.is_file() or source.stat().st_size > limits[source.name]:
+                          raise ValueError("raw log bound")
+                      raw_size, raw_sha = source.stat().st_size, digest(source)
+                      phase = "raw_log_encrypt"
+                      subprocess.run(["openssl", "cms", "-encrypt", "-binary", "-aes-256-cbc",
+                                      "-in", str(source), "-out", str(temporary), "-outform", "DER", str(recipient)],
+                                     check=True, capture_output=True, timeout=30)
+                      encrypted_size = temporary.stat().st_size
+                      if temporary.is_symlink() or not temporary.is_file() or not 0 < encrypted_size <= limits[source.name] + 16384:
+                          raise ValueError("encrypted log bound")
+                      temporary.chmod(0o600)
+                      temporary.replace(target)
+                      encrypted_sha = digest(target)
+                      source.unlink()
+                      rows.append({"raw_filename": source.name, "raw_bytes": raw_size, "raw_sha256": raw_sha,
+                                   "encrypted_filename": target.name, "encrypted_bytes": encrypted_size,
+                                   "encrypted_sha256": encrypted_sha, "raw_bound_bytes": limits[source.name]})
+                  except Exception as error:
+                      errors.append({"phase": phase, "error_type": type(error).__name__})
+                  finally:
+                      temporary.unlink(missing_ok=True)
+          except Exception as error:
+              errors.append({"phase": "raw_log_encryption_setup", "error_type": type(error).__name__})
+          manifest = evidence / "raw-log-encryption.json"
+          manifest.write_text(json.dumps({"schema_version": 1, "status": "failed" if errors else "passed",
+              "recipient_certificate_sha256": expected_recipient_sha256, "encryption": "OpenSSL CMS AES-256-CBC DER",
+              "maximum_raw_files": 2, "maximum_encryption_seconds_per_file": 30,
+              "raw_logs_excluded_from_upload_unconditionally": True, "encrypted_logs": rows, "errors": errors},
+              sort_keys=True, indent=2) + "\n")
+          manifest.chmod(0o600)
+          if errors:
+              raise SystemExit(2)
+          PY
+
       - name: Retain diagnostic evidence including failures
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: arm64-startup-diagnostic
-          path: ${{ runner.temp }}/threatlens-beat-diagnostic/evidence/
+          path: |
+            ${{ runner.temp }}/threatlens-beat-diagnostic/evidence/
+            !${{ runner.temp }}/threatlens-beat-diagnostic/evidence/*.log
+            !${{ runner.temp }}/threatlens-beat-diagnostic/evidence/*.log.cms.tmp
           if-no-files-found: error
           retention-days: 14

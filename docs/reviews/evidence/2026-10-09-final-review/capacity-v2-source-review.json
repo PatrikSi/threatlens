@@ -1,0 +1,176 @@
+{
+  "schema_version": 1,
+  "kind": "capacity_shared_epoch_policy_fence_source_review",
+  "scope": "Source-only independent review of existing corrected-protocol instrumented capture; no application change, test or workload run.",
+  "run_id": 37893213636,
+  "artifact_id": 11600280865,
+  "baseline_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+  "candidate_revision": "79001439677cae246faef0a398ddea50c47faf80",
+  "observer_sha256": "24f7521559baeff97558cca177c480415bc1190224eaf9438132b522209b055c",
+  "source_files": [
+    {
+      "path": "backend/app/tasks/feed_fetch_tasks.py",
+      "current_sha256": "65b7844af54609c6e128aaf0c27fa709f3d7bd3d739cd42277838b3ca26792f9",
+      "identical_between_measured_application_refs": true
+    },
+    {
+      "path": "backend/app/tasks/feed_task_events.py",
+      "current_sha256": "524fe9bf4377bb8cd374401b3bca88cb650cc2fb539279c70201e04c45a2df47",
+      "identical_between_measured_application_refs": true
+    },
+    {
+      "path": "backend/app/tasks/feed_task_coordination.py",
+      "current_sha256": "ee5ed0f6e0358edad0138b8c6ac4af677e0160eb507706dd21ef693f96615898",
+      "identical_between_measured_application_refs": true
+    },
+    {
+      "path": "backend/app/tasks/feed_task_scheduling.py",
+      "current_sha256": "9aa6caeb5c51ab48ec406afcc28cb7c0e9f11f295081e19f16667f43c79e5610",
+      "identical_between_measured_application_refs": true
+    },
+    {
+      "path": "backend/app/services/feed_fetch_ownership.py",
+      "current_sha256": "0b76c99462a68f24eaa0645ede59a4ed58c22d3e3d2554199dce2f24a485c6aa",
+      "identical_between_measured_application_refs": true
+    },
+    {
+      "path": "backend/app/services/integration_events.py",
+      "current_sha256": "8c5a43cdf4bdc28882a2b83e86a841f0e50ee2d325fd168c17ad9404c7094d72",
+      "identical_between_measured_application_refs": true
+    },
+    {
+      "path": "backend/app/services/data_access_runtime.py",
+      "current_sha256": "1229caef2d8d115dc57713352ce55008da3e076049f4a26359a21421e093b048",
+      "identical_between_measured_application_refs": true
+    },
+    {
+      "path": "backend/app/services/data_access_envelopes.py",
+      "current_sha256": "7f5786779179d57bfd7b0e9f538a66bbe31d6605105f605167daed80df398909",
+      "identical_between_measured_application_refs": true
+    },
+    {
+      "path": "backend/app/services/data_access_lineage.py",
+      "current_sha256": "2a80d11b0a344c260db6ad191add31ca2aa16ca48b29eae09cf743a385cb6541",
+      "identical_between_measured_application_refs": true
+    },
+    {
+      "path": "backend/app/services/webhook_event_metadata.py",
+      "current_sha256": "023fa6783edc6bf2223f5d0e60e320051584420836fb755aba5440e150641aab",
+      "identical_between_measured_application_refs": true
+    },
+    {
+      "path": "backend/app/services/webhook_article_text.py",
+      "current_sha256": "1ca400324ee2605eeb43cc0e01f184a4278f729dc473fc5307d8322f7b1db4e3",
+      "identical_between_measured_application_refs": true
+    },
+    {
+      "path": "backend/app/core/redis_client.py",
+      "current_sha256": "6f5cab315641a23f78193c29831e0abd1741859cb561c3e30dab68e28d14bfb3",
+      "identical_between_measured_application_refs": true
+    }
+  ],
+  "identical_application_source_file_count": 12,
+  "total_application_source_file_count": 12,
+  "existing_feed_order": {
+    "complete_item_upserts_before_first_item_event": true,
+    "collecting_item_intents_already_implemented": true,
+    "upsert_call_line": 687,
+    "event_loop_line": 691,
+    "item_order_preserved": true,
+    "items_events_lineage_feed_state_commit_atomically": true,
+    "final_ownership_checks_before_commit": true,
+    "downstream_task_publication_after_commit": true
+  },
+  "source_supported_shape": {
+    "first_feed_fixture_item_count": 6,
+    "shared_policy_queries_per_new_event": 2,
+    "recorded_background_shared_query_count_each_run": 12,
+    "interpretation": "This feed-provenance path fits the recorded shape; it does not assign the actual background task identity."
+  },
+  "peak_context": {
+    "baseline": {
+      "source_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+      "exact_original_peak_ms": 606.404,
+      "original_peak_sample_index": 104,
+      "governance_index": 0,
+      "entire_governance_wall_ms": 662.831824,
+      "entire_governance_cpu_ms": 7.394174,
+      "waiter_category": "policy_exclusive",
+      "later_current_wait_age_ms": 608.565,
+      "later_graph_sql_elapsed_ms": 3.025869,
+      "hook_to_graph_start_ms": 0.026445,
+      "blocker_alias": 5,
+      "blocker_task_identity_assigned": false,
+      "observed_blocker_fence_categories": [
+        "policy_shared"
+      ],
+      "pre_first_commit_policy_shared_query_count": 12,
+      "pre_first_commit_recognized_query_lanes": [
+        "background"
+      ],
+      "graph_end_to_first_commit_request_ms": 17.15129,
+      "recognized_share_query_elapsed_sum_ms": 60.686389,
+      "first_share_completion_to_first_commit_request_ms": 717.423324
+    },
+    "candidate": {
+      "source_revision": "79001439677cae246faef0a398ddea50c47faf80",
+      "exact_original_peak_ms": 501.316,
+      "original_peak_sample_index": 102,
+      "governance_index": 0,
+      "entire_governance_wall_ms": 592.761087,
+      "entire_governance_cpu_ms": 8.518576,
+      "waiter_category": "policy_exclusive",
+      "later_current_wait_age_ms": 401.75,
+      "later_graph_sql_elapsed_ms": 2.843369,
+      "hook_to_graph_start_ms": 0.029736,
+      "blocker_alias": 5,
+      "blocker_task_identity_assigned": false,
+      "observed_blocker_fence_categories": [
+        "policy_shared"
+      ],
+      "pre_first_commit_policy_shared_query_count": 12,
+      "pre_first_commit_recognized_query_lanes": [
+        "background"
+      ],
+      "graph_end_to_first_commit_request_ms": 1.863058,
+      "recognized_share_query_elapsed_sum_ms": 26.73182,
+      "first_share_completion_to_first_commit_request_ms": 549.156464
+    }
+  },
+  "fenced_work_assessment": {
+    "event_snapshot_and_lineage_database_work_expected": true,
+    "unrelated_later_item_upserts_inside_policy_fence_found": false,
+    "network_fetch_or_provider_execution_inside_examined_provenance_section_found": false,
+    "final_redis_ownership_verification_under_fence": true,
+    "redis_delay_measured": false,
+    "concrete_unnecessarily_deferred_work_found": false,
+    "concrete_application_correctness_defect_found": false,
+    "application_fix_supported": false,
+    "authorization_or_ownership_fence_change_recommended": false
+  },
+  "existing_control_references": [
+    "backend/tests/unit/test_feed_fetch_ownership.py::test_fetch_task_rolls_back_items_and_events_when_fence_is_lost",
+    "backend/tests/unit/test_integration_events.py::test_emit_integration_event_is_idempotent",
+    "backend/tests/unit/test_integration_events.py::test_v2_item_event_routes_from_immutable_snapshots"
+  ],
+  "evidence_journal_sha256": {
+    "peak_source_review": "48022db7dabff60680070a1b6981f124ce57d0f6da750e9a34c5642c1bba95f6",
+    "fence_residence_source_review": "665d3240e752d0d6dd2b038dc7d8049beac2df109bbb1ca56bfa7fdfbecb4509",
+    "intent_ordering_source_correction": "b3854fb99eb79968091fc54a9bd8f59600ee89ed75ca5827de0852cac6e35fa0"
+  },
+  "limits": [
+    "Background aliases are numeric per-run connection aliases; equal aliases across runs do not establish shared process/task identity.",
+    "Original sampler rows contain numeric query ages without connection identities; later blocker and pg_locks waitstart context is not atomic with the original measurement and may use cached activity fields.",
+    "Shared-query elapsed sums include driver/scheduling time; interval remainder is not measured Redis, CPU or database execution time.",
+    "The observed instrumented pass does not clear the retained uninstrumented release comparison failure or qualify quiet dedicated production hardware."
+  ],
+  "retained_uninstrumented_release_failure": {
+    "run_id": 37888628612,
+    "metric": "database.sampled_lock_waiting_query_age_peak_ms",
+    "baseline_ms": 220.296,
+    "candidate_ms": 437.157,
+    "change_percent": 98.441,
+    "status": "failed; retained"
+  },
+  "release_clearance": false
+}

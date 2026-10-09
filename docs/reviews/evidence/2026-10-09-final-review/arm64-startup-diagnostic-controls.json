@@ -7,6 +7,7 @@
     "memory_swap_bytes": 402653184,
     "pids": 96
   },
+  "final_workflow_sha256": "f7be27365ed5268420df2e0976356a2e6c3943a0f96cfb042d0911afd806976d",
   "full_operations_controls": {
     "elapsed_seconds": 1.025,
     "errors": 0,
@@ -17,7 +18,145 @@
     "skip_scope": "Deliberate source-loss opt-in case; actual disposable qualification is separately retained",
     "skipped": 1
   },
+  "plaintext_raw_logs_excluded_on_all_upload_paths": true,
+  "private_recipient_key_in_repository": false,
   "proofs": {
+    "encrypted_retention": {
+      "controls": {
+        "after": {
+          "bash_syntax_blocks": 13,
+          "cases": [
+            {
+              "case": "success_two",
+              "encrypted_file_count": 2,
+              "error_count": 0,
+              "exit_code": 0,
+              "manifest_status": "passed",
+              "raw_upload_count": 0,
+              "temporary_upload_count": 0
+            },
+            {
+              "case": "failure_first",
+              "encrypted_file_count": 0,
+              "error_count": 1,
+              "exit_code": 2,
+              "manifest_status": "failed",
+              "raw_upload_count": 0,
+              "temporary_upload_count": 0
+            },
+            {
+              "case": "empty_ciphertext",
+              "encrypted_file_count": 0,
+              "error_count": 1,
+              "exit_code": 2,
+              "manifest_status": "failed",
+              "raw_upload_count": 0,
+              "temporary_upload_count": 0
+            },
+            {
+              "case": "oversized_ciphertext",
+              "encrypted_file_count": 0,
+              "error_count": 1,
+              "exit_code": 2,
+              "manifest_status": "failed",
+              "raw_upload_count": 0,
+              "temporary_upload_count": 0
+            },
+            {
+              "case": "unknown_raw",
+              "encrypted_file_count": 0,
+              "error_count": 1,
+              "exit_code": 2,
+              "manifest_status": "failed",
+              "raw_upload_count": 0,
+              "temporary_upload_count": 0
+            },
+            {
+              "case": "oversized_raw",
+              "encrypted_file_count": 0,
+              "error_count": 1,
+              "exit_code": 2,
+              "manifest_status": "failed",
+              "raw_upload_count": 0,
+              "temporary_upload_count": 0
+            },
+            {
+              "case": "symlink_raw",
+              "encrypted_file_count": 0,
+              "error_count": 1,
+              "exit_code": 2,
+              "manifest_status": "failed",
+              "raw_upload_count": 0,
+              "temporary_upload_count": 0
+            },
+            {
+              "case": "recipient_mismatch",
+              "encrypted_file_count": 0,
+              "error_count": 1,
+              "exit_code": 2,
+              "manifest_status": "failed",
+              "raw_upload_count": 0,
+              "temporary_upload_count": 0
+            },
+            {
+              "case": "empty_raw",
+              "encrypted_file_count": 1,
+              "error_count": 0,
+              "exit_code": 0,
+              "manifest_status": "passed",
+              "raw_upload_count": 0,
+              "temporary_upload_count": 0
+            },
+            {
+              "case": "no_raw",
+              "encrypted_file_count": 0,
+              "error_count": 0,
+              "exit_code": 0,
+              "manifest_status": "passed",
+              "raw_upload_count": 0,
+              "temporary_upload_count": 0
+            }
+          ],
+          "controls": 10,
+          "encryption_always_after_cleanup_before_upload": true,
+          "failed": 0,
+          "only_public_certificate_used": true,
+          "passed": 10,
+          "python_syntax_blocks": 8,
+          "upload_raw_exclusion_unconditional": true
+        },
+        "before": {
+          "raw_logs_encrypted": false,
+          "raw_logs_upload_excluded": false
+        },
+        "execution": "Pure mocked encryption and syntax controls only; no Docker, workload, key access or network calls",
+        "limits": {
+          "beat_trace_raw_bytes": 524288,
+          "ciphertext_envelope_bound_bytes": 16384,
+          "maximum_raw_files": 2,
+          "per_file_encryption_timeout_seconds": 30,
+          "startup_raw_bytes": 262144
+        },
+        "previous_workflow_sha256": "5051883ce2df6ebd2df3dde79e5013488f52e0bc924492c1f4e73dbbb8f6b68e",
+        "recipient_certificate_sha256": "d69c0e627529a5a7c125d99b56c5d5f5c20b07655714bd23bc76190c47dcf5a2",
+        "schema_version": 1,
+        "workflow_sha256": "f7be27365ed5268420df2e0976356a2e6c3943a0f96cfb042d0911afd806976d"
+      },
+      "sha256": "003d79c6d6706346423a138b6720cb222721daad659103f6ead4d67b921895d5"
+    },
+    "exact_encryption_roundtrip": {
+      "controls": {
+        "all_plaintext_removed": true,
+        "both_decrypt_exact_and_match_recorded_hash": true,
+        "extracted_step_exit": 0,
+        "logs": 2,
+        "recipient_certificate_sha256": "d69c0e627529a5a7c125d99b56c5d5f5c20b07655714bd23bc76190c47dcf5a2",
+        "schema": "arm64-diagnostic-workflow-encryption-roundtrip-v1",
+        "scope": "Exact workflow encryption Python with two synthetic sentinels only; no application workload",
+        "workflow_sha256": "f7be27365ed5268420df2e0976356a2e6c3943a0f96cfb042d0911afd806976d"
+      },
+      "sha256": "bfa7702429171103c50cbb3e78567e5b51b80086ae3642f8d342b2d865cf45c9"
+    },
     "launcher": {
       "controls": {
         "arming_fault_regression": {
@@ -295,7 +434,7 @@
       "sha256": "7a2dd1df9afb1f21d9df0f766d4de3ff5bc8bd44703e3deda5fad1f7ee2e4269"
     }
   },
-  "raw_stack_artifact_publication": false,
+  "raw_stack_artifact_publication": "encrypted_only",
   "release_gate_status": "held",
   "runtime_source_revision": "1251826fa113aca4e084f0dd7239d056d97be3b2",
   "schema": "threatlens-arm64-startup-diagnostic-controls-v1",
