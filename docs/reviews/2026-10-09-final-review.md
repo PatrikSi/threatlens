@@ -7,8 +7,8 @@ running at **http://127.0.0.1:3001**. The frozen application/image revision is
 Compose, license and version Git objects are identical. Images retain their
 actual build revision. All corrections were committed as `Patrik <patrik@local>`.
 
-**Decision at this checkpoint: source fixes are complete; final native,
-hosted quality/platform and comparative capacity qualification is underway.**
+**Decision at this checkpoint: source fixes and native qualification pass; hosted backend,
+comparative capacity and CodeQL pull-request disposition remain pending.**
 Version 2.1.0 is already aligned across the version file, frontend metadata,
 OpenAPI and deployment defaults. These pre-merge corrections need no further
 version bump. [Draft PR #31](https://github.com/PatrikSi/threatlens/pull/31)
@@ -65,9 +65,22 @@ logs remain outside the repository. Existing deployment configuration,
 `backend/uv.lock`, `backups/` and unrelated services were preserved.
 
 [Native build/runtime evidence](evidence/2026-10-09-final-review/native-runtime.json)
-records image IDs, limits, migration/startup and source applicability. Live
-browser/HTTP checks, dependency/legal inventory and fresh vulnerability/secret
-scans are separate gates and are still running at this checkpoint.
+records image IDs, limits, migration/startup and source applicability. Fresh
+checks on these actual images are complete:
+
+| Native check | Result |
+|---|---|
+| [Responsive/browser evidence](evidence/2026-10-09-final-review/native-frontend.json) | First fresh 33/33 UI checks pass, zero Axe/runtime/external events; owned browser containers removed. |
+| Permission-transition workflows | Initial six pass/one driver failure is preserved. The active confirmation dialog hid a background Refresh selector; the separately journaled corrected one-case follow-up passes, with all cleanup dispositions successful. Every requested behavior is individually proved; the original failed aggregate is not relabeled. |
+| [HTTP and image helpers](evidence/2026-10-09-final-review/native-backend.json) | Exactly one 44-case HTTP run passes; investigation archive, OAuth revocation and session logout cleanup pass. Dependency/legal inventory and both non-root startup modes pass. Four exact helper containers removed, with zero fallback removal/errors/remnants. |
+| [Fresh image policy scans](evidence/2026-10-09-final-review/native-image-scans.json) | Both actual image archives pass HIGH/CRITICAL, ignore-unfixed vulnerability and secret scanning with an unexpired database. Zero findings under this policy; scanner limits and offline network mode verified, no owned scan containers remain. |
+
+The HTTP wrapper's preliminary directory-equality assumption failed before any
+requests: the retained instance directory was still the Oct8 directory. Both
+updated manifests were independently verified against actual running image IDs;
+there was no repeated HTTP run. The native policy driver correction adds hidden
+lookup only for its deliberate real refetch behind the modal; ordinary operator
+selectors, assertions, deadlines and generic error listeners remain unchanged.
 
 ## Hosted quality and preserved failures
 
@@ -105,8 +118,11 @@ platform qualification at `a6c07f7` are underway.
 CodeQL completed with **25 Python and one JavaScript high alerts**. The
 [per-flow review](2026-10-09-codeql-triage.md) documents the SMTP policy gap
 corrected in this pass and the constrained application/test-fixture findings.
-All 26 alerts remain reported by the subsequent analyzer, including SMTP;
-none were dismissed or suppressed. This is not a zero-alert scan claim. Fresh
+All 26 alerts remain reported by the latest analyzer, including SMTP. The
+separate pull-request CodeQL check fails on sixteen alerts annotated as new;
+source-justified per-alert disposition is being independently checked. No query,
+severity threshold or source exclusion was changed. This is not a zero-alert
+scan claim. Fresh
 native image vulnerability and secret scans retain the established
 HIGH/CRITICAL, ignore-unfixed policy.
 
@@ -131,7 +147,7 @@ A new exact-source comparison at `a6c07f7` is underway after the production
 repair and independent cleanup gate. Duration, offered workloads, limits,
 measurement contract and comparator remain unchanged. This uses a fresh
 GitHub-hosted reference VM; it is not qualification of an operator's intended
-hardware. Earlier failed shared-host and hosted comparisons remain recorded.
+hardware. Earlier failed shared-host and hosted comparisons remain recorded. The [first hosted comparison evidence](evidence/2026-10-09-final-review/hosted-capacity-c4fa.json) preserves exact sources, unchanged budgets, offered/completed work and flagged quantiles.
 
 ## Feature completion and release boundary
 
@@ -151,7 +167,8 @@ outputs and named human review of the twelve prepared cases. Provider-contract
 and configuration tests do not complete that approval; ordinary ingestion and
 classification do not require model promotion.
 
-The final release decision must incorporate current native browser/HTTP/image
-results, the complete hosted backend/coverage/platform gates and the unchanged
-comparative capacity result. Pending gates are recorded here until their
+The final release decision must incorporate the completed native results,
+hosted backend/coverage gates, CodeQL pull-request disposition and the unchanged
+comparative capacity result. Both current-source AMD64 and ARM64 platform jobs
+pass, as do all three hosted browser engines. Pending gates are recorded here until their
 actual results are available.

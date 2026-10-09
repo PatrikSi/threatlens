@@ -1,0 +1,852 @@
+{
+  "artifact_content_hashes": {
+    "baseline.json": "4abe166120e8ed65eed024faade16f1e9fab232a52ad7a8ede7245292f61fccd",
+    "baseline.log": "7f962d9567fcadb655bdd39fc4a8da2fc16471247723d068da46c9c47d4cf84d",
+    "candidate.json": "82dba27ed260dcce3f6d7727fdef2af5a2ac933792aea8589255363b90174762",
+    "candidate.log": "71ae44dae2db97d6d34b8d7deabaa1bf6c18109f91179ac9b49f33a742f62aca",
+    "comparison.json": "145d227f7c50467c3377c7b4bccaafaee40db20b22c96612dd6632ba6567186b"
+  },
+  "artifact_zip_sha256": "44739754102f5a1d5cfbd9e90f952821ace8ebab38118f2465d0d3067dfa5bed",
+  "baseline_revision": "35ac120b28820b6e5b1222a50b5f70f7a6b85c3b",
+  "candidate_revision": "c4faef4edc2074f4e1ef961c7e3116637c3f4f96",
+  "comparison": {
+    "baseline_revision": "35ac120b28820b6e5b1222a50b5f70f7a6b85c3b",
+    "candidate_revision": "c4faef4edc2074f4e1ef961c7e3116637c3f4f96",
+    "compatible": true,
+    "conclusive": true,
+    "insufficient_required_samples": [],
+    "metrics": [
+      {
+        "baseline_p95_ms": 549.553,
+        "candidate_p95_ms": 568.7,
+        "change_percent": 3.484,
+        "name": "ai_connection",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 549.553,
+        "candidate_p95_ms": 568.7,
+        "change_percent": 3.484,
+        "name": "ai_connection:succeeded",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "minimum_samples": 20,
+        "name": "async_export",
+        "status": "insufficient_samples"
+      },
+      {
+        "minimum_samples": 20,
+        "name": "async_export:policy_conflict",
+        "status": "insufficient_samples"
+      },
+      {
+        "minimum_samples": 20,
+        "name": "async_export:succeeded",
+        "status": "insufficient_samples"
+      },
+      {
+        "baseline_p95_ms": 100.894,
+        "candidate_p95_ms": 100.667,
+        "change_percent": -0.225,
+        "name": "deadline:dns",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 101.745,
+        "candidate_p95_ms": 101.853,
+        "change_percent": 0.106,
+        "name": "deadline:headers",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 591.497,
+        "candidate_p95_ms": 597.578,
+        "change_percent": 1.028,
+        "name": "export",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "minimum_samples": 20,
+        "name": "export:policy_conflict",
+        "status": "insufficient_samples"
+      },
+      {
+        "baseline_p95_ms": 541.048,
+        "candidate_p95_ms": 487.896,
+        "change_percent": -9.824,
+        "name": "export:succeeded",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 224.478,
+        "candidate_p95_ms": 164.566,
+        "change_percent": -26.689,
+        "name": "governance",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 2596.28,
+        "candidate_p95_ms": 3242.956,
+        "change_percent": 24.908,
+        "name": "queue_wait:classify_item",
+        "regressed": true,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 348.46,
+        "candidate_p95_ms": 643.822,
+        "change_percent": 84.762,
+        "name": "queue_wait:dispatch_processing_work",
+        "regressed": true,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 5479.394,
+        "candidate_p95_ms": 5020.727,
+        "change_percent": -8.371,
+        "name": "queue_wait:execute_processing_work",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 4185.864,
+        "candidate_p95_ms": 4381.314,
+        "change_percent": 4.669,
+        "name": "queue_wait:extract_item_iocs",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 6522.675,
+        "candidate_p95_ms": 3669.27,
+        "change_percent": -43.746,
+        "name": "queue_wait:fetch_article",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 835.105,
+        "candidate_p95_ms": 757.257,
+        "change_percent": -9.322,
+        "name": "queue_wait:fetch_feed",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 3798.174,
+        "candidate_p95_ms": 4003.143,
+        "change_percent": 5.397,
+        "name": "queue_wait:process_alert_evaluation",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 2010.445,
+        "candidate_p95_ms": 1909.835,
+        "change_percent": -5.004,
+        "name": "queue_wait:route_integration_event",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 273.281,
+        "candidate_p95_ms": 271.629,
+        "change_percent": -0.605,
+        "name": "task:classify_item",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 398.694,
+        "candidate_p95_ms": 434.616,
+        "change_percent": 9.01,
+        "name": "task:dispatch_processing_work",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 154.606,
+        "candidate_p95_ms": 145.074,
+        "change_percent": -6.165,
+        "name": "task:execute_processing_work",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 273.437,
+        "candidate_p95_ms": 310.753,
+        "change_percent": 13.647,
+        "name": "task:extract_item_iocs",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 337.283,
+        "candidate_p95_ms": 278.967,
+        "change_percent": -17.29,
+        "name": "task:fetch_article",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 1127.878,
+        "candidate_p95_ms": 978.174,
+        "change_percent": -13.273,
+        "name": "task:fetch_feed",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 104.189,
+        "candidate_p95_ms": 98.569,
+        "change_percent": -5.394,
+        "name": "task:process_alert_evaluation",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "baseline_p95_ms": 58.259,
+        "candidate_p95_ms": 56.316,
+        "change_percent": -3.335,
+        "name": "task:route_integration_event",
+        "regressed": false,
+        "status": "compared"
+      },
+      {
+        "absolute_change": 2162688,
+        "baseline": 73986048,
+        "candidate": 76148736,
+        "change_percent": 2.923,
+        "name": "memory.process_rss_increase_bytes",
+        "regressed": false,
+        "status": "single_run_observation"
+      },
+      {
+        "absolute_change": 1110016,
+        "baseline": 372723712,
+        "candidate": 373833728,
+        "change_percent": 0.298,
+        "name": "memory.process_rss_peak_bytes",
+        "regressed": false,
+        "status": "single_run_observation"
+      },
+      {
+        "absolute_change": -3407872,
+        "baseline": 400089088,
+        "candidate": 396681216,
+        "change_percent": -0.852,
+        "name": "watchdog.owned_process_tree_rss_peak_bytes",
+        "regressed": false,
+        "status": "single_run_observation"
+      },
+      {
+        "absolute_change": 0.41799999999999926,
+        "baseline": 15.272,
+        "candidate": 15.69,
+        "change_percent": 2.737,
+        "name": "queue.recovery_ms",
+        "regressed": false,
+        "status": "single_run_observation"
+      },
+      {
+        "absolute_change": -2,
+        "baseline": 41,
+        "candidate": 39,
+        "change_percent": -4.878,
+        "name": "queue.depth_peak",
+        "regressed": false,
+        "status": "single_run_observation"
+      },
+      {
+        "absolute_change": -753.0339999999997,
+        "baseline": 7695.557,
+        "candidate": 6942.523,
+        "change_percent": -9.785,
+        "name": "queue.oldest_pending_age_peak_ms",
+        "regressed": false,
+        "status": "single_run_observation"
+      },
+      {
+        "absolute_change": -250.19400000000002,
+        "baseline": 640.841,
+        "candidate": 390.647,
+        "change_percent": -39.042,
+        "name": "database.sampled_lock_waiting_query_age_peak_ms",
+        "regressed": false,
+        "status": "single_run_observation"
+      }
+    ],
+    "outcomes": {
+      "baseline": {
+        "ai_succeeded": 301,
+        "deadline_dns_observed": 6,
+        "deadline_headers_observed": 6,
+        "exports_policy_conflict": 17,
+        "exports_succeeded": 284,
+        "governance_succeeded": 300,
+        "ingestion_recovered": 1,
+        "processing_repair_dispatches": 120
+      },
+      "candidate": {
+        "ai_succeeded": 301,
+        "deadline_dns_observed": 6,
+        "deadline_headers_observed": 6,
+        "exports_policy_conflict": 20,
+        "exports_succeeded": 281,
+        "governance_succeeded": 300,
+        "ingestion_recovered": 1,
+        "processing_repair_dispatches": 120
+      }
+    },
+    "regression_threshold_percent": 20,
+    "regressions": [
+      "queue_wait:classify_item",
+      "queue_wait:dispatch_processing_work"
+    ]
+  },
+  "comparison_fingerprints_equal": true,
+  "comparison_scope": "source plus each revision's locked dependencies; hosted reference, not intended deployment hardware",
+  "duration_seconds_per_ref": 600,
+  "interpretation": "Both absolute budgets pass, but the planned relative comparison fails; retain the two flags until actionable cause or valid measurement issue is established.",
+  "kind": "original_planned_hosted_capacity_evidence",
+  "limitations": [
+    "No host PSI, load, CPU steal or competing-process time series captured",
+    "Legacy baseline artifact has no cleanup attestation; old cleanup suppresses errors; no independent pre-candidate container assertion",
+    "Processing worker returned statuses omit stage and reason, preventing retrospective attention-reason attribution",
+    "Quantile changes and derived repair-load differences do not establish the cause of the regressions",
+    "This source is superseded by subsequent fixes; no newer-source capacity gate claimed"
+  ],
+  "measurements": {
+    "baseline": {
+      "budget_violations": {},
+      "cleanup": {
+        "status": "not_attested_in_legacy_artifact"
+      },
+      "dispatch_result_totals": {
+        "discovered": 352,
+        "pruned": 0,
+        "published": 354,
+        "recovered": 0
+      },
+      "elapsed_seconds": 604.545,
+      "first_task_start_offsets_seconds": {
+        "classify_item": [
+          2.891,
+          2.895,
+          3.117,
+          3.318,
+          3.565,
+          3.794,
+          3.864,
+          3.989,
+          12.629,
+          12.632,
+          12.833,
+          12.836
+        ],
+        "dispatch_processing_work": [
+          0.016,
+          5.097,
+          10.002,
+          15.186,
+          19.982,
+          25.005,
+          29.977,
+          35.027,
+          40.134,
+          45.278,
+          50.058,
+          55.168
+        ],
+        "fetch_feed": [
+          0.0,
+          0.137,
+          10.004,
+          10.544,
+          19.976,
+          20.228,
+          29.976,
+          30.112,
+          40.138,
+          40.25,
+          50.057,
+          50.97
+        ]
+      },
+      "logical_feed_arrivals": {
+        "expected_ingested_articles": 480,
+        "feed_batches": 60
+      },
+      "outcomes": {
+        "ai_succeeded": 301,
+        "deadline_dns_observed": 6,
+        "deadline_headers_observed": 6,
+        "exports_policy_conflict": 17,
+        "exports_succeeded": 284,
+        "governance_succeeded": 300,
+        "ingestion_recovered": 1,
+        "processing_repair_dispatches": 120
+      },
+      "processing_execution_returned_status_counts": {
+        "attention": 48,
+        "retry_wait": 3,
+        "succeeded": 303
+      },
+      "processing_status_counts_by_minute": {
+        "0": {
+          "retry_wait": 1,
+          "succeeded": 31
+        },
+        "1": {
+          "succeeded": 26
+        },
+        "2": {
+          "succeeded": 31
+        },
+        "3": {
+          "succeeded": 28
+        },
+        "4": {
+          "succeeded": 27
+        },
+        "5": {
+          "attention": 36,
+          "retry_wait": 1,
+          "succeeded": 44
+        },
+        "6": {
+          "attention": 11,
+          "retry_wait": 1,
+          "succeeded": 40
+        },
+        "7": {
+          "attention": 1,
+          "succeeded": 31
+        },
+        "8": {
+          "succeeded": 25
+        },
+        "9": {
+          "succeeded": 20
+        }
+      },
+      "sampler": {
+        "errors": [],
+        "interval_ms": 20,
+        "samples": 19395
+      },
+      "selected_queue_and_task_distributions": {
+        "queue_wait:classify_item": {
+          "count": 480,
+          "max_ms": 4834.041,
+          "p50_ms": 1490.603,
+          "p95_ms": 2596.28
+        },
+        "queue_wait:dispatch_processing_work": {
+          "count": 120,
+          "max_ms": 985.905,
+          "p50_ms": 88.489,
+          "p95_ms": 348.46
+        },
+        "queue_wait:execute_processing_work": {
+          "count": 354,
+          "max_ms": 8157.592,
+          "p50_ms": 2852.805,
+          "p95_ms": 5479.394
+        },
+        "queue_wait:extract_item_iocs": {
+          "count": 480,
+          "max_ms": 7534.543,
+          "p50_ms": 2324.21,
+          "p95_ms": 4185.864
+        },
+        "queue_wait:fetch_article": {
+          "count": 480,
+          "max_ms": 7467.255,
+          "p50_ms": 1210.399,
+          "p95_ms": 6522.675
+        },
+        "queue_wait:fetch_feed": {
+          "count": 120,
+          "max_ms": 1374.312,
+          "p50_ms": 133.82,
+          "p95_ms": 835.105
+        },
+        "queue_wait:process_alert_evaluation": {
+          "count": 480,
+          "max_ms": 7534.83,
+          "p50_ms": 1953.113,
+          "p95_ms": 3798.174
+        },
+        "queue_wait:route_integration_event": {
+          "count": 1440,
+          "max_ms": 3356.308,
+          "p50_ms": 499.733,
+          "p95_ms": 2010.445
+        },
+        "task:classify_item": {
+          "count": 480,
+          "max_ms": 831.896,
+          "p50_ms": 86.35,
+          "p95_ms": 273.281
+        },
+        "task:dispatch_processing_work": {
+          "count": 120,
+          "max_ms": 812.204,
+          "p50_ms": 119.237,
+          "p95_ms": 398.694
+        },
+        "task:execute_processing_work": {
+          "count": 354,
+          "max_ms": 830.583,
+          "p50_ms": 41.672,
+          "p95_ms": 154.606
+        },
+        "task:extract_item_iocs": {
+          "count": 480,
+          "max_ms": 539.049,
+          "p50_ms": 105.425,
+          "p95_ms": 273.437
+        },
+        "task:fetch_article": {
+          "count": 480,
+          "max_ms": 985.745,
+          "p50_ms": 48.772,
+          "p95_ms": 337.283
+        },
+        "task:fetch_feed": {
+          "count": 120,
+          "max_ms": 1625.464,
+          "p50_ms": 367.481,
+          "p95_ms": 1127.878
+        },
+        "task:process_alert_evaluation": {
+          "count": 480,
+          "max_ms": 677.28,
+          "p50_ms": 15.234,
+          "p95_ms": 104.189
+        },
+        "task:route_integration_event": {
+          "count": 1440,
+          "max_ms": 679.064,
+          "p50_ms": 16.965,
+          "p95_ms": 58.259
+        }
+      },
+      "source_dirty": false,
+      "status": "passed",
+      "task_errors": [],
+      "workload_completed": {
+        "ai": 300,
+        "exports": 300,
+        "governance": 300
+      }
+    },
+    "candidate": {
+      "budget_violations": {},
+      "cleanup": {
+        "errors": [],
+        "remaining_container_ids": [],
+        "status": "passed"
+      },
+      "dispatch_result_totals": {
+        "discovered": 703,
+        "pruned": 0,
+        "published": 710,
+        "recovered": 0
+      },
+      "elapsed_seconds": 604.221,
+      "first_task_start_offsets_seconds": {
+        "classify_item": [
+          1.238,
+          3.636,
+          3.968,
+          3.97,
+          4.171,
+          4.172,
+          4.39,
+          4.391,
+          13.595,
+          13.598,
+          14.319,
+          14.32
+        ],
+        "dispatch_processing_work": [
+          0.832,
+          5.004,
+          10.648,
+          15.019,
+          20.021,
+          25.107,
+          30.144,
+          35.032,
+          40.267,
+          45.088,
+          50.031,
+          55.041
+        ],
+        "fetch_feed": [
+          0.0,
+          0.029,
+          9.946,
+          11.089,
+          19.814,
+          20.226,
+          29.711,
+          29.713,
+          40.094,
+          41.024,
+          49.821,
+          50.232
+        ]
+      },
+      "logical_feed_arrivals": {
+        "expected_ingested_articles": 480,
+        "feed_batches": 60
+      },
+      "outcomes": {
+        "ai_succeeded": 301,
+        "deadline_dns_observed": 6,
+        "deadline_headers_observed": 6,
+        "exports_policy_conflict": 20,
+        "exports_succeeded": 281,
+        "governance_succeeded": 300,
+        "ingestion_recovered": 1,
+        "processing_repair_dispatches": 120
+      },
+      "processing_execution_returned_status_counts": {
+        "attention": 355,
+        "retry_wait": 10,
+        "succeeded": 345
+      },
+      "processing_status_counts_by_minute": {
+        "0": {
+          "attention": 36,
+          "retry_wait": 1,
+          "succeeded": 43
+        },
+        "1": {
+          "attention": 45,
+          "succeeded": 23
+        },
+        "2": {
+          "attention": 20,
+          "succeeded": 41
+        },
+        "3": {
+          "attention": 13,
+          "succeeded": 48
+        },
+        "4": {
+          "attention": 50,
+          "retry_wait": 3,
+          "succeeded": 35
+        },
+        "5": {
+          "attention": 40,
+          "retry_wait": 1,
+          "succeeded": 38
+        },
+        "6": {
+          "attention": 44,
+          "succeeded": 28
+        },
+        "7": {
+          "attention": 41,
+          "retry_wait": 1,
+          "succeeded": 34
+        },
+        "8": {
+          "attention": 29,
+          "retry_wait": 2,
+          "succeeded": 30
+        },
+        "9": {
+          "attention": 37,
+          "retry_wait": 2,
+          "succeeded": 25
+        }
+      },
+      "sampler": {
+        "errors": [],
+        "interval_ms": 20,
+        "samples": 19013
+      },
+      "selected_queue_and_task_distributions": {
+        "queue_wait:classify_item": {
+          "count": 478,
+          "max_ms": 5674.647,
+          "p50_ms": 2059.01,
+          "p95_ms": 3242.956
+        },
+        "queue_wait:dispatch_processing_work": {
+          "count": 120,
+          "max_ms": 1398.563,
+          "p50_ms": 141.132,
+          "p95_ms": 643.822
+        },
+        "queue_wait:execute_processing_work": {
+          "count": 710,
+          "max_ms": 6981.329,
+          "p50_ms": 2385.669,
+          "p95_ms": 5020.727
+        },
+        "queue_wait:extract_item_iocs": {
+          "count": 478,
+          "max_ms": 6749.434,
+          "p50_ms": 2238.075,
+          "p95_ms": 4381.314
+        },
+        "queue_wait:fetch_article": {
+          "count": 480,
+          "max_ms": 5516.046,
+          "p50_ms": 1293.348,
+          "p95_ms": 3669.27
+        },
+        "queue_wait:fetch_feed": {
+          "count": 120,
+          "max_ms": 1353.54,
+          "p50_ms": 60.35,
+          "p95_ms": 757.257
+        },
+        "queue_wait:process_alert_evaluation": {
+          "count": 480,
+          "max_ms": 6484.771,
+          "p50_ms": 1954.743,
+          "p95_ms": 4003.143
+        },
+        "queue_wait:route_integration_event": {
+          "count": 1441,
+          "max_ms": 3612.744,
+          "p50_ms": 521.021,
+          "p95_ms": 1909.835
+        },
+        "task:classify_item": {
+          "count": 478,
+          "max_ms": 832.233,
+          "p50_ms": 86.818,
+          "p95_ms": 271.629
+        },
+        "task:dispatch_processing_work": {
+          "count": 120,
+          "max_ms": 1198.293,
+          "p50_ms": 117.397,
+          "p95_ms": 434.616
+        },
+        "task:execute_processing_work": {
+          "count": 710,
+          "max_ms": 1841.72,
+          "p50_ms": 37.86,
+          "p95_ms": 145.074
+        },
+        "task:extract_item_iocs": {
+          "count": 478,
+          "max_ms": 809.617,
+          "p50_ms": 103.677,
+          "p95_ms": 310.753
+        },
+        "task:fetch_article": {
+          "count": 480,
+          "max_ms": 1091.084,
+          "p50_ms": 48.163,
+          "p95_ms": 278.967
+        },
+        "task:fetch_feed": {
+          "count": 120,
+          "max_ms": 1279.859,
+          "p50_ms": 349.458,
+          "p95_ms": 978.174
+        },
+        "task:process_alert_evaluation": {
+          "count": 480,
+          "max_ms": 307.843,
+          "p50_ms": 15.462,
+          "p95_ms": 98.569
+        },
+        "task:route_integration_event": {
+          "count": 1441,
+          "max_ms": 453.395,
+          "p50_ms": 16.951,
+          "p95_ms": 56.316
+        }
+      },
+      "source_dirty": false,
+      "status": "passed",
+      "task_errors": [],
+      "workload_completed": {
+        "ai": 300,
+        "exports": 300,
+        "governance": 300
+      }
+    }
+  },
+  "regression_threshold_percent": 20,
+  "run_id": 37876316405,
+  "run_url": "https://github.com/PatrikSi/threatlens/actions/runs/37876316405",
+  "schema_version": 1,
+  "unchanged_sources": [
+    {
+      "baseline_git_blob": "0dcbe21cd595ebcfe83d0b721248a9b16e7341e8",
+      "candidate_git_blob": "0dcbe21cd595ebcfe83d0b721248a9b16e7341e8",
+      "identical": true,
+      "path": "backend/tests/capacity/test_concurrent_workload.py"
+    },
+    {
+      "baseline_git_blob": "8ceb734943bcf5071320dafe68df7217af5e6fdf",
+      "candidate_git_blob": "8ceb734943bcf5071320dafe68df7217af5e6fdf",
+      "identical": true,
+      "path": "backend/tests/capacity/workload_support.py"
+    },
+    {
+      "baseline_git_blob": "43fa83094464d6e65795f7be5136b915bb00c5c3",
+      "candidate_git_blob": "43fa83094464d6e65795f7be5136b915bb00c5c3",
+      "identical": true,
+      "path": "backend/tests/capacity/sustained.py"
+    },
+    {
+      "baseline_git_blob": "249ee33f2df31d51869190ee3d30f656fe735318",
+      "candidate_git_blob": "249ee33f2df31d51869190ee3d30f656fe735318",
+      "identical": true,
+      "path": "backend/app/tasks/processing_tasks.py"
+    },
+    {
+      "baseline_git_blob": "a43ee8acdfd8e2e3659b9a600aee0f3c8e7c8ab1",
+      "candidate_git_blob": "a43ee8acdfd8e2e3659b9a600aee0f3c8e7c8ab1",
+      "identical": true,
+      "path": "backend/app/services/processing_dispatch.py"
+    },
+    {
+      "baseline_git_blob": "6d33369da573864fa6f201fe5c53e9bcefdb4cca",
+      "candidate_git_blob": "6d33369da573864fa6f201fe5c53e9bcefdb4cca",
+      "identical": true,
+      "path": "backend/app/services/processing_worker.py"
+    },
+    {
+      "baseline_git_blob": "62aca29fafb1371ed144a88699017531b2694dc4",
+      "candidate_git_blob": "62aca29fafb1371ed144a88699017531b2694dc4",
+      "identical": true,
+      "path": "backend/app/services/processing_queries.py"
+    },
+    {
+      "baseline_git_blob": "2f4f7f318c3af962fc8bbf0b41bbc11b61710b35",
+      "candidate_git_blob": "2f4f7f318c3af962fc8bbf0b41bbc11b61710b35",
+      "identical": true,
+      "path": "backend/app/services/processing_recovery.py"
+    },
+    {
+      "baseline_git_blob": "f6873fda9787128151c28314cb2f3f1d0a445bc5",
+      "candidate_git_blob": "f6873fda9787128151c28314cb2f3f1d0a445bc5",
+      "identical": true,
+      "path": "docs/reviews/capacity/budgets.json"
+    }
+  ],
+  "workflow_conclusion": "failure"
+}

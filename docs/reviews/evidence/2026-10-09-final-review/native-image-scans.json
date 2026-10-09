@@ -1,0 +1,87 @@
+{
+  "source_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+  "image_build_revisions": {
+    "backend": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+    "web": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433"
+  },
+  "platform": "linux/amd64",
+  "scanner": "aquasec/trivy:0.70.0",
+  "scanner_image_id": "sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e",
+  "database": {
+    "Version": 2,
+    "NextUpdate": "2026-10-10T01:16:59.530805697Z",
+    "UpdatedAt": "2026-10-09T01:16:59.530806077Z",
+    "DownloadedAt": "2026-10-09T04:00:36.594111801Z"
+  },
+  "threshold": {
+    "scanners": [
+      "vuln",
+      "secret"
+    ],
+    "severity": [
+      "HIGH",
+      "CRITICAL"
+    ],
+    "ignore_unfixed": true,
+    "exit_code": 1
+  },
+  "limits": {
+    "cpus": 0.5,
+    "memory_mib": 768,
+    "pids": 128
+  },
+  "actual_download_limits": {
+    "NanoCpus": 500000000,
+    "Memory": 805306368,
+    "MemorySwap": 805306368,
+    "PidsLimit": 128,
+    "NetworkMode": "bridge"
+  },
+  "images": {
+    "backend": {
+      "image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+      "exit_code": 0,
+      "elapsed_seconds": 9.81,
+      "vulnerability_counts": {
+        "HIGH": 0,
+        "CRITICAL": 0
+      },
+      "vulnerability_ids": [],
+      "secret_count": 0,
+      "secret_rule_ids": [],
+      "log_sha256": "cc066b8470704c79ca1d73f2f3701ec1a07dad1277de8d9a6c71c937b8a2392e",
+      "actual_container_limits": {
+        "NanoCpus": 500000000,
+        "Memory": 805306368,
+        "MemorySwap": 805306368,
+        "PidsLimit": 128,
+        "NetworkMode": "none"
+      }
+    },
+    "web": {
+      "image_id": "sha256:9be6b852ae57d1b65350f0d3200d283091e95266b54342ac8818107207a80a7d",
+      "exit_code": 0,
+      "elapsed_seconds": 2.34,
+      "vulnerability_counts": {
+        "HIGH": 0,
+        "CRITICAL": 0
+      },
+      "vulnerability_ids": [],
+      "secret_count": 0,
+      "secret_rule_ids": [],
+      "log_sha256": "65644d8528591430927fa6bbd0a73d3e3977fbfd76c83afd64d6b85f78444e38",
+      "actual_container_limits": {
+        "NanoCpus": 500000000,
+        "Memory": 805306368,
+        "MemorySwap": 805306368,
+        "PidsLimit": 128,
+        "NetworkMode": "none"
+      }
+    }
+  },
+  "status": "passed",
+  "cleanup": {
+    "remaining_container_count": 0
+  },
+  "scope": "Actual immutable native image archives; fresh unexpired database; offline vulnerability/secret scan; runtime environments were not scanned."
+}

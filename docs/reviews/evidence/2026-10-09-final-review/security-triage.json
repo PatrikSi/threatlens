@@ -32,7 +32,7 @@
     "environment": "Pinned Python 3.12.3/OpenSSL 3.0.13; differs from container Python 3.12.13",
     "limits": "Context configuration was tested; no legacy TLS negotiation or exploitation was demonstrated."
   },
-  "status": "All 26 high alerts remain reported in the subsequent ff9 analysis; triage does not change alert state.",
+  "status": "All 26 high alerts remain reported at a6c07f7. Latest Python and JavaScript SARIF and exact merge checkout were verified; triage does not change alert state.",
   "limitations": [
     "Triage covers the reported source flows, not all possible log exception messages or future callers.",
     "Export path assessment depends on canonical UUID entry points and private owned scratch-directory filesystem isolation.",
@@ -1067,5 +1067,283 @@
         }
       ]
     }
-  ]
+  ],
+  "latest_hosted_analysis": {
+    "alert_metadata_sha256": "7f05add1ca307ef6ae172c0b4454e697cec2a5f167dde0dde8ceba1940bd45b6",
+    "alerts": [
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 61,
+        "number": 33,
+        "path": "backend/tests/integration/test_indicator_publications.py",
+        "rule_id": "py/incomplete-url-substring-sanitization",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 222,
+        "number": 32,
+        "path": "backend/app/services/secret_storage.py",
+        "rule_id": "py/weak-sensitive-data-hashing",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 38,
+        "number": 31,
+        "path": "backend/app/services/export_job_scratch.py",
+        "rule_id": "py/path-injection",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 80,
+        "number": 30,
+        "path": "scripts/export_kubernetes_secret.py",
+        "rule_id": "py/clear-text-logging-sensitive-data",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 202,
+        "number": 29,
+        "path": "backend/app/services/export_job_worker.py",
+        "rule_id": "py/path-injection",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 328,
+        "number": 27,
+        "path": "backend/app/services/export_artifacts.py",
+        "rule_id": "py/path-injection",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 322,
+        "number": 26,
+        "path": "backend/app/services/export_artifacts.py",
+        "rule_id": "py/path-injection",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 222,
+        "number": 25,
+        "path": "backend/app/services/export_artifacts.py",
+        "rule_id": "py/path-injection",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 195,
+        "number": 24,
+        "path": "backend/app/services/export_artifacts.py",
+        "rule_id": "py/path-injection",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 173,
+        "number": 23,
+        "path": "backend/app/services/export_artifacts.py",
+        "rule_id": "py/path-injection",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 160,
+        "number": 22,
+        "path": "backend/app/services/export_artifacts.py",
+        "rule_id": "py/path-injection",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 139,
+        "number": 21,
+        "path": "backend/app/services/export_artifacts.py",
+        "rule_id": "py/path-injection",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 113,
+        "number": 20,
+        "path": "backend/app/services/export_artifacts.py",
+        "rule_id": "py/path-injection",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 748,
+        "number": 19,
+        "path": "backend/app/api/deps.py",
+        "rule_id": "py/clear-text-logging-sensitive-data",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 286,
+        "number": 18,
+        "path": "web/src/workspace/workspaceModel.test.ts",
+        "rule_id": "js/incomplete-url-scheme-check",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 264,
+        "number": 17,
+        "path": "backend/app/services/smtp_transport.py",
+        "rule_id": "py/insecure-protocol",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 685,
+        "number": 16,
+        "path": "backend/app/services/local_mfa.py",
+        "rule_id": "py/weak-sensitive-data-hashing",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 975,
+        "number": 15,
+        "path": "backend/app/api/deps.py",
+        "rule_id": "py/clear-text-logging-sensitive-data",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 245,
+        "number": 14,
+        "path": "backend/app/services/auth_rate_limit.py",
+        "rule_id": "py/clear-text-logging-sensitive-data",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 239,
+        "number": 13,
+        "path": "tests/recovery/test_recovery_manifest.py",
+        "rule_id": "py/clear-text-storage-sensitive-data",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 114,
+        "number": 10,
+        "path": "backend/app/core/security.py",
+        "rule_id": "py/weak-sensitive-data-hashing",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 116,
+        "number": 9,
+        "path": "backend/app/core/security.py",
+        "rule_id": "py/weak-sensitive-data-hashing",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 181,
+        "number": 5,
+        "path": "backend/app/services/auth_rate_limit.py",
+        "rule_id": "py/clear-text-logging-sensitive-data",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 106,
+        "number": 4,
+        "path": "backend/app/services/auth_rate_limit.py",
+        "rule_id": "py/clear-text-logging-sensitive-data",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 112,
+        "number": 2,
+        "path": "backend/tests/integration/test_security_surface_api.py",
+        "rule_id": "py/incomplete-url-substring-sanitization",
+        "severity": "high"
+      },
+      {
+        "commit_sha": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "line": 183,
+        "number": 1,
+        "path": "backend/app/core/security.py",
+        "rule_id": "py/weak-sensitive-data-hashing",
+        "severity": "high"
+      }
+    ],
+    "analyses": [
+      {
+        "analysis_created_at_utc": "2026-10-09T03:47:39Z",
+        "analysis_errors": "",
+        "analysis_id": 1920782745,
+        "analysis_ref": "refs/pull/31/merge",
+        "analysis_source_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "analysis_warnings": "",
+        "analyzed_rule_count": 43,
+        "codeflow_result_count": 22,
+        "language": "python",
+        "results_count": 25,
+        "rule_counts": {
+          "py/clear-text-logging-sensitive-data": 6,
+          "py/clear-text-storage-sensitive-data": 1,
+          "py/incomplete-url-substring-sanitization": 2,
+          "py/insecure-protocol": 1,
+          "py/path-injection": 10,
+          "py/weak-sensitive-data-hashing": 5
+        },
+        "sha256": "f0f38d5a335485914cb72532b11d57121ba48a66be5cb91186d6292203bd6fb7"
+      },
+      {
+        "analysis_created_at_utc": "2026-10-09T03:46:22Z",
+        "analysis_errors": "",
+        "analysis_id": 1920778984,
+        "analysis_ref": "refs/pull/31/merge",
+        "analysis_source_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+        "analysis_warnings": "",
+        "analyzed_rule_count": 87,
+        "codeflow_result_count": 0,
+        "language": "javascript",
+        "results_count": 1,
+        "rule_counts": {
+          "js/incomplete-url-scheme-check": 1
+        },
+        "sha256": "a5a9c6258c24142b70b58f0a351b3384f258a958ab2aa2641332899b017a35e2"
+      }
+    ],
+    "application_source_revision": "a6c07f7f2718cd4f9a6caab823b481fc2ac7525e",
+    "findings_dismissed_or_suppressed": false,
+    "interpretation": "Successful analysis uploads do not establish zero findings; source-level manual triage is separate.",
+    "kind": "exact_source_codeql_analysis_evidence",
+    "open_alert_count": 26,
+    "schema_version": 1,
+    "severity_counts": {
+      "high": 26
+    },
+    "synthetic_merge_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+    "tool_version": "2.27.1"
+  },
+  "native_smtp_client_context": {
+    "image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+    "image_build_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+    "status": "passed",
+    "context": {
+      "python": "3.12.13",
+      "openssl": "OpenSSL 3.0.20 7 Apr 2026",
+      "minimum_version": "TLSv1_2",
+      "check_hostname": true,
+      "verify_mode": "CERT_REQUIRED",
+      "network_io": false
+    },
+    "probe_sha256": "80f1e3b253ae90c75e9ae43ac35b1c825194c75521390f1b1a76ccfd4417fdcb",
+    "limit": "This verifies the actual native image client context; no SMTP connection, TLS negotiation or baseline image behavior was exercised."
+  }
 }

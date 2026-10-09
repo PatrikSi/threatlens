@@ -1,0 +1,337 @@
+{
+  "kind": "native_backend_review_completed",
+  "recorded_at_utc": "2026-10-09T03:59:03.321097+00:00",
+  "image_source_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+  "review_helper_source_revision": "fc1ad0b20ac2ae01411d883d1e154075368fc697",
+  "actual_native_images": {
+    "backend": {
+      "id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+      "os": "linux",
+      "architecture": "amd64",
+      "revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+      "version": "2.1.0"
+    },
+    "web": {
+      "id": "sha256:9be6b852ae57d1b65350f0d3200d283091e95266b54342ac8818107207a80a7d",
+      "os": "linux",
+      "architecture": "amd64",
+      "revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+      "version": "2.1.0"
+    }
+  },
+  "running_services": {
+    "api": {
+      "running_container_matches_verified_image": true,
+      "actual_image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c"
+    },
+    "web": {
+      "running_container_matches_verified_image": true,
+      "actual_image_id": "sha256:9be6b852ae57d1b65350f0d3200d283091e95266b54342ac8818107207a80a7d"
+    }
+  },
+  "image_input_git_objects": {
+    "backend": "1bf26eff9074ee4f765a8d2ffb60d99b802d612c",
+    "web": "33bc4dbe0ddb10a1c0ddd44868b022feb9815f10",
+    "docker/backend.Dockerfile": "40c3c1fa1ecc97759e4d36cab42ba27ade37e900",
+    "docker/web.Dockerfile": "fffc09c62c17baa462d00edf4fe54863e77db652",
+    "docker-compose.yml": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+    "docker-compose.build.yml": "15b1b8a21d80a46680fdf528635b216383285131"
+  },
+  "http": {
+    "status": "passed",
+    "passed_checks": 44,
+    "total_checks": 44,
+    "elapsed_seconds": 2.44,
+    "instance_source_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+    "review_source_revision": "fc1ad0b20ac2ae01411d883d1e154075368fc697",
+    "image_build_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+    "backend_image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+    "helper_sha256": "a274f3c688d4994f627dd626ce4550d220a6fca39e69f234c6742a96bee90887",
+    "log_sha256": "6e43ee8cf9c095434cc86f5fd1a6b15b25728fd18e8b9338fbe83bd4cb902d0c",
+    "checks": [
+      {
+        "name": "anonymous_article_read_denied",
+        "status": 401,
+        "passed": true
+      },
+      {
+        "name": "invalid_bearer_article_read_denied",
+        "status": 401,
+        "passed": true
+      },
+      {
+        "name": "browser_login",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "cookie_csrf_missing_write_denied",
+        "status": 403,
+        "passed": true
+      },
+      {
+        "name": "current_user_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "feed_inventory_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "processed_article_inventory_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "article_detail_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "current_team_inventory_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "current_publication_list_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "publication_cursor_object_identity_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "publication_cursor_list_identity_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "publication_cursor_integer_identity_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "publication_cursor_boolean_identity_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "publication_cursor_null_identity_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "publication_cursor_list_body_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "publication_cursor_null_body_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "team_indicator_assessment_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "team_hunt_queue_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "reviewed_publication_inventory_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "automation_execution_inventory_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "automation_policy_update_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "investigation_create",
+        "status": 201,
+        "passed": true
+      },
+      {
+        "name": "investigation_attach_article",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "investigation_add_note",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "investigation_edit_note",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "investigation_stale_note_rejected",
+        "status": 409,
+        "passed": true
+      },
+      {
+        "name": "investigation_archive",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "archived_investigation_note_write_denied",
+        "status": 409,
+        "passed": true
+      },
+      {
+        "name": "oauth_consent_preview",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "oauth_consent_missing_csrf_denied",
+        "status": 403,
+        "passed": true
+      },
+      {
+        "name": "oauth_authorize_pkce",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "oauth_state_and_issuer_preserved",
+        "passed": true
+      },
+      {
+        "name": "oauth_wrong_pkce_denied_without_consuming_code",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "oauth_code_exchange",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "oauth_code_replay_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "oauth_mcp_audience_denies_rest",
+        "status": 401,
+        "passed": true
+      },
+      {
+        "name": "oauth_mcp_tool_catalog",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "oauth_mcp_article_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "token_inventory_for_owned_grant",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "oauth_current_grant_revocation",
+        "status": 204,
+        "passed": true
+      },
+      {
+        "name": "oauth_revoked_mcp_read_denied",
+        "status": 401,
+        "passed": true
+      },
+      {
+        "name": "review_session_logout",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "logged_out_cookie_read_denied",
+        "status": 401,
+        "passed": true
+      }
+    ],
+    "cleanup": [
+      {
+        "resource": "owned_investigation",
+        "status": "passed"
+      },
+      {
+        "resource": "owned_oauth_token",
+        "status": "passed"
+      },
+      {
+        "resource": "owned_session",
+        "status": "passed"
+      }
+    ],
+    "cleanup_failed": false,
+    "execution_count": 1,
+    "provider_calls": 0
+  },
+  "image_helpers": {
+    "status": "passed",
+    "commands": [
+      {
+        "name": "dependency-legal-inventory",
+        "exit_code": 0,
+        "deadline_seconds": 180,
+        "elapsed_seconds": 1.926,
+        "log_sha256": "4a699055e538cfe1afe0106a67e71c402292c48c0c4a95f7b691dc0bba379b82"
+      },
+      {
+        "name": "nonroot-web-startup",
+        "exit_code": 0,
+        "deadline_seconds": 240,
+        "elapsed_seconds": 2.298,
+        "log_sha256": "8f18300c2502b7cd125c190a250c0e70a7fd620f9e62e494fe5ba995fc4adb5b",
+        "cases": [
+          "legacy-writable-root",
+          "read-only-with-tmpfs"
+        ]
+      }
+    ],
+    "helper_sha256": {
+      "verify_image_dependency_artifacts.py": "c840834f66129cbc8d58317b1b85097efe4f676a05b9dfafc4977419d74347ab",
+      "verify_web_image_startup.py": "2d2c79a63f7270f5ea5c2c9522b294c2d0045c2c8a5fc29edead59b355611c2e"
+    },
+    "cleanup": {
+      "requested_owned_container_count": 4,
+      "fallback_removals": 0,
+      "errors": [],
+      "remaining_owned_container_count": 0
+    },
+    "platform": "linux/amd64"
+  },
+  "preliminary_diagnostic": {
+    "status": "failed_preflight_assumption",
+    "failure_type": "AssertionError",
+    "executed_http_checks": 0,
+    "evidence": "session tool transcript; no raw preflight log was captured",
+    "explanation": "Reviewer incorrectly assumed the active fixture directory must equal Oct9 evidence directory. Root intentionally retained the Oct8 fixture directory and updated both manifests to identical fec source/image IDs. Subsequent metadata and actual-container inspection verify current applicability. No HTTP retry occurred."
+  },
+  "limitations": [
+    "Native AMD64 scope; no ARM qualification claim",
+    "No new full backend/coverage or comparative-capacity pass claimed",
+    "No live external provider, SMTP send, external webhook, model output or semantic promotion"
+  ],
+  "status": "passed"
+}

@@ -1,0 +1,307 @@
+{
+  "schema_version": 1,
+  "kind": "current native frontend qualification preserving original and driver-corrected outcomes separately",
+  "application_source_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+  "hosted_frontend_source_revision": "ff9ac246b0ff766a158b1ea310a02a6f7dd8741b",
+  "web_git_trees": {
+    "ff9ac246b0ff766a158b1ea310a02a6f7dd8741b": "33bc4dbe0ddb10a1c0ddd44868b022feb9815f10",
+    "fec81cabf6cdcabca8111ed2c78ac8c4e895c433": "33bc4dbe0ddb10a1c0ddd44868b022feb9815f10"
+  },
+  "hosted_web_tree_matches_current_application": true,
+  "seed_runs": 1,
+  "native33_fresh_runs": 1,
+  "policy_runs": 1,
+  "corrected_note_case_runs": 1,
+  "second_seed_or_report_generation": false,
+  "provider_calls_requested": 0,
+  "smtp_or_webhook_sends_requested": 0,
+  "driver_correction": {
+    "operation": "Existing read-only Refresh while note confirmation is open",
+    "reason": "Modal sets background aria-hidden and inert; default role locator excluded Refresh",
+    "scope": "includeHidden true only for throughModal scripted refresh; ordinary operator selectors unchanged",
+    "budgets_unchanged": true,
+    "generic_listeners_unchanged": true,
+    "no_product_source_change": true
+  },
+  "records": {
+    "original_policy": {
+      "source_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+      "actual_images": {
+        "backend": {
+          "image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+          "build_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433"
+        },
+        "web": {
+          "image_id": "sha256:9be6b852ae57d1b65350f0d3200d283091e95266b54342ac8818107207a80a7d",
+          "build_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433"
+        }
+      },
+      "launch_status": "failed",
+      "scenario_status": "failed",
+      "summary": {
+        "requestedCases": 7,
+        "expectedCases": 7,
+        "passed": 6,
+        "failed": 1,
+        "cleanupChecks": 6,
+        "cleanupFailures": 0,
+        "pageErrors": 0,
+        "consoleErrors": 0,
+        "apiServerErrors": 0,
+        "blockedExternalRequests": 0,
+        "driverFailures": 0
+      },
+      "actual_browser_limits": {
+        "Memory": 3221225472,
+        "MemorySwap": 3221225472,
+        "NanoCpus": 2000000000,
+        "PidsLimit": 768
+      },
+      "container_cleanup": {
+        "status": "passed",
+        "owned_containers_remaining": 0
+      },
+      "launcher_sha256": "a02f73dd3a669ee13e47659c2c40a92374c53fca094afef66c0b3b92e228ff3e",
+      "scenario_result_sha256": "f37ae38964e3faba149a0f3fc69ebd799aa1fa65bba2ad68853955efcd981fc6",
+      "script_sha256": "8a0f4ce73951c5b55baf1d7dbee6e5945c9a243960be602ad315f5f6969ef002",
+      "cases": [
+        {
+          "name": "driver setup and real cookie sessions",
+          "status": "passed",
+          "elapsedSeconds": 2.479
+        },
+        {
+          "name": "owned investigation fixture through real APIs",
+          "status": "passed",
+          "elapsedSeconds": 0.686
+        },
+        {
+          "name": "report editorial retained draft pauses after real grant revocation",
+          "status": "passed",
+          "elapsedSeconds": 60.574
+        },
+        {
+          "name": "report builder dirty navigation after real grant revocation",
+          "status": "passed",
+          "elapsedSeconds": 30.158
+        },
+        {
+          "name": "owner editing another author note pauses after viewer demotion",
+          "status": "passed",
+          "elapsedSeconds": 1.266
+        },
+        {
+          "name": "editor editing own note pauses after viewer demotion",
+          "status": "passed",
+          "elapsedSeconds": 1.165
+        },
+        {
+          "name": "pending note removal retires after viewer demotion",
+          "status": "failed",
+          "elapsedSeconds": 30.414
+        }
+      ],
+      "cleanup": [
+        {
+          "name": "delete owned generated report",
+          "status": "passed",
+          "elapsedSeconds": 0.075,
+          "details": {
+            "deleted": true
+          }
+        },
+        {
+          "name": "remove actor membership and archive owned investigation",
+          "status": "passed",
+          "elapsedSeconds": 0.28,
+          "details": {
+            "archived": true,
+            "actorRemoved": true
+          }
+        },
+        {
+          "name": "remove owned role assignment",
+          "status": "passed",
+          "elapsedSeconds": 0.079,
+          "details": {
+            "removed": true
+          }
+        },
+        {
+          "name": "delete owned custom role",
+          "status": "passed",
+          "elapsedSeconds": 0.056,
+          "details": {
+            "deleted": true
+          }
+        },
+        {
+          "name": "deactivate owned actor and revoke sessions",
+          "status": "passed",
+          "elapsedSeconds": 0.093,
+          "details": {
+            "deactivated": true,
+            "activeSessions": 0
+          }
+        },
+        {
+          "name": "close browser contexts and browser",
+          "status": "passed",
+          "elapsedSeconds": 0.04,
+          "details": {
+            "closed": true
+          }
+        }
+      ]
+    },
+    "native33": {
+      "source_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+      "actual_images": {
+        "backend": {
+          "image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+          "build_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433"
+        },
+        "web": {
+          "image_id": "sha256:9be6b852ae57d1b65350f0d3200d283091e95266b54342ac8818107207a80a7d",
+          "build_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433"
+        }
+      },
+      "launch_status": "passed",
+      "scenario_status": "passed",
+      "summary": {
+        "executedChecks": 33,
+        "expectedCheckCount": 33,
+        "expectedCountMatched": true,
+        "passed": 33,
+        "failed": 0,
+        "pageErrors": 0,
+        "consoleErrors": 0,
+        "apiServerErrors": 0,
+        "blockedExternalRequests": 0,
+        "createdSyntheticResources": 0,
+        "cleanupFailures": 0
+      },
+      "actual_browser_limits": {
+        "Memory": 3221225472,
+        "MemorySwap": 3221225472,
+        "NanoCpus": 2000000000,
+        "PidsLimit": 768
+      },
+      "container_cleanup": {
+        "status": "passed",
+        "owned_containers_remaining": 0
+      },
+      "launcher_sha256": "e617fecac321400cd6c2bb113ea4c24a6f3bb18bbf1b09f9f815909687cfa5d4",
+      "scenario_result_sha256": "2089a680aae44c099427a0dc1c2145d8d58a34d8f3b1314fd6fd268f05a6b1a6",
+      "script_sha256": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c",
+      "original_script_sha256": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c",
+      "engine_step_counts": {
+        "chromium": 11,
+        "firefox": 11,
+        "webkit": 11
+      }
+    },
+    "corrected_note_case": {
+      "source_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+      "actual_images": {
+        "backend": {
+          "image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+          "build_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433"
+        },
+        "web": {
+          "image_id": "sha256:9be6b852ae57d1b65350f0d3200d283091e95266b54342ac8818107207a80a7d",
+          "build_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433"
+        }
+      },
+      "launch_status": "passed",
+      "scenario_status": "passed",
+      "summary": {
+        "requestedCases": 1,
+        "expectedCases": 1,
+        "passed": 1,
+        "failed": 0,
+        "cleanupChecks": 6,
+        "cleanupFailures": 0,
+        "pageErrors": 0,
+        "consoleErrors": 0,
+        "apiServerErrors": 0,
+        "blockedExternalRequests": 0,
+        "driverFailures": 0
+      },
+      "actual_browser_limits": {
+        "Memory": 3221225472,
+        "MemorySwap": 3221225472,
+        "NanoCpus": 2000000000,
+        "PidsLimit": 768
+      },
+      "container_cleanup": {
+        "status": "passed",
+        "owned_containers_remaining": 0
+      },
+      "launcher_sha256": "819b04b98959961bb4b23d81ecc119f2e08e2ef37b03bbea1f80b3920837a400",
+      "scenario_result_sha256": "3f3fc9cecafdfd2f8e3fe6751babdf9d847acb9456791b9d8312745ff16990f5",
+      "script_sha256": "9fb00a70d42fcc72a330cf434a1d3ebd8441b1bdfcd0c91e8b3cd130e7981b30",
+      "cases": [
+        {
+          "name": "pending note removal retires after viewer demotion \u2014 separately journaled driver correction",
+          "status": "passed",
+          "elapsedSeconds": 4.453
+        }
+      ],
+      "cleanup": [
+        {
+          "name": "delete owned generated report",
+          "status": "passed",
+          "elapsedSeconds": 0.021,
+          "details": {
+            "alreadyAbsent": true
+          }
+        },
+        {
+          "name": "remove actor membership and archive owned investigation",
+          "status": "passed",
+          "elapsedSeconds": 0.179,
+          "details": {
+            "archived": true,
+            "actorRemoved": true
+          }
+        },
+        {
+          "name": "remove owned role assignment",
+          "status": "passed",
+          "elapsedSeconds": 0.078,
+          "details": {
+            "removed": true
+          }
+        },
+        {
+          "name": "delete owned custom role",
+          "status": "passed",
+          "elapsedSeconds": 0.075,
+          "details": {
+            "deleted": true
+          }
+        },
+        {
+          "name": "deactivate owned actor and revoke sessions",
+          "status": "passed",
+          "elapsedSeconds": 0.08,
+          "details": {
+            "deactivated": true,
+            "activeSessions": 0
+          }
+        },
+        {
+          "name": "close browser contexts and browser",
+          "status": "passed",
+          "elapsedSeconds": 0.042,
+          "details": {
+            "closed": true
+          }
+        }
+      ]
+    }
+  },
+  "remaining_native_frontend_cases": 0,
+  "historical_diagnostics_preserved": true
+}
