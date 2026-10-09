@@ -1,7 +1,10 @@
 import uuid
 
 from celery import Celery
+from kombu.utils.imports import symbol_by_name
 
+from app.core.config import get_settings
+from app.tasks.beat_watchdog import build_beat_command
 from app.tasks.bounded_beat import (
     BoundedCanaryScheduler,
     CANARY_TASK,
@@ -30,7 +33,13 @@ def test_paused_redis_consumer_has_bounded_canaries_and_recovers(
             }
         },
     )
-    scheduler = BoundedCanaryScheduler(
+    scheduler_path = next(
+        argument.split("=", 1)[1]
+        for argument in build_beat_command(get_settings())
+        if argument.startswith("--scheduler=")
+    )
+    # The watchdog's explicit CLI scheduler overrides the Celery app default.
+    scheduler = symbol_by_name(scheduler_path)(
         app=app, schedule_filename=str(tmp_path / "schedule")
     )
     try:

@@ -2,10 +2,10 @@ import logging
 from datetime import datetime, timezone
 
 import redis
-from celery.beat import PersistentScheduler
 
 from app.core.config import get_settings
 from app.core.redis_client import redis_client_from_url
+from app.tasks.bounded_beat import BoundedCanaryScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ def write_scheduler_heartbeat(
     return True
 
 
-class WatchdogPersistentScheduler(PersistentScheduler):
+class WatchdogPersistentScheduler(BoundedCanaryScheduler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         settings = get_settings()
