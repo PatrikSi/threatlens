@@ -1,0 +1,268 @@
+{
+  "schema_version": 1,
+  "review_date": "2026-10-09",
+  "qualification_revision": "a6c07f7f2718cd4f9a6caab823b481fc2ac7525e",
+  "pinned_environment": {
+    "python": "3.12.3",
+    "verified_exact_pins": 99,
+    "mismatches": []
+  },
+  "scoped_regressions": {
+    "processing_prerequisites": {
+      "commit": "20c289a",
+      "before_source_commit": "985ec087f9c9e8e81f337bfede2170b873cd1943",
+      "runs": [
+        {
+          "tests": 13,
+          "failed": 6,
+          "errors": 0,
+          "skipped": 0,
+          "junit_seconds": 8.708,
+          "log_sha256": "9711123772c590634f31164602612dabd1f33222f286f51cea8bde22d217baef",
+          "junit_sha256": "db88f4a83cadde30e9e82a1a12fe6ea10f4059b65be7533acec22f8197114181"
+        },
+        {
+          "tests": 67,
+          "failed": 2,
+          "errors": 0,
+          "skipped": 0,
+          "junit_seconds": 23.638,
+          "log_sha256": "82cdd20f71eb2bbce7c3791b5d1b094175128fda6f0250dcd9abc809dd7d6014",
+          "junit_sha256": "5b3b614c4e7e5b5d1c6eba14a70ebb7ed6c624b8fc62bfea2f91f588c6669270"
+        },
+        {
+          "tests": 67,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "junit_seconds": 23.926,
+          "log_sha256": "4008ae739dd54ef196ad9b45d09d3f2ac64625c4f4d6c8e913d793a73beb63fc",
+          "junit_sha256": "bd6eb52f84159bc04974561c1848339f67937e99f79b041e764740978b9722f8"
+        }
+      ],
+      "invariants": {
+        "all_stage_missing_predicates_unchanged": true,
+        "budget_config_unchanged": true,
+        "concurrent_workload_unchanged": true,
+        "publication_and_worker_unchanged": true,
+        "article_fetch_unchanged": true
+      },
+      "changed_paths_sha256": {
+        "backend/app/services/processing_queries.py": "ca6b9023c97d8723bedd8a7480677d8939a575e416abdc1b40f440c07e0aef28",
+        "backend/app/services/processing_dispatch.py": "ec09b3898c38018e159905c50fdc8682776b1e32598b235311ee763d3717e63d",
+        "backend/tests/integration/test_processing_recovery.py": "940424d6b9ee3d18fc04d24131c604ab8f03c9e59f3ebd09dd5c5ae516fe0546",
+        "backend/tests/integration/test_processing_disabled_feeds.py": "11045c20189c954901811b90304129378b5a1bbebd5b946c44543eba46bb3752",
+        "backend/tests/integration/test_processing_prerequisites.py": "2891426e16b386c2bef7ca852e881aeff2649d9bde8de5ec36116a6d18a5b0ba"
+      },
+      "new_regressions": 13,
+      "existing_controls": 54,
+      "initial_after_failure_explanation": "Two preexisting explicit article tests relied on the shared fixture accidentally remaining new despite a committed Article body. Their article refresh/missing-input prerequisites were made explicit; failed run retained.",
+      "capacity_attribution_limit": "Relevant pipeline source and concurrent workload source are byte-identical between 35ac120 and c4faef4. Original logs expose result status but not stage or failure reason; the fix addresses a concrete phase-sensitive load amplifier, not a proven sole cause of the flagged p95 results."
+    },
+    "watchdog_canary_admission": {
+      "commit": "fec81ca",
+      "before_source_commit": "985ec087f9c9e8e81f337bfede2170b873cd1943",
+      "runs": [
+        {
+          "tests": 5,
+          "failed": 3,
+          "errors": 0,
+          "skipped": 0,
+          "junit_seconds": 0.847,
+          "log_sha256": "38e010596097b75dfc41b22d380efffd44b07da674929a2ad985d066399f63b2",
+          "junit_sha256": "916ccd9ef98a9dc5ac92ae101d0b993ee744fe153e5490960db6bb3932884c85"
+        },
+        {
+          "tests": 20,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "junit_seconds": 1.149,
+          "log_sha256": "8c1da8a702daa33ba063eea8aac0593ce7db37977d24c556d924b5722c98205a",
+          "junit_sha256": "abc488a8261787a8f4a3f83cae050813c3e888de605822ba38808c1455815420"
+        }
+      ],
+      "invariants": {
+        "bounded_canary_limits_and_inspection_unchanged": true,
+        "watchdog_command_and_deadlines_unchanged": true,
+        "budget_config_unchanged": true
+      },
+      "changed_paths_sha256": {
+        "backend/app/tasks/beat_scheduler.py": "0496c574007a24ce645fb861b8e966ad988a1bdb6e7e6d9a6881365b8fe4b164",
+        "backend/tests/unit/test_beat_scheduler.py": "8a828aafb52e0c2534a92cc51ed5cd417f7a4181cc2a1d9f7073d84d9fffd398",
+        "backend/tests/unit/test_watchdog_canary_admission.py": "619db1ab301d4389e631297e20e2fad71293fad89e5afe2734b7065531d07f18",
+        "backend/tests/integration/test_bounded_beat.py": "88b7e45024c737010520e623b77b586c583ccf0fe162730e20211c3c958aaba1"
+      },
+      "before_real_redis_failure": {
+        "scheduling_attempts": 60,
+        "regular_priority_messages": 3,
+        "expected_queue_depth": 8,
+        "observed_queue_depth": 63,
+        "global_keyprefix_and_priority_steps": [
+          0,
+          2,
+          6
+        ]
+      },
+      "after_real_redis_control": "Selected CLI scheduler keeps total priority/prefix queue depth at8; all60 attempts advance schedule; draining queue permits a fresh canary.",
+      "arm_timeout_attribution_limit": "This selected-class admission defect is confirmed independently. No evidence establishes it caused the ARM/QEMU child startup/heartbeat timeout; original failed ARM job remains distinct."
+    }
+  },
+  "independent_reference_cleanup": {
+    "after_proofs": "11tests; exact remnant and late remnant, unknown/nonzero/timeout/invalidIDs, malformed or missing artifacts, endpoint guard/frozen binding, positive two-refhandoff, originalartifact bytepreservation, workload codes3/124 retained.",
+    "before_proof": "Actual old workflow loop with mocked legacy baseline and exact owned remnant started candidate and exited0; newworkflow integration refuses that handoff.",
+    "before_workflow_sha256": "184a01fb7a8499237f7cc28eadd19ebfbbce42f21a4d11dfa98c328ff280b539",
+    "evidence_limit": "Original hosted baseline contamination is not proved; newgate closes the independent attestation gap.",
+    "kind": "independent_reference_cleanup_gate_fix",
+    "measured_source_artifacts_budgets_comparator_and_durations_unchanged": true,
+    "only_workflow_measurement_driver_changed": true,
+    "runs": {
+      "after": {
+        "duration_seconds": 0.168,
+        "failed": 0,
+        "log_sha256": "8449923c2893ec7ba5f94836a2d34aeb0272e3ba78145bfa3f2fe83a2842f275",
+        "passed": 11,
+        "tests": 11
+      },
+      "before": {
+        "duration_seconds": 0.057,
+        "failed": 1,
+        "log_sha256": "424fea3b853511bc0e8a8c6f2b95ee496aecdd5f99fc232f38a7a923be962d08",
+        "passed": 0,
+        "tests": 1
+      }
+    },
+    "schema_version": 1,
+    "semantics": [
+      "Validate and freeze one local Unix Docker endpoint before either reference",
+      "Discover all running and stopped containers under only the exact32hex supervisor identity",
+      "Observe late discovery within3seconds and a10second overall attestation budget; eachDockerprobe boundedto2seconds",
+      "Any ownership remnant or unknown discovery fails closed beforecandidate",
+      "Never remove anycontainers orwrite themeasuredartifact",
+      "Separateperreferencecleanupattestation preserves originalmeasurement exitcode including3and124"
+    ],
+    "source_after_sha256": {
+      ".github/workflows/capacity-trends.yml": "a86054d1e078e231132a443894267ea8e026504f26a93e1eeb5786ef2d65f27c",
+      "scripts/operations/run_capacity_reference.py": "345dd3c3bc5f61895b241976a8cc2c79f667785b8ff08f297f312190eb279325",
+      "tests/operations/test_capacity_reference_cleanup.py": "bcea7a9aefa1fbc699795c7e15cdb3baae7d42cdba2b873004ed3b35374d555a"
+    },
+    "source_before_revision": "c4faef4edc2074f4e1ef961c7e3116637c3f4f96",
+    "commit": "a6c07f7"
+  },
+  "restrictive_build_context": {
+    "commit": "08d41ea",
+    "matched_buildx_proof": {
+      "buildx_version": "github.com/docker/buildx v0.37.2 2d379c0c3f22da0d2759d132a0ec81ca949098f0",
+      "binary_sha256": "982ca20490b45ed1ec8d99795974d3d874a358f75938c9c237305010e6b7e548",
+      "permissions": "Only exact build context fs.read; Dockerfile and fixture mode 0600",
+      "runs": {
+        "before": {
+          "exit_code": 1,
+          "log_sha256": "c90eb33111fd4c9a1abb662d4fc6e17985d2cba337bc238b4b43163a16a072e2"
+        },
+        "after": {
+          "exit_code": 0,
+          "log_sha256": "89af52e5499be7319f32c3de9aae2a9f594b4be53fbbcf996a4b2a44643e1c9b"
+        }
+      },
+      "before_requires_fs_read": true,
+      "after_passed": true,
+      "cleanup": {
+        "exit_code": 0,
+        "remaining_container_count": 0,
+        "remaining_volume_count": 0
+      }
+    },
+    "workflow_script_validation": {
+      "yaml_parsed": true,
+      "tracked_dockerfile_sha256": "99114ea0c03a99f79cd22ff34d48db209a2bf824dba9fb36fca88ccb142cd0b5",
+      "dockerfile_mode": "0o600",
+      "contents_unchanged": true
+    },
+    "earlier_probe_limit": "Two probes using local Compose5/Buildx0.31 did not reproduce refusal. The later checksum-verified Buildx0.37.2 direct Bake probe matches the hosted access check and shows failure then success with the same exact context entitlement. Full Compose/platform results are separate."
+  },
+  "ioc_measurement_environment": {
+    "source_base": "c4faef4",
+    "algorithm_files_unchanged": [
+      "backend/app/services/ioc_extraction.py",
+      "backend/app/services/ioc_network_extraction.py",
+      "backend/app/services/ioc_normalization.py"
+    ],
+    "benchmark_invariants": [
+      {
+        "path": "backend/tests/unit/test_ioc_network_extraction.py",
+        "test": "test_dense_punctuation_and_url_boundaries_have_bounded_cpu",
+        "child_payload_sha256": "7812d94f86fadd6bd58b9097ba96c37a09e187dbf9bca068c11106c82d433082",
+        "child_workload_limits_and_assertions_unchanged": true,
+        "timeout_and_cwd_unchanged": true
+      },
+      {
+        "path": "backend/tests/unit/test_ioc_network_extraction.py",
+        "test": "test_large_defanged_inventory_has_bounded_cpu_and_mapping_memory",
+        "child_payload_sha256": "f91128230e15f722f0af4182867c3b67aae077a4310bb77083b90da0e59df797",
+        "child_workload_limits_and_assertions_unchanged": true,
+        "timeout_and_cwd_unchanged": true
+      },
+      {
+        "path": "backend/tests/unit/test_ioc_extraction.py",
+        "test": "test_dense_hash_document_completes_with_bounded_cpu",
+        "child_payload_sha256": "28de7e5a056d42dd50cc375f9a4c4334f849c857b9e3cb81b806a11610043463",
+        "child_workload_limits_and_assertions_unchanged": true,
+        "timeout_and_cwd_unchanged": true
+      }
+    ],
+    "causal_limit": "Coverage overhead is directly measured; original hosted SIGKILL was not locally reproduced or proven to be CPU exhaustion. No workload or limit change, and no repeated benchmark retries.",
+    "commit": "985ec08",
+    "before_failed": 3,
+    "after_passed": 55,
+    "parent_coverage_active": true,
+    "workload_and_resource_limits_unchanged": true
+  },
+  "preserved_local_full_backend": {
+    "source_revision": "c4faef4edc2074f4e1ef961c7e3116637c3f4f96",
+    "backend_tree": "f87f384e608c4999ba86a3a13b15032a41321616",
+    "deadline_seconds": 1500,
+    "process_cpu_affinity": [
+      2
+    ],
+    "process_nice": 10,
+    "fixtures": {
+      "postgres": {
+        "image_id": "sha256:b6ccf02e9b47eac0d67b5eaa0ef56fd59163bffa5506f64e96ceb5053130ec86",
+        "cpu_nanos": 500000000,
+        "memory_bytes": 536870912,
+        "memory_swap_bytes": 536870912,
+        "pids_limit": 128
+      },
+      "redis": {
+        "image_id": "sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
+        "cpu_nanos": 500000000,
+        "memory_bytes": 134217728,
+        "memory_swap_bytes": 134217728,
+        "pids_limit": 128
+      }
+    },
+    "steps": [
+      {
+        "name": "compile",
+        "exit_code": 0,
+        "elapsed_seconds": 0.868,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "pytest",
+        "exit_code": 124,
+        "elapsed_seconds": 1510.254,
+        "log_sha256": "1c6624359daeb28aab7d66e122bbdf464aa549f32fbd08d9892a18109b1805e0"
+      }
+    ],
+    "cleanup": {
+      "status": "passed",
+      "errors": [],
+      "remaining_container_count": 0
+    },
+    "source_revision_at_end": "c4faef4edc2074f4e1ef961c7e3116637c3f4f96",
+    "backend_tree_at_end": "f87f384e608c4999ba86a3a13b15032a41321616",
+    "status": "failed"
+  }
+}

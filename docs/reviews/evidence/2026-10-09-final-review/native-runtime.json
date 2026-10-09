@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "review_date": "2026-10-09",
+  "image_build_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+  "qualification_revision": "a6c07f7f2718cd4f9a6caab823b481fc2ac7525e",
+  "platform": "linux/amd64",
+  "build": {
+    "status": "passed",
+    "build_limits": {
+      "cpu": 1,
+      "memory_mib": 1536,
+      "swap": false,
+      "max_parallelism": 1
+    },
+    "actual_builder_limits": {
+      "Memory": 1610612736,
+      "MemorySwap": 1610612736,
+      "CpuPeriod": 100000,
+      "CpuQuota": 100000
+    },
+    "cleanup": {
+      "exit_code": 0,
+      "elapsed_seconds": 3.684,
+      "log_sha256": "1ce7f3bd28feb428ee1ca0bcc855c2efa511264b8788e8fdd702cd590c49926a",
+      "remaining_container_count": 0,
+      "remaining_volume_count": 0
+    }
+  },
+  "images": {
+    "backend": {
+      "id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+      "version": "2.1.0",
+      "user": "app",
+      "exit_code": 0,
+      "elapsed_seconds": 69.714,
+      "log_sha256": "d2806eba952fdde5a3c27b995234aaf3489187ac38503c2840ec96e0bbafdfe8"
+    },
+    "web": {
+      "id": "sha256:9be6b852ae57d1b65350f0d3200d283091e95266b54342ac8818107207a80a7d",
+      "version": "2.1.0",
+      "user": "nginx",
+      "exit_code": 0,
+      "elapsed_seconds": 60.347,
+      "log_sha256": "6900f215ec4b285c3cc59117cec5225d5e5a527b0ea6d96859cbfe4d23480fa3"
+    }
+  },
+  "runtime": {
+    "status": "passed",
+    "coordinated_writer_stop": true,
+    "writer_stop": {
+      "exit_code": 0,
+      "elapsed_seconds": 8.475,
+      "log_sha256": "4d4b2f5cbc7affaaedac73fdb6558ef3a2b89d19865f1f0e50d3f4e500469d73"
+    },
+    "dedicated_migration": {
+      "exit_code": 0,
+      "elapsed_seconds": 2.123,
+      "log_sha256": "6653de9de840022c343ca3f0306a5654152802e5a9310a6568beb1e61a0f445d"
+    },
+    "startup": {
+      "exit_code": 0,
+      "elapsed_seconds": 51.763,
+      "log_sha256": "f0099f194649b1e56ae8d80ee544f9ba6f17d8c73bd5d1246378e1610649a1f6"
+    },
+    "ready_status": 200,
+    "openapi_version": "2.1.0",
+    "openapi_checked_contract_equal": true,
+    "services": {
+      "api": {
+        "image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+        "running": true,
+        "health": "healthy",
+        "read_only": true,
+        "memory_bytes": 536870912,
+        "cpu_nanos": 500000000,
+        "pids_limit": 256,
+        "exit_code": 0
+      },
+      "beat": {
+        "image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+        "running": true,
+        "health": "healthy",
+        "read_only": true,
+        "memory_bytes": 335544320,
+        "cpu_nanos": 250000000,
+        "pids_limit": 96,
+        "exit_code": 0
+      },
+      "db": {
+        "image_id": "sha256:b6ccf02e9b47eac0d67b5eaa0ef56fd59163bffa5506f64e96ceb5053130ec86",
+        "running": true,
+        "health": "healthy",
+        "read_only": true,
+        "memory_bytes": 536870912,
+        "cpu_nanos": 500000000,
+        "pids_limit": 256,
+        "exit_code": 0
+      },
+      "migrate": {
+        "image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+        "running": false,
+        "health": null,
+        "read_only": true,
+        "memory_bytes": 536870912,
+        "cpu_nanos": 1000000000,
+        "pids_limit": 64,
+        "exit_code": 0
+      },
+      "redis": {
+        "image_id": "sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
+        "running": true,
+        "health": "healthy",
+        "read_only": true,
+        "memory_bytes": 134217728,
+        "cpu_nanos": 250000000,
+        "pids_limit": 128,
+        "exit_code": 0
+      },
+      "review-source": {
+        "image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+        "running": true,
+        "health": null,
+        "read_only": true,
+        "memory_bytes": 67108864,
+        "cpu_nanos": 100000000,
+        "pids_limit": 32,
+        "exit_code": 0
+      },
+      "web": {
+        "image_id": "sha256:9be6b852ae57d1b65350f0d3200d283091e95266b54342ac8818107207a80a7d",
+        "running": true,
+        "health": "healthy",
+        "read_only": true,
+        "memory_bytes": 134217728,
+        "cpu_nanos": 250000000,
+        "pids_limit": 64,
+        "exit_code": 0
+      },
+      "worker": {
+        "image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+        "running": true,
+        "health": "healthy",
+        "read_only": true,
+        "memory_bytes": 536870912,
+        "cpu_nanos": 500000000,
+        "pids_limit": 256,
+        "exit_code": 0
+      },
+      "worker-ai": {
+        "image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+        "running": true,
+        "health": "healthy",
+        "read_only": true,
+        "memory_bytes": 536870912,
+        "cpu_nanos": 250000000,
+        "pids_limit": 128,
+        "exit_code": 0
+      },
+      "worker-exports": {
+        "image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+        "running": true,
+        "health": "healthy",
+        "read_only": true,
+        "memory_bytes": 536870912,
+        "cpu_nanos": 250000000,
+        "pids_limit": 128,
+        "exit_code": 0
+      },
+      "worker-maintenance": {
+        "image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+        "running": true,
+        "health": "healthy",
+        "read_only": true,
+        "memory_bytes": 536870912,
+        "cpu_nanos": 250000000,
+        "pids_limit": 128,
+        "exit_code": 0
+      },
+      "worker-notifications": {
+        "image_id": "sha256:509979ced6388be6d0445479bde66f97c78764d4641c96b1260250c99164533c",
+        "running": true,
+        "health": "healthy",
+        "read_only": true,
+        "memory_bytes": 536870912,
+        "cpu_nanos": 250000000,
+        "pids_limit": 256,
+        "exit_code": 0
+      }
+    }
+  },
+  "source_applicability": {
+    "image_build_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+    "qualification_revision": "a6c07f7f2718cd4f9a6caab823b481fc2ac7525e",
+    "objects": {
+      "backend": {
+        "object_id": "1bf26eff9074ee4f765a8d2ffb60d99b802d612c",
+        "equal": true
+      },
+      "web": {
+        "object_id": "33bc4dbe0ddb10a1c0ddd44868b022feb9815f10",
+        "equal": true
+      },
+      "docker": {
+        "object_id": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+        "equal": true
+      },
+      "docker-compose.yml": {
+        "object_id": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+        "equal": true
+      },
+      "docker-compose.build.yml": {
+        "object_id": "15b1b8a21d80a46680fdf528635b216383285131",
+        "equal": true
+      },
+      "LICENSE": {
+        "object_id": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab",
+        "equal": true
+      },
+      "VERSION": {
+        "object_id": "7ec1d6db40877765247db18e7f9a4e36a0def4ad",
+        "equal": true
+      }
+    }
+  },
+  "limits": [
+    "Synthetic local fixture; no external provider, SMTP or webhook action.",
+    "Fresh image-source archives include tracked files only; existing deployment configuration, developer lock and backups were preserved.",
+    "Hosted quality/capacity and live browser/HTTP qualification are recorded independently."
+  ]
+}
