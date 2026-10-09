@@ -13,6 +13,13 @@ function editableDraft(report: ReportDetail) {
   return { expected_version: report.editorial_version, title: report.title, summary_text: report.summary_text ?? '',
     sections: report.sections.map(({ key, title, body_markdown }) => ({ key, title, body_markdown })) }
 }
+function canSubmitDraft(pending: boolean, stale: boolean, paused: boolean) {
+  return !pending && !stale && !paused
+}
+function draftEditorState(canManage: boolean, state: string, pending: boolean) {
+  const paused = !canManage || state !== 'draft'
+  return { paused, disabled: paused || pending }
+}
 export function ReportEditorialPanel({ report, canManage, canReview, onRefresh, onDirtyChange, discard }: {
   report: ReportDetail; canManage: boolean; canReview: boolean; onRefresh: () => void; onDirtyChange: (dirty: boolean) => void; discard: ConfirmDiscardChanges
 }) {
@@ -52,6 +59,7 @@ export function ReportEditorialPanel({ report, canManage, canReview, onRefresh, 
   const state = report.publication_status
   if (!state || report.status !== 'ready') return null
   const staleDraft = draft !== null && draft.expected_version !== report.editorial_version
+  const { paused: draftPaused, disabled: draftDisabled } = draftEditorState(canManage, state, mutation.isPending)
   function startEdit() {
     const snapshot = editableDraft(report)
     setDraft(snapshot); setBaseline(JSON.stringify(snapshot)); setMessage(null); mutation.reset()
@@ -75,8 +83,9 @@ export function ReportEditorialPanel({ report, canManage, canReview, onRefresh, 
         </div>}
       {message && <p role="status" className="mt-2 text-sm">{message}</p>}
       {staleDraft && <p role="alert" className="mt-2 text-sm text-amber-800 dark:text-amber-200">A newer revision is available. Your draft is preserved; discard it to load the new revision before saving.</p>}
-      {draft ? <form className="mt-3" onSubmit={(event) => { event.preventDefault(); if (!mutation.isPending && !staleDraft) mutation.mutate({ draft }) }}>
-        <fieldset disabled={mutation.isPending} className="space-y-3">
+      {draft ? <form className="mt-3" onSubmit={(event) => { event.preventDefault(); if (canSubmitDraft(mutation.isPending, staleDraft, draftPaused)) mutation.mutate({ draft }) }}>
+        {draftPaused && <p role="status" className="mt-2 text-sm">Draft editing is paused because this report is no longer an editable draft under your current access. Your draft is preserved; discard it to return to the saved report.</p>}
+        <fieldset disabled={draftDisabled} className="space-y-3">
           <label className="block text-xs font-semibold">Report title<input className={INPUT} required maxLength={255} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
           <label className="block text-xs font-semibold">Delivery summary<textarea className={INPUT} rows={4} maxLength={100000} value={draft.summary_text} onChange={(event) => setDraft({ ...draft, summary_text: event.target.value })} /></label>
           {draft.sections.map((section, index) => <div key={section.key} className="space-y-2 rounded border border-slate/20 p-3">
@@ -90,8 +99,9 @@ export function ReportEditorialPanel({ report, canManage, canReview, onRefresh, 
               </label>
           </div>)}
           <p className="text-xs">Keep source references such as [S1]. Edits retain the original evidence snapshots; review each claim against its sources before approval.</p>
-          <div className="flex gap-2"><button className={BUTTON} type="submit" disabled={staleDraft || !dirty}>{mutation.isPending ? 'Saving…' : 'Save draft'}</button><button className={BUTTON} type="button" onClick={() => discard(() => setDraft(null))}>Discard editor</button></div>
+          <button className={BUTTON} type="submit" disabled={staleDraft || !dirty}>{mutation.isPending ? 'Saving…' : 'Save draft'}</button>
         </fieldset>
+        <button className={`${BUTTON} mt-3`} type="button" disabled={mutation.isPending} onClick={() => discard(() => setDraft(null))}>Discard editor</button>
       </form> : <fieldset disabled={mutation.isPending} className="mt-3 space-y-3">
         {canReview && state !== 'published' && <label className="block text-xs font-semibold">Review note (optional)<textarea className={INPUT} rows={2} maxLength={2000} value={note} onChange={(event) => setNote(event.target.value)} /></label>}
         <div className="flex flex-wrap gap-2">
