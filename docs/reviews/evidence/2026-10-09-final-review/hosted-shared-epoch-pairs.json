@@ -1,0 +1,444 @@
+{
+  "candidate_revision": "79001439677cae246faef0a398ddea50c47faf80",
+  "diagnostics_enabled": false,
+  "duration_seconds_per_ref": 600,
+  "historical_application_baseline_revision": "35ac120b28820b6e5b1222a50b5f70f7a6b85c3b",
+  "interpretation_limits": [
+    "Release pair and unchanged-source control run on separate hosted runners; absolute cross-pair values are not a controlled cross-host comparison.",
+    "One release pair and one source control do not estimate run-to-run variance or attribute any failed metric to an application change.",
+    "The lock metric is maximum sampled query age while currently Lock-waiting, not measured time spent waiting or a latency percentile.",
+    "Common-epoch correction does not change prior failed comparisons.",
+    "No retries or threshold/budget changes were performed."
+  ],
+  "kind": "predeclared_shared_epoch_pair_summary",
+  "matched_harness_baseline_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+  "new_arrival_contract": "five-lanes-shared-monotonic-epoch-v2",
+  "pairs": {
+    "release": {
+      "actual_input_and_source_labels_verified": true,
+      "all_latency_p95_comparisons_within_20_percent": true,
+      "artifact_content_hashes": {
+        "baseline-cleanup-attestation.json": "5e4b560d4979a28d84cdf1745a73ebc822c9f6c30b7d9ebddd63c7a32e2e318f",
+        "baseline.json": "359ec9d01f9ac16483a2ad585f786b299d021abf46da9e9fd1e6a32d01c66647",
+        "baseline.json.partial.json": "e4da73c6e2e45a9c09890182963b251c71bb7ec22e9c68ace5b3a8ee750be9c7",
+        "baseline.log": "df5d882fe82bf4a68f7466f5b20ef2dbaaf0ddabda8877f4217aefc6a0500ab0",
+        "candidate-cleanup-attestation.json": "59ebccebc1271582178e65210aadd0e7d3233c1b8bbcf0b9af99c024b0e362d2",
+        "candidate.json": "b4939a4ec92c9cee9277fe1896b3e2521fc20d167cd612b36f2b81661e01f581",
+        "candidate.json.partial.json": "9dd7d189dde395972b7f6a4aa8b65b2c11fa9154ab701cf575c40abee8d3ecf1",
+        "candidate.log": "b7ef95af7d7ee718f8fd13ec70f5b8d3dad81a33ee594b6a1ac47f82bb57e9ef",
+        "comparison.json": "9244a701f2353ab433cbc5a2bf11ee9b21fa9da7aa0bd75ed0a7415e88bb57db"
+      },
+      "artifact_id": 11598590662,
+      "artifact_zip_sha256": "579b30a18a5f511363f3e02a93caa03bca8a81f174388d659b02e40c265642b9",
+      "both_independent_cleanups_accepted": true,
+      "compact_evidence_sha256": "2ac10faf74df457aac3870584b00e7cb66d6936652602fae57433155d06fe1cf",
+      "comparison_fingerprints_equal": true,
+      "compatible": true,
+      "conclusive": true,
+      "hosted_job": {
+        "conclusion": "failure",
+        "input_proof": {
+          "diagnostics_false": true,
+          "profile_sustained": true,
+          "target_matches": true,
+          "workflow_checkout_matches": true
+        },
+        "job_id": 113684252968,
+        "log_bytes": 112373,
+        "log_sha256": "fb4122692a9d46c8443ac5e61a092e2ef9c6e53dcc4a5b304c2308a3f608ba53"
+      },
+      "insufficient_required_samples": [],
+      "references": {
+        "baseline": {
+          "budget_violations": {},
+          "database": {
+            "lock_wait_samples": 165,
+            "sampled_lock_waiting_query_age_peak_ms": 220.296,
+            "waiting_sessions_peak": 1
+          },
+          "git_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+          "independent_cleanup": {
+            "accepted": true,
+            "docker_endpoint": "established_local_unix",
+            "errors": [],
+            "identity_matches_measurement": true,
+            "kind": "independent_capacity_cleanup",
+            "present": true,
+            "probe_count": 16,
+            "remaining_container_count": 0,
+            "schema_version": 1,
+            "status": "passed"
+          },
+          "limits": {
+            "container_cpus": 0.5,
+            "cpu_count": 1,
+            "max_rss_bytes": 1073741824,
+            "nice": 10,
+            "postgres_memory_mib": 512,
+            "redis_memory_mib": 128,
+            "wall_timeout_seconds": 840
+          },
+          "memory": {
+            "process_rss_increase_bytes": 73289728,
+            "process_rss_peak_bytes": 371896320,
+            "process_rss_start_bytes": 298606592
+          },
+          "outcomes": {
+            "ai_succeeded": 301,
+            "deadline_dns_observed": 6,
+            "deadline_headers_observed": 6,
+            "exports_succeeded": 301,
+            "governance_succeeded": 300,
+            "ingestion_recovered": 1,
+            "processing_repair_dispatches": 120
+          },
+          "processing_execution_returned_status_counts": {
+            "attention": 11,
+            "retry_wait": 1,
+            "succeeded": 134
+          },
+          "sampler": {
+            "error_count": 0,
+            "interval_ms": 20,
+            "samples": 26247
+          },
+          "source_dirty": false,
+          "status": "passed",
+          "task_error_count": 0,
+          "watchdog_failure": null,
+          "workload_completed": {
+            "ai": 300,
+            "exports": 300,
+            "governance": 300
+          }
+        },
+        "candidate": {
+          "budget_violations": {},
+          "database": {
+            "lock_wait_samples": 132,
+            "sampled_lock_waiting_query_age_peak_ms": 437.157,
+            "waiting_sessions_peak": 1
+          },
+          "git_revision": "79001439677cae246faef0a398ddea50c47faf80",
+          "independent_cleanup": {
+            "accepted": true,
+            "docker_endpoint": "established_local_unix",
+            "errors": [],
+            "identity_matches_measurement": true,
+            "kind": "independent_capacity_cleanup",
+            "present": true,
+            "probe_count": 16,
+            "remaining_container_count": 0,
+            "schema_version": 1,
+            "status": "passed"
+          },
+          "limits": {
+            "container_cpus": 0.5,
+            "cpu_count": 1,
+            "max_rss_bytes": 1073741824,
+            "nice": 10,
+            "postgres_memory_mib": 512,
+            "redis_memory_mib": 128,
+            "wall_timeout_seconds": 840
+          },
+          "memory": {
+            "process_rss_increase_bytes": 77598720,
+            "process_rss_peak_bytes": 375209984,
+            "process_rss_start_bytes": 297611264
+          },
+          "outcomes": {
+            "ai_succeeded": 301,
+            "deadline_dns_observed": 6,
+            "deadline_headers_observed": 6,
+            "exports_succeeded": 301,
+            "governance_succeeded": 300,
+            "ingestion_recovered": 1,
+            "processing_repair_dispatches": 120
+          },
+          "processing_execution_returned_status_counts": {
+            "succeeded": 125
+          },
+          "sampler": {
+            "error_count": 0,
+            "interval_ms": 20,
+            "samples": 26287
+          },
+          "source_dirty": false,
+          "status": "passed",
+          "task_error_count": 0,
+          "watchdog_failure": null,
+          "workload_completed": {
+            "ai": 300,
+            "exports": 300,
+            "governance": 300
+          }
+        }
+      },
+      "regressed_metrics": [
+        {
+          "absolute_change": 216.861,
+          "baseline": 220.296,
+          "candidate": 437.157,
+          "change_percent": 98.441,
+          "name": "database.sampled_lock_waiting_query_age_peak_ms",
+          "regressed": true,
+          "status": "single_run_observation"
+        }
+      ],
+      "regressions": [
+        "database.sampled_lock_waiting_query_age_peak_ms"
+      ],
+      "run_id": 37888628612,
+      "run_url": "https://github.com/PatrikSi/threatlens/actions/runs/37888628612",
+      "selected_metrics": [
+        {
+          "baseline_p95_ms": 357.093,
+          "candidate_p95_ms": 349.089,
+          "change_percent": -2.241,
+          "name": "export:succeeded",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 50.636,
+          "candidate_p95_ms": 43.688,
+          "change_percent": -13.721,
+          "name": "governance",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 22.564,
+          "candidate_p95_ms": 21.728,
+          "change_percent": -3.705,
+          "name": "task:process_alert_evaluation",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "absolute_change": 216.861,
+          "baseline": 220.296,
+          "candidate": 437.157,
+          "change_percent": 98.441,
+          "name": "database.sampled_lock_waiting_query_age_peak_ms",
+          "regressed": true,
+          "status": "single_run_observation"
+        }
+      ],
+      "workflow_conclusion": "failure"
+    },
+    "unchanged-source-control": {
+      "actual_input_and_source_labels_verified": true,
+      "all_latency_p95_comparisons_within_20_percent": true,
+      "artifact_content_hashes": {
+        "baseline-cleanup-attestation.json": "a4d3e5ccfe7fc220425801641064551f853a0e93577bd92d6022b819922996c5",
+        "baseline.json": "d02ef45ba1731295a02f84a3dd91889cc11e6cd7eee3d4cabcd0f3b13628230a",
+        "baseline.json.partial.json": "9cf4c627931a47ce194cba0bb5dfc1b3a35eeee7c3b0eb3b22204f1db190384f",
+        "baseline.log": "a0af85c3facc6e421671010a7824f765363510c0c7b3f378c41e40b62b7d8a44",
+        "candidate-cleanup-attestation.json": "e95e1ab7dc82de0bbe92ee4b483e452c3cc7c60d42b176919b2043d703d5fe87",
+        "candidate.json": "410da772859441da3e229c4bcb45d32c54e5bd75529a32012c3acb88ef48f0b7",
+        "candidate.json.partial.json": "185155bdb40eae1621d0c32813a4817981f7c3fbff2679feff36eab3fe7ad706",
+        "candidate.log": "314d34e73921db3cd28e72bb6af264182394a13ed5e85d5a49efb62b619e3e8c",
+        "comparison.json": "f9380fce546086147907d2e80f911256292975937ac7f3db687b166f74604883"
+      },
+      "artifact_id": 11598307084,
+      "artifact_zip_sha256": "df7f916d17807c203b1fe3de8cfaa53a0d05f49649bed8d20ac5c939fba3e927",
+      "both_independent_cleanups_accepted": true,
+      "compact_evidence_sha256": "bb02212630eba6d7f6baa2f4071f7b895cc84df1e5df93a93ff69c45abae82e4",
+      "comparison_fingerprints_equal": true,
+      "compatible": true,
+      "conclusive": true,
+      "hosted_job": {
+        "conclusion": "success",
+        "input_proof": {
+          "diagnostics_false": true,
+          "profile_sustained": true,
+          "target_matches": true,
+          "workflow_checkout_matches": true
+        },
+        "job_id": 113684258085,
+        "log_bytes": 112334,
+        "log_sha256": "dff76aa6e12742d3cc5e6c16a070b5d24f6e147f7e8eea90741c75c58625ced1"
+      },
+      "insufficient_required_samples": [],
+      "references": {
+        "baseline": {
+          "budget_violations": {},
+          "database": {
+            "lock_wait_samples": 105,
+            "sampled_lock_waiting_query_age_peak_ms": 234.239,
+            "waiting_sessions_peak": 1
+          },
+          "git_revision": "79001439677cae246faef0a398ddea50c47faf80",
+          "independent_cleanup": {
+            "accepted": true,
+            "docker_endpoint": "established_local_unix",
+            "errors": [],
+            "identity_matches_measurement": true,
+            "kind": "independent_capacity_cleanup",
+            "present": true,
+            "probe_count": 16,
+            "remaining_container_count": 0,
+            "schema_version": 1,
+            "status": "passed"
+          },
+          "limits": {
+            "container_cpus": 0.5,
+            "cpu_count": 1,
+            "max_rss_bytes": 1073741824,
+            "nice": 10,
+            "postgres_memory_mib": 512,
+            "redis_memory_mib": 128,
+            "wall_timeout_seconds": 840
+          },
+          "memory": {
+            "process_rss_increase_bytes": 73977856,
+            "process_rss_peak_bytes": 372678656,
+            "process_rss_start_bytes": 298700800
+          },
+          "outcomes": {
+            "ai_succeeded": 301,
+            "deadline_dns_observed": 6,
+            "deadline_headers_observed": 6,
+            "exports_policy_conflict": 16,
+            "exports_succeeded": 285,
+            "governance_succeeded": 300,
+            "ingestion_recovered": 1,
+            "processing_repair_dispatches": 120
+          },
+          "processing_execution_returned_status_counts": {
+            "succeeded": 124
+          },
+          "sampler": {
+            "error_count": 0,
+            "interval_ms": 20,
+            "samples": 26692
+          },
+          "source_dirty": false,
+          "status": "passed",
+          "task_error_count": 0,
+          "watchdog_failure": null,
+          "workload_completed": {
+            "ai": 300,
+            "exports": 300,
+            "governance": 300
+          }
+        },
+        "candidate": {
+          "budget_violations": {},
+          "database": {
+            "lock_wait_samples": 119,
+            "sampled_lock_waiting_query_age_peak_ms": 120.379,
+            "waiting_sessions_peak": 1
+          },
+          "git_revision": "79001439677cae246faef0a398ddea50c47faf80",
+          "independent_cleanup": {
+            "accepted": true,
+            "docker_endpoint": "established_local_unix",
+            "errors": [],
+            "identity_matches_measurement": true,
+            "kind": "independent_capacity_cleanup",
+            "present": true,
+            "probe_count": 16,
+            "remaining_container_count": 0,
+            "schema_version": 1,
+            "status": "passed"
+          },
+          "limits": {
+            "container_cpus": 0.5,
+            "cpu_count": 1,
+            "max_rss_bytes": 1073741824,
+            "nice": 10,
+            "postgres_memory_mib": 512,
+            "redis_memory_mib": 128,
+            "wall_timeout_seconds": 840
+          },
+          "memory": {
+            "process_rss_increase_bytes": 77107200,
+            "process_rss_peak_bytes": 374562816,
+            "process_rss_start_bytes": 297455616
+          },
+          "outcomes": {
+            "ai_succeeded": 301,
+            "deadline_dns_observed": 6,
+            "deadline_headers_observed": 6,
+            "exports_policy_conflict": 13,
+            "exports_succeeded": 288,
+            "governance_succeeded": 300,
+            "ingestion_recovered": 1,
+            "processing_repair_dispatches": 120
+          },
+          "processing_execution_returned_status_counts": {
+            "succeeded": 118
+          },
+          "sampler": {
+            "error_count": 0,
+            "interval_ms": 20,
+            "samples": 26815
+          },
+          "source_dirty": false,
+          "status": "passed",
+          "task_error_count": 0,
+          "watchdog_failure": null,
+          "workload_completed": {
+            "ai": 300,
+            "exports": 300,
+            "governance": 300
+          }
+        }
+      },
+      "regressed_metrics": [],
+      "regressions": [],
+      "run_id": 37888630228,
+      "run_url": "https://github.com/PatrikSi/threatlens/actions/runs/37888630228",
+      "selected_metrics": [
+        {
+          "baseline_p95_ms": 138.423,
+          "candidate_p95_ms": 131.039,
+          "change_percent": -5.334,
+          "name": "export:succeeded",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 28.414,
+          "candidate_p95_ms": 27.182,
+          "change_percent": -4.336,
+          "name": "governance",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 21.525,
+          "candidate_p95_ms": 21.304,
+          "change_percent": -1.027,
+          "name": "task:process_alert_evaluation",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "absolute_change": -113.86,
+          "baseline": 234.239,
+          "candidate": 120.379,
+          "change_percent": -48.608,
+          "name": "database.sampled_lock_waiting_query_age_peak_ms",
+          "regressed": false,
+          "status": "single_run_observation"
+        }
+      ],
+      "workflow_conclusion": "success"
+    }
+  },
+  "prior_failed_pairs_retained": [
+    37876316405,
+    37880757288,
+    37885492555
+  ],
+  "regression_threshold_percent": 20,
+  "release_capacity_gate_passed": false,
+  "release_clearance": false,
+  "schema_version": 1,
+  "source_applicability_evidence_sha256": "68d574e15a2900a97210a54ca0be6b5cd2f1c8b58836407b9e791336a02c68b0",
+  "unchanged_source_control_gate_passed": true,
+  "workflow_head_revision": "b06b364d41fee438f854a5fe9a13a8d8183a5a2e"
+}
