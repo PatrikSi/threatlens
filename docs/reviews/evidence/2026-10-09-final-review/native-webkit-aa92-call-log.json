@@ -1,0 +1,259 @@
+{
+  "call_log_contains": {
+    "attempting_click": false,
+    "detached": false,
+    "intercepted": false,
+    "locator_resolved": true,
+    "not_enabled": false,
+    "not_stable": false,
+    "not_visible": false,
+    "operation_timer": true,
+    "pending_navigation": false,
+    "target_closed": false
+  },
+  "classification_limit": "False means the reason was absent from the retained call log, not proof that the element was visible/stable or unblocked.",
+  "coherent_stage_intervals": [
+    {
+      "elapsed_from_end_minus_start_ms": 3653.754,
+      "engine": "webkit",
+      "independently_resampled_elapsed_ms": 3656.925,
+      "resampling_difference_ms": 3.171,
+      "stage": "goto_login",
+      "status": "passed",
+      "theme": "light"
+    },
+    {
+      "elapsed_from_end_minus_start_ms": 20423.688,
+      "engine": "webkit",
+      "independently_resampled_elapsed_ms": 20426.057,
+      "resampling_difference_ms": 2.369,
+      "stage": "fill_email",
+      "status": "passed",
+      "theme": "light"
+    },
+    {
+      "elapsed_from_end_minus_start_ms": 3595.615,
+      "engine": "webkit",
+      "independently_resampled_elapsed_ms": 3597.35,
+      "resampling_difference_ms": 1.735,
+      "stage": "fill_password",
+      "status": "passed",
+      "theme": "light"
+    },
+    {
+      "elapsed_from_end_minus_start_ms": 55185.292,
+      "engine": "webkit",
+      "independently_resampled_elapsed_ms": 55238.104,
+      "resampling_difference_ms": 52.812,
+      "stage": "submit_credentials",
+      "status": "failed",
+      "theme": "light"
+    },
+    {
+      "elapsed_from_end_minus_start_ms": 269.919,
+      "engine": "webkit",
+      "independently_resampled_elapsed_ms": 269.92,
+      "resampling_difference_ms": 0.001,
+      "stage": "goto_login",
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "elapsed_from_end_minus_start_ms": 120.969,
+      "engine": "webkit",
+      "independently_resampled_elapsed_ms": 120.975,
+      "resampling_difference_ms": 0.006,
+      "stage": "fill_email",
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "elapsed_from_end_minus_start_ms": 21.913,
+      "engine": "webkit",
+      "independently_resampled_elapsed_ms": 21.921,
+      "resampling_difference_ms": 0.008,
+      "stage": "fill_password",
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "elapsed_from_end_minus_start_ms": 133.711,
+      "engine": "webkit",
+      "independently_resampled_elapsed_ms": 133.716,
+      "resampling_difference_ms": 0.005,
+      "stage": "submit_credentials",
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "elapsed_from_end_minus_start_ms": 582.279,
+      "engine": "webkit",
+      "independently_resampled_elapsed_ms": 582.281,
+      "resampling_difference_ms": 0.002,
+      "stage": "await_workspace_destination",
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "elapsed_from_end_minus_start_ms": 1080.477,
+      "engine": "webkit",
+      "independently_resampled_elapsed_ms": 1080.483,
+      "resampling_difference_ms": 0.006,
+      "stage": "await_network_idle",
+      "status": "passed",
+      "theme": "dark"
+    }
+  ],
+  "focused_failure_stage": "submit_credentials_click_before_any_auth_request",
+  "original_case_cause": "unassigned",
+  "original_failed_result_sha256": "be649f2a74ec9bbd25f81f8cd2cbab742d94807356f161ad8fc49237574cd36c",
+  "pinned_driver_source": {
+    "file": "playwright-core/lib/coreBundle.js",
+    "sha256": "549070af3acabb3efcc4f55bfe6210f9f7c2fcf633cf7eaa59bfe60719969171",
+    "source_boundary": "After locator-resolved log, the driver awaits an element-handle evaluation before the pointer-action attempting-click log; absence of later logs is consistent with an unfinished IPC/evaluation step, not a specific application cause.",
+    "version": "1.63.0"
+  },
+  "qualification": false,
+  "recommended_next_step": "One predeclared same-image/same-caps cold and warm minimal-static-form diagnostic without app/network, numeric container CPU/throttling/memory/OOM/process evidence, action30s/assert5s unchanged. No repeat full native qualification or product change until evidence supports scope.",
+  "result_sha256": "a65d9d4ae0d05ec5c2c8aafb3ce682ae9fb02ffe82571ee036ffa2561840a0ce",
+  "schema": "threatlens-webkit-call-log-adjudication-v1",
+  "source_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+  "timeline": {
+    "dark": {
+      "auth_login_requests": 1,
+      "auth_me_admin_identity_matches": 21,
+      "auth_me_requests": 21,
+      "auth_me_shapes": 21,
+      "document_requests": [
+        102044.978,
+        104302.008,
+        106761.901,
+        107892.282,
+        110887.255,
+        113956.094,
+        118845.343
+      ],
+      "document_response_statuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "dom_content_loaded_ms": [
+        102199.373,
+        104473.382,
+        106824.807,
+        110930.638,
+        114012.306,
+        118932.132
+      ],
+      "event_count": 106,
+      "load_ms": [
+        102302.641,
+        104486.017,
+        106832.036,
+        110938.882,
+        114020.76,
+        118940.073
+      ],
+      "main_frame_navigation": [
+        {
+          "path": "/login",
+          "t_ms": 102077.836
+        },
+        {
+          "path": "/login",
+          "t_ms": 102205.364
+        },
+        {
+          "path": "/start",
+          "t_ms": 102971.058
+        },
+        {
+          "path": "/",
+          "t_ms": 103161.562
+        },
+        {
+          "path": "/settings/access",
+          "t_ms": 104375.92
+        },
+        {
+          "path": "/settings/access",
+          "t_ms": 104474.494
+        },
+        {
+          "path": "/",
+          "t_ms": 106773.053
+        },
+        {
+          "path": "/",
+          "t_ms": 106824.844
+        },
+        {
+          "path": "/",
+          "t_ms": 109763.136
+        },
+        {
+          "path": "/export",
+          "t_ms": 110898.645
+        },
+        {
+          "path": "/export",
+          "t_ms": 110931.969
+        },
+        {
+          "path": "/settings/ai",
+          "t_ms": 113975.14
+        },
+        {
+          "path": "/settings/ai",
+          "t_ms": 114013.136
+        },
+        {
+          "path": "/settings/account",
+          "t_ms": 118255.006
+        },
+        {
+          "path": "/settings/access",
+          "t_ms": 118875.508
+        },
+        {
+          "path": "/settings/access",
+          "t_ms": 118932.671
+        }
+      ]
+    },
+    "light": {
+      "auth_login_requests": 0,
+      "auth_me_admin_identity_matches": 0,
+      "auth_me_requests": 0,
+      "auth_me_shapes": 0,
+      "document_requests": [
+        6364.825
+      ],
+      "document_response_statuses": [
+        200
+      ],
+      "dom_content_loaded_ms": [
+        8650.635
+      ],
+      "event_count": 10,
+      "load_ms": [
+        9749.5
+      ],
+      "main_frame_navigation": [
+        {
+          "path": "/login",
+          "t_ms": 7114.179
+        },
+        {
+          "path": "/login",
+          "t_ms": 9430.234
+        }
+      ]
+    }
+  }
+}

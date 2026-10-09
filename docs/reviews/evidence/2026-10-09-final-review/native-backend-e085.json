@@ -1,0 +1,427 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-10-09T11:43:26.987027+00:00",
+  "status": "passed",
+  "source_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "image_ids": {
+    "backend": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+    "web": "sha256:5793441258dec702b2ff54c25d86dae35b2ef1cfa88e628eee0476f4f273a9a6"
+  },
+  "runtime_source_sha256": {
+    "backend/app/services/data_access_envelopes.py": "10470864feba0bcafdf0dad3f4c7b9622d39c4f109ec96d420d0e09f562ed4b9",
+    "backend/app/services/data_access_lineage.py": "ada04c0265bde309c7f97267363215ba46df30ab43b02847dcbb5db7ece38475"
+  },
+  "preparation_sha256": "a8a908b627816b5949773e7c867742f391b5e35c8c2f7d053b79c782d3e1d0d7",
+  "driver_sha256": {
+    "http_backend_review.py": "cc8f4f8d5daa19924e6989e3fdbf7f3e3b03a9fbe5c0c93052c7ba25b087056c",
+    "run_backend_image_probes.py": "4f071c561741a7a73181f70bd4722d53823007253cad35b829c41b06b718fa35",
+    "run_image_helpers.py": "f950f3e7346128d303362ea2f1fd506ef9150f090afd4f7295f7b772bcf20f20",
+    "verify_image_dependency_artifacts.py": "c840834f66129cbc8d58317b1b85097efe4f676a05b9dfafc4977419d74347ab",
+    "verify_web_image_startup.py": "2d2c79a63f7270f5ea5c2c9522b294c2d0045c2c8a5fc29edead59b355611c2e",
+    "bin/docker": "a2563c251749df8c02cb51c1c2bee4956bc625ec0b5ffc9afbe4788adfb164e7"
+  },
+  "artifact_sha256": {
+    "preparation.json": "a8a908b627816b5949773e7c867742f391b5e35c8c2f7d053b79c782d3e1d0d7",
+    "http-backend-review.json": "038b3b45e8c3077672e0ebdc48a39a9115a67bad542b7bb67f7cf93148f57a28",
+    "http-execution.log": "0a203b13f01a8ea02016c867b75ce9101c9ca459b46cc670d08a84582bd89559",
+    "image-helpers-result.json": "7807f968c7f0d5502d9862a349fa9472003c232667e29c0ea397e544c3253c10",
+    "helpers-execution.log": "179dfc602080212eb754afdec238ff00b54947e129cb11d22e295e15beffbbc4",
+    "dependency-legal-inventory.log": "4a699055e538cfe1afe0106a67e71c402292c48c0c4a95f7b691dc0bba379b82",
+    "nonroot-web-startup.log": "8f18300c2502b7cd125c190a250c0e70a7fd620f9e62e494fe5ba995fc4adb5b",
+    "backend-image-probes-result.json": "f8d54d9489b16c535d0d477a271f1853cf4e2097fd74d0129a118f25dca8b056",
+    "probe-execution.log": "9177737ee32f7edd37ebc802f0661b03531659b75dbf9f5b0daf993a452637d6",
+    "probe-corrected-invocation.log": "ca13a23dee5ee017bd743db4298c9beaac0adaef5ea84b872bb20d32660427f2",
+    "backend-image-probe-stdout.log": "db7d61f28285bac16d246b9ec18e3209a538c811e4bdc395a9ebe2a6ce5066f4",
+    "backend-image-probe-stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "serial-execution.json": "511015faf73599c462225239033f13d7c862e47b4b7a6537afce47c6eb7e777e",
+    "probe-corrected-invocation-execution.json": "700b34151f934b40f40d4cb9b31c6b719f362bb93b15621e72f69e7363071c82"
+  },
+  "http": {
+    "status": "passed",
+    "original_driver_exit_code": 0,
+    "expected_cases": 44,
+    "passed_cases": 44,
+    "elapsed_seconds": 2.148,
+    "checks": [
+      {
+        "name": "anonymous_article_read_denied",
+        "status": 401,
+        "passed": true
+      },
+      {
+        "name": "invalid_bearer_article_read_denied",
+        "status": 401,
+        "passed": true
+      },
+      {
+        "name": "browser_login",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "cookie_csrf_missing_write_denied",
+        "status": 403,
+        "passed": true
+      },
+      {
+        "name": "current_user_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "feed_inventory_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "processed_article_inventory_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "article_detail_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "current_team_inventory_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "current_publication_list_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "publication_cursor_object_identity_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "publication_cursor_list_identity_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "publication_cursor_integer_identity_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "publication_cursor_boolean_identity_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "publication_cursor_null_identity_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "publication_cursor_list_body_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "publication_cursor_null_body_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "team_indicator_assessment_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "team_hunt_queue_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "reviewed_publication_inventory_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "automation_execution_inventory_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "automation_policy_update_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "investigation_create",
+        "status": 201,
+        "passed": true
+      },
+      {
+        "name": "investigation_attach_article",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "investigation_add_note",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "investigation_edit_note",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "investigation_stale_note_rejected",
+        "status": 409,
+        "passed": true
+      },
+      {
+        "name": "investigation_archive",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "archived_investigation_note_write_denied",
+        "status": 409,
+        "passed": true
+      },
+      {
+        "name": "oauth_consent_preview",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "oauth_consent_missing_csrf_denied",
+        "status": 403,
+        "passed": true
+      },
+      {
+        "name": "oauth_authorize_pkce",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "oauth_state_and_issuer_preserved",
+        "passed": true
+      },
+      {
+        "name": "oauth_wrong_pkce_denied_without_consuming_code",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "oauth_code_exchange",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "oauth_code_replay_denied",
+        "status": 400,
+        "passed": true
+      },
+      {
+        "name": "oauth_mcp_audience_denies_rest",
+        "status": 401,
+        "passed": true
+      },
+      {
+        "name": "oauth_mcp_tool_catalog",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "oauth_mcp_article_read",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "token_inventory_for_owned_grant",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "oauth_current_grant_revocation",
+        "status": 204,
+        "passed": true
+      },
+      {
+        "name": "oauth_revoked_mcp_read_denied",
+        "status": 401,
+        "passed": true
+      },
+      {
+        "name": "review_session_logout",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "name": "logged_out_cookie_read_denied",
+        "status": 401,
+        "passed": true
+      }
+    ],
+    "compensation": [
+      {
+        "resource": "owned_investigation",
+        "status": "passed"
+      },
+      {
+        "resource": "owned_oauth_token",
+        "status": "passed"
+      },
+      {
+        "resource": "owned_session",
+        "status": "passed"
+      }
+    ],
+    "scope": "Owned loopback instance; synthetic investigation archive, OAuth credential revocation and session logout verified. Shared seeded fixtures retained."
+  },
+  "image_helpers": {
+    "status": "passed",
+    "original_driver_exit_code": 0,
+    "images": {
+      "backend": {
+        "id": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+        "os": "linux",
+        "architecture": "amd64",
+        "revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+        "version": "2.1.0"
+      },
+      "web": {
+        "id": "sha256:5793441258dec702b2ff54c25d86dae35b2ef1cfa88e628eee0476f4f273a9a6",
+        "os": "linux",
+        "architecture": "amd64",
+        "revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+        "version": "2.1.0"
+      }
+    },
+    "image_input_git_objects": {
+      "backend": "35235809474183c095174b54dd0e09699e0f109a",
+      "web": "cf5489d2a203de14a09ff4fb6337df87a3bb3b28",
+      "docker/backend.Dockerfile": "40c3c1fa1ecc97759e4d36cab42ba27ade37e900",
+      "docker/web.Dockerfile": "fffc09c62c17baa462d00edf4fe54863e77db652",
+      "docker-compose.yml": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "docker-compose.build.yml": "15b1b8a21d80a46680fdf528635b216383285131"
+    },
+    "commands": [
+      {
+        "name": "dependency-legal-inventory",
+        "exit_code": 0,
+        "deadline_seconds": 180,
+        "elapsed_seconds": 2.28,
+        "log_sha256": "4a699055e538cfe1afe0106a67e71c402292c48c0c4a95f7b691dc0bba379b82"
+      },
+      {
+        "name": "nonroot-web-startup",
+        "exit_code": 0,
+        "deadline_seconds": 240,
+        "elapsed_seconds": 2.558,
+        "log_sha256": "8f18300c2502b7cd125c190a250c0e70a7fd620f9e62e494fe5ba995fc4adb5b",
+        "cases": [
+          "legacy-writable-root",
+          "read-only-with-tmpfs"
+        ]
+      }
+    ],
+    "cleanup": {
+      "requested_owned_container_count": 4,
+      "fallback_removals": 0,
+      "errors": [],
+      "remaining_owned_container_count": 0
+    },
+    "scope": "Exact backend/web runtime dependency inventories and bundled legal artifacts; two actual nonroot web startup/HTTP/restart modes. Four disposable helper containers removed by helpers; no fallback cleanup needed."
+  },
+  "actual_backend_probe": {
+    "status": "passed",
+    "original_driver_exit_code": 0,
+    "original_attach_exit_code": 0,
+    "container_state": {
+      "running": false,
+      "exit_code": 0,
+      "oom_killed": false,
+      "memory": 268435456,
+      "memory_swap": 268435456,
+      "cpu_nanos": 500000000,
+      "pids_limit": 64,
+      "read_only": true,
+      "network_mode": "none"
+    },
+    "probe": {
+      "python": "3.12.13",
+      "openssl": "OpenSSL 3.0.20 7 Apr 2026",
+      "nonroot": true,
+      "runtime_source_sha256": {
+        "app/services/data_access_envelopes.py": "10470864feba0bcafdf0dad3f4c7b9622d39c4f109ec96d420d0e09f562ed4b9",
+        "app/services/data_access_lineage.py": "ada04c0265bde309c7f97267363215ba46df30ab43b02847dcbb5db7ece38475"
+      },
+      "beat": {
+        "selected_app": "app.tasks.beat_app.beat_app",
+        "init_loader_passed": true,
+        "worker_include_count": 15,
+        "worker_implementation_import_count": 0,
+        "registered_periodic_implementation_count": 0,
+        "worker_finalized": false,
+        "schedule_entry_count": 31,
+        "schedule_equal_to_worker": true,
+        "ignore_result": true
+      },
+      "smtp": {
+        "minimum_version": "TLSv1_2",
+        "check_hostname": true,
+        "verify_mode": "CERT_REQUIRED",
+        "network_io": false
+      },
+      "network_io": false,
+      "scheduler_tick_or_publication": false
+    },
+    "limits": {
+      "memory_bytes": 268435456,
+      "cpu_nanos": 500000000,
+      "pids_limit": 64,
+      "probe_deadline_seconds": 90
+    },
+    "elapsed_seconds": 3.218,
+    "cleanup": {
+      "remaining_owned_container_count": 0,
+      "errors": []
+    }
+  },
+  "preserved_previous_evidence": true,
+  "execution_attempts": {
+    "http": 1,
+    "image_helpers": 1,
+    "backend_probe_driver_invocations": 2,
+    "backend_probe_workload": 1
+  },
+  "preserved_invocation_error": {
+    "phase": "argument_parsing",
+    "original_exit_code": 2,
+    "required_argument": "--backend-image",
+    "workload_or_container_created": false,
+    "initial_serial_journal_status": "failed",
+    "correction": "Same frozen driver and exact image ID; missing CLI argument supplied. Initial journal and log remain unchanged."
+  },
+  "limits": {
+    "http_checks": 44,
+    "http_request_timeout_seconds": 15,
+    "http_response_bytes": 2000000,
+    "dependency_legal_seconds": 180,
+    "nonroot_web_seconds": 240,
+    "backend_probe_seconds": 90,
+    "backend_probe_memory_bytes": 268435456,
+    "backend_probe_cpus": 0.5,
+    "backend_probe_pids": 64,
+    "backend_probe_network": "none",
+    "backend_probe_read_only": true,
+    "fixture_env_supplied_to_probe": false
+  },
+  "limitations": [
+    "These local focused checks do not replace fresh full hosted quality or unchanged-budget sustained capacity gates.",
+    "Earlier failed capacity comparisons and hosted outcomes remain unchanged.",
+    "No provider call, SMTP handshake, live model semantic gate, scheduler tick or broker publication was performed.",
+    "The native default31 schedule and15 worker includes were observed; all prior67 focused Beat message/AI schedule controls remain separately scoped."
+  ]
+}

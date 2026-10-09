@@ -1,0 +1,28 @@
+{
+  "all_original_evidence_preserved": true,
+  "application_defect_identified": false,
+  "browser_cases_executed": 0,
+  "browser_containers_created": 0,
+  "compensation": {
+    "checks": 4,
+    "failed": 0,
+    "passed": 4,
+    "status": "passed"
+  },
+  "expected_source_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "failed_stage": "Seed driver source revision assertion; before opening database session",
+  "hashes": {
+    "frozen_plan": "c37ccf272e732323afa35c8137b7edd20991c60fd4df31be280b1ba3b9620622",
+    "metadata": "9df5fbb58ea488b6f2298a995f0d2a7fb8f44124dc19170399c9535b133deb23",
+    "private_log": "b24f4b5cc14090ee814a15828c3e005a68a4653e7b77973714150449e0874420",
+    "seed_script": "ee9ef24b91d497b060d151392f973ba79fd2ef4c10136c3b18328b6f038e30a6",
+    "source_binding": "ca6b4cc2204a7bae4f2fd99ec8afd00a0c4e50ea86d29804a2776da1dadf7742"
+  },
+  "native33_attempted": false,
+  "original_seed_exit": 1,
+  "policy_attempted": false,
+  "schema": "threatlens-native-browser-precreation-failure-v1",
+  "source_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "stale_driver_guard_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+  "status": "failed"
+}

@@ -1,0 +1,189 @@
+{
+  "actual_images": {
+    "backend": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+    "web": "sha256:5793441258dec702b2ff54c25d86dae35b2ef1cfa88e628eee0476f4f273a9a6"
+  },
+  "application_version": "2.1.0",
+  "bindings": {
+    "all_five_source_guards_audited": true,
+    "frozen_plan_sha256": "2d9a9fd06b78c9a75e5c10e5cc7600faa304a4972d5d46c2ef0ad65a046dd00d",
+    "manifest_sha256": "053fb03b46398b5db14705f43b1231bf23220475bbc093e54ca63cceab2ce71b",
+    "post_terminal_source_sha256": "07edc05e3109a10742fa5122607fb9ad3aae1af98c12249d2c7dd366f2e50a40",
+    "pre_execution_source_sha256": "51bd25c9941f61d8f21fe4958703ffdf927054fceeaca4760482e4e83e630de8",
+    "source_payload_sha256": {
+      "frontend-native-regressions/launch.py": "b3aa2ab502f9eb57f8facfa0a12824a0d99e89bbd022de61a3f210034c022ecc",
+      "frontend-native-regressions/review.mjs": "cab76541f3d51ffe58ef8d89f6dcfd084445f5f4750c3d99cfe8d6567ff00b9c",
+      "frontend-native-regressions/seed_compensation.py": "2e9501191e9bce23dbf9f6464d6c20a8c4a7f8e22a21e01b049cd484c194d291",
+      "frontend-native-regressions/seed_regressions.py": "912b3409c339bd36d861a4ccae0d30f9187cbc70e456be2dd74d52feb991a063",
+      "frontend-native33/review.mjs": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c"
+    }
+  },
+  "interpretation_limits": [
+    "All six original login cases passed on this changed source; this does not prove the cause of the earlier cold WebKit failures.",
+    "The static form control passed separately; it cannot clear the application screenshot timeout.",
+    "Whole-case elapsed time includes screenshot and page recovery and cannot be allocated to a single 30-second operation from this record.",
+    "Prior native and capacity failures remain retained; no retries or gate waivers."
+  ],
+  "native": {
+    "cleanup_failures": 0,
+    "container_cleanup": {
+      "owned_containers_remaining": 0,
+      "status": "passed"
+    },
+    "controller_failure_records": 2,
+    "count_matched": true,
+    "created_synthetic_resources": 0,
+    "engine_outcomes": {
+      "chromium": {
+        "failed": 0,
+        "passed": 11
+      },
+      "firefox": {
+        "failed": 1,
+        "passed": 10
+      },
+      "webkit": {
+        "failed": 0,
+        "passed": 11
+      }
+    },
+    "executed": 33,
+    "expected": 33,
+    "failed": 1,
+    "failed_case": {
+      "allowlisted_call_log": [
+        "page.screenshot: Timeout 30000ms exceeded.",
+        "Call log:",
+        "- taking page screenshot"
+      ],
+      "cause": "unassigned; no application or browser-tool defect established",
+      "engine": "firefox",
+      "error_type": "TimeoutError",
+      "fallback_image": {
+        "bytes": 129361,
+        "height": 1019,
+        "sha256": "4eae6519fc4ab0312e36e9cec65486746e956d55a4b640d26de18b8156fbf55c",
+        "width": 1440
+      },
+      "first_article_preview_image_retained": true,
+      "layout": "desktop",
+      "name": "article preview and team assessment navigation",
+      "operation": "page.screenshot",
+      "operation_deadline_ms": 30000,
+      "second_team_assessment_image_retained": false,
+      "theme": "dark",
+      "whole_case_seconds_including_capture_and_recovery": 157.93
+    },
+    "failed_surface_audit_limit": "31 complete surface audit records retained; failed case details were not returned, so its capture/audit cannot qualify from the pass-only JSON records",
+    "finished_at_utc": "2026-10-09T12:03:29.350994+00:00",
+    "generic_error_counts": {
+      "apiServerErrors": 0,
+      "blockedExternalRequests": 0,
+      "consoleErrors": 0,
+      "pageErrors": 0
+    },
+    "metadata_sha256": "52b5370dce900182b9870266c5f2f64bcf60ffa4c6d86564dd06db24f069b909",
+    "not_executed": 0,
+    "original_exit": 1,
+    "passed": 32,
+    "private_log_sha256": "09806fdf3a50fd0abec72a35fc0a39b8a8a0e42c1ab113e6d5f41766a0989538",
+    "recorded_axe_surfaces": 31,
+    "recorded_axe_violations": 0,
+    "recorded_overflow_failures": 0,
+    "result_sha256": "397c7e89516f759bfb67fed8edd8b004760262500662b01165d293dfdaf38e33",
+    "started_at_utc": "2026-10-09T11:58:05.156631+00:00",
+    "status": "failed",
+    "successful_real_cookie_logins": 6
+  },
+  "observer_warmup_retries_or_timeout_changes": false,
+  "policy": {
+    "cleanup_checks": 6,
+    "cleanup_failures": 0,
+    "container_cleanup": {
+      "owned_containers_remaining": 0,
+      "status": "passed"
+    },
+    "driver_failures": 0,
+    "failed": 0,
+    "generic_error_counts": {
+      "apiServerErrors": 0,
+      "blockedExternalRequests": 0,
+      "consoleErrors": 0,
+      "pageErrors": 0
+    },
+    "metadata_sha256": "371052d253e200321ee70b0d3198892a758aaf174dfa333a26b234529d656d46",
+    "original_exit": 0,
+    "passed": 7,
+    "requested": 7,
+    "result_sha256": "92f8f97d1f9e711a4e2765f1d5584a766559c323ec79ded6b3cc2b5b6c323035",
+    "status": "passed"
+  },
+  "previous_evidence": {
+    "aa92_original_native": {
+      "executed": 29,
+      "expected": 33,
+      "failed": 1,
+      "not_executed": 4,
+      "original_exit": 1,
+      "passed": 28,
+      "result_sha256": "be649f2a74ec9bbd25f81f8cd2cbab742d94807356f161ad8fc49237574cd36c"
+    },
+    "focused_webkit_nonqualifying": {
+      "executed": 7,
+      "expected": 11,
+      "failed": 1,
+      "not_executed": 4,
+      "original_exit": 1,
+      "passed": 6,
+      "result_sha256": "a65d9d4ae0d05ec5c2c8aafb3ce682ae9fb02ffe82571ee036ffa2561840a0ce"
+    },
+    "static_control_nonqualifying_projection_sha256": "5002135a7590d2c8b026a3fd39bbbaccf7e13f84ded9650eedf98d538fa67586"
+  },
+  "readiness": "Native browser gate remains failed; earlier failures retained",
+  "resources": {
+    "action_timeout_ms": 30000,
+    "assertion_timeout_ms": 5000,
+    "browser_cpu_count": 2,
+    "memory_bytes": 3221225472,
+    "memory_swap_bytes": 3221225472,
+    "observed_native_limits": {
+      "Memory": 3221225472,
+      "MemorySwap": 3221225472,
+      "NanoCpus": 2000000000,
+      "PidsLimit": 768
+    },
+    "outer_timeout_seconds": 900,
+    "pids_limit": 768,
+    "shared_memory_bytes": 268435456,
+    "workers": 1
+  },
+  "same_original_selectors_actions_timeouts_and_error_listeners": true,
+  "schema": "threatlens-native-frontend-checkpoint-v1",
+  "seed": {
+    "driver_failures": 0,
+    "metadata_sha256": "49b94dbeffccc43d529bccebc4794b866b2f4804aec6e25535f6586d2d81fed6",
+    "original_exit": 0,
+    "status": "passed"
+  },
+  "seed_guard_correction": {
+    "after": {
+      "failed": 0,
+      "passed": 4,
+      "tests": 4
+    },
+    "before": {
+      "failed": 3,
+      "passed": 1,
+      "tests": 4
+    },
+    "changed_lines": 1,
+    "previous_browser_cases": 0,
+    "previous_owned_compensation_checks_passed": 4,
+    "previous_seed_original_exit": 1,
+    "previous_seed_precreation_failure_sha256": "338a2f71b02d54351641709f204049aeaf655f83cf189251f159db588d6b5e02",
+    "proof_sha256": "24d93cb3b23f6ee77067b07fe93731f8d6d972a74e1bbd1614f9105b4d914267",
+    "test_source_sha256": "757434d4acfc221f8bc7c1f40fb4c343166d9ae388136a9aded1e28993a6896b"
+  },
+  "source_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "status": "failed"
+}
