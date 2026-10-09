@@ -427,15 +427,19 @@ jobs:
           --pattern 'test_*.py'
           --verbose
 
-      - name: Install pinned key-recovery test dependency
+      - name: Install pinned recovery and capacity-observer test dependencies
         run: |
           python - <<'PY'
           from pathlib import Path
           import subprocess
           import sys
-          dependency = next(line for line in Path("backend/requirements-lock.txt").read_text().splitlines()
-                            if line.startswith("cryptography=="))
-          subprocess.run([sys.executable, "-m", "pip", "install", "--only-binary=:all:", dependency], check=True)
+          runtime = Path("backend/requirements-lock.txt").read_text().splitlines()
+          development = Path("backend/requirements-dev.txt").read_text().splitlines()
+          dependencies = [next(line for line in runtime if line.startswith(name + "=="))
+                          for name in ("cryptography", "SQLAlchemy")]
+          dependencies.append(next(line for line in development if line.startswith("pytest==")))
+          subprocess.run([sys.executable, "-m", "pip", "install", "--only-binary=:all:",
+                          "--constraint", "backend/requirements-lock.txt", *dependencies], check=True, timeout=120)
           PY
 
       - name: Test independent fleet monitoring and recovery evidence
