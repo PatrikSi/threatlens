@@ -293,8 +293,20 @@ runtime/image inputs still match the qualified native build. The predeclared,
 uninstrumented 600-second
 [matched baseline/candidate pair](https://github.com/PatrikSi/threatlens/actions/runs/37888628612)
 and [unchanged-candidate control pair](https://github.com/PatrikSi/threatlens/actions/runs/37888630228)
-are running with the same caps and 20% threshold. Their outcomes and required
-quality on the final review head remain pending; neither replaces a failed pair.
+have completed with the same caps and 20% threshold. The release pair passes
+both absolute budgets, sample completeness and independent cleanup, and all
+latency p95 comparisons stay within 20%. Its sole relative failure is the
+maximum sampled query age while Lock-waiting: **220.296 → 437.157 ms (+98.441%)**.
+That metric measures query age at the sampling instant, not elapsed lock-wait
+duration. The unchanged-source control passes, including **234.239 → 120.379 ms**
+for the same peak. These pairs ran on different hosted machines; their absolute
+values cannot establish a causal cross-host comparison or dismiss the failure.
+The [source, result and cleanup evidence](evidence/2026-10-09-final-review/hosted-shared-epoch-pairs.json)
+retains both complete outcomes and the earlier failed pairs. The release capacity
+gate remains failed; a bounded original-sampler snapshot and current-wait-age
+diagnostic is being prepared to identify a sampled peak without consuming the
+original cursor result or changing the measurement. Required full quality on
+the final review head also remains pending.
 
 ## Feature completion and release boundary
 
