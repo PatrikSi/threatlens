@@ -1,0 +1,38 @@
+{
+  "actual_native_image_build_revision": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+  "objects": [
+    {
+      "all_identical": true,
+      "git_object": "1bf26eff9074ee4f765a8d2ffb60d99b802d612c",
+      "path": "backend"
+    },
+    {
+      "all_identical": true,
+      "git_object": "33bc4dbe0ddb10a1c0ddd44868b022feb9815f10",
+      "path": "web"
+    },
+    {
+      "all_identical": true,
+      "git_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "path": "docker"
+    },
+    {
+      "all_identical": true,
+      "git_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "path": "docker-compose.yml"
+    },
+    {
+      "all_identical": true,
+      "git_object": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab",
+      "path": "LICENSE"
+    },
+    {
+      "all_identical": true,
+      "git_object": "7ec1d6db40877765247db18e7f9a4e36a0def4ad",
+      "path": "VERSION"
+    }
+  ],
+  "qualification_candidate_revision": "a6c07f7f2718cd4f9a6caab823b481fc2ac7525e",
+  "schema_version": 1,
+  "workflow_tooling_revision": "299322784167b1fb9881218486bd9f2a886591bf"
+}
