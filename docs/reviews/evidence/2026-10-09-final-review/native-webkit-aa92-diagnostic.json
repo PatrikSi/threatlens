@@ -1,0 +1,211 @@
+{
+  "actual_caps": {
+    "Memory": 3221225472,
+    "MemorySwap": 3221225472,
+    "NanoCpus": 2000000000,
+    "PidsLimit": 768
+  },
+  "axe_surfaces": 6,
+  "axe_violations": 0,
+  "cases": [
+    {
+      "elapsedSeconds": 95.29,
+      "engine": "webkit",
+      "name": "real local cookie login",
+      "status": "failed",
+      "theme": "light"
+    },
+    {
+      "elapsedSeconds": 2.21,
+      "engine": "webkit",
+      "name": "real local cookie login",
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "elapsedSeconds": 2.49,
+      "engine": "webkit",
+      "name": "route /settings/access",
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "elapsedSeconds": 4.12,
+      "engine": "webkit",
+      "name": "article preview and team assessment navigation",
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "elapsedSeconds": 3.08,
+      "engine": "webkit",
+      "name": "reviewed publication preview and consumer contrast",
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "elapsedSeconds": 4.78,
+      "engine": "webkit",
+      "name": "provider draft tab retention and discard navigation",
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "elapsedSeconds": 3.6,
+      "engine": "webkit",
+      "name": "mobile route /settings/access",
+      "status": "passed",
+      "theme": "dark"
+    }
+  ],
+  "container_cleanup": {
+    "owned_containers_remaining": 0,
+    "status": "passed"
+  },
+  "executed": 7,
+  "expected_checks": 11,
+  "failed": 1,
+  "finished_at_utc": "2026-10-09T11:04:32.073313+00:00",
+  "heavy_window_released": true,
+  "interpretation_limits": [
+    "Original actual failure occurred at post-login URL wait; focused light failure occurred earlier at submit click with no login request observed.",
+    "WebKit light field fill and click driver durations were substantially longer than subsequent dark context; no browser process CPU, scheduler or render timeline was captured.",
+    "Original 30000ms action configuration remained unchanged; observed wall time can exceed timer budget when work is blocked/scheduled late.",
+    "This nonqualifying diagnostic neither clears the original failure nor establishes an application or driver cause."
+  ],
+  "launcher_result_sha256": "5bc467d12bf2dd0eac550ee9b5c5e24f2a381aa7a23c6181299de1f3c3d409d5",
+  "native_events": {
+    "apiServerErrors": 0,
+    "blockedExternalRequests": 0,
+    "cleanupFailures": 0,
+    "consoleErrors": 0,
+    "createdSyntheticResources": 0,
+    "pageErrors": 0
+  },
+  "not_executed": 4,
+  "observer_control_proof_sha256": "2454de8020221ca960b762404b64f202390be6d606098e16fe8f09ca5a0ebd2c",
+  "observer_counts": {
+    "auth_shapes": 22,
+    "cookies": 22,
+    "dom_states": 1,
+    "events": 116,
+    "stages": 10
+  },
+  "observer_drop_count": 0,
+  "observer_error_count": 0,
+  "observer_status": "passed",
+  "original_browser_exit": 1,
+  "original_failure_retained": true,
+  "passed": 6,
+  "plan_sha256": "1e6178ff11e8e4cb20489b1deb437928af1edabb541c10cf1960abc00cfa7813",
+  "qualification": false,
+  "raw_log_sha256": "2a309be3a845e1f91a6677347017153c7ab2870c0422dd89c1a4b8c6594bd180",
+  "result_sha256": "a65d9d4ae0d05ec5c2c8aafb3ce682ae9fb02ffe82571ee036ffa2561840a0ce",
+  "schema": "threatlens-native-webkit-login-diagnostic-result-v1",
+  "source_payloads_manifests_and_lock_unchanged": true,
+  "source_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+  "stages": [
+    {
+      "elapsed_ms": 3656.925,
+      "end_ms": 9752.001,
+      "end_path": "/login",
+      "engine": "webkit",
+      "stage": "goto_login",
+      "start_ms": 6098.247,
+      "status": "passed",
+      "theme": "light"
+    },
+    {
+      "elapsed_ms": 20426.057,
+      "end_ms": 30178.931,
+      "end_path": "/login",
+      "engine": "webkit",
+      "stage": "fill_email",
+      "start_ms": 9755.243,
+      "status": "passed",
+      "theme": "light"
+    },
+    {
+      "elapsed_ms": 3597.35,
+      "end_ms": 33796.118,
+      "end_path": "/login",
+      "engine": "webkit",
+      "stage": "fill_password",
+      "start_ms": 30200.503,
+      "status": "passed",
+      "theme": "light"
+    },
+    {
+      "elapsed_ms": 55238.104,
+      "end_ms": 89014.075,
+      "end_path": "/login",
+      "engine": "webkit",
+      "stage": "submit_credentials",
+      "start_ms": 33828.783,
+      "status": "failed",
+      "theme": "light"
+    },
+    {
+      "elapsed_ms": 269.92,
+      "end_ms": 102302.711,
+      "end_path": "/login",
+      "engine": "webkit",
+      "stage": "goto_login",
+      "start_ms": 102032.792,
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "elapsed_ms": 120.975,
+      "end_ms": 102423.708,
+      "end_path": "/login",
+      "engine": "webkit",
+      "stage": "fill_email",
+      "start_ms": 102302.739,
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "elapsed_ms": 21.921,
+      "end_ms": 102445.697,
+      "end_path": "/login",
+      "engine": "webkit",
+      "stage": "fill_password",
+      "start_ms": 102423.784,
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "elapsed_ms": 133.716,
+      "end_ms": 102579.492,
+      "end_path": "/login",
+      "engine": "webkit",
+      "stage": "submit_credentials",
+      "start_ms": 102445.781,
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "elapsed_ms": 582.281,
+      "end_ms": 103161.815,
+      "end_path": "/",
+      "engine": "webkit",
+      "stage": "await_workspace_destination",
+      "start_ms": 102579.536,
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "elapsed_ms": 1080.483,
+      "end_ms": 104242.791,
+      "end_path": "/",
+      "engine": "webkit",
+      "stage": "await_network_idle",
+      "start_ms": 103162.314,
+      "status": "passed",
+      "theme": "dark"
+    }
+  ],
+  "started_at_utc": "2026-10-09T11:02:27.310741+00:00",
+  "status": "failed"
+}

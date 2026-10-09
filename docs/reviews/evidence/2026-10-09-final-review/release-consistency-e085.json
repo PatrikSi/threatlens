@@ -1,0 +1,214 @@
+{
+  "baseline_backport_changed_paths": [
+    "backend/tests/capacity/sustained.py",
+    "backend/tests/capacity/test_concurrent_workload.py",
+    "backend/tests/capacity/workload_support.py"
+  ],
+  "candidate_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "candidate_tree": "182925c61ae160c8294789b1490c1b507385f641",
+  "comparison_scope": "The actual capacity pair remains b73a3363 versus aa92f8e7. Current e085 backend, locks, runtime harness and six control groups match that measured candidate; the changed web surface requires separate native and final-head hosted qualification.",
+  "contract_anchor_and_file_hash_are_distinct": true,
+  "dedicated_migration_command": [
+    "alembic",
+    "upgrade",
+    "head"
+  ],
+  "extra_version_bump_required_by_alignment": false,
+  "final_hosted_quality_source_and_outcome": "Must be independently verified on final review head; no new-head outcome claimed by this source-only record.",
+  "generated_publication_notes_link_version_specific_upgrade_requirements": true,
+  "historical_baseline_application_and_dependency_objects_unchanged": true,
+  "historical_baseline_revision": "35ac120b28820b6e5b1222a50b5f70f7a6b85c3b",
+  "inherited_properties_verified_by_identical_source_blobs": true,
+  "inherited_release_consistency_sha256": "2dd0db07a1927d2851b6f45d8c4f09e08a17d8943bb0fe0da407e316abc2206b",
+  "isolated_exact_source_anchor_function_matches_checked_contract": true,
+  "kind": "independent_immutable_source_release_consistency",
+  "matched_baseline_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+  "matched_baseline_runtime_harness_git_objects": {
+    "backend/tests/capacity/sustained.py": {
+      "b73a3363fc0cb7354e36d3f92b2394448a459d02": "ea813300de160f805cebc2f782e13b5d871a7359",
+      "e085733b1200b8308f0011cf50d3abe79fa792b4": "ea813300de160f805cebc2f782e13b5d871a7359"
+    },
+    "backend/tests/capacity/test_concurrent_workload.py": {
+      "b73a3363fc0cb7354e36d3f92b2394448a459d02": "32e9e8210660fd3a7c6b102ef92d4a60561d9882",
+      "e085733b1200b8308f0011cf50d3abe79fa792b4": "32e9e8210660fd3a7c6b102ef92d4a60561d9882"
+    },
+    "backend/tests/capacity/workload_support.py": {
+      "b73a3363fc0cb7354e36d3f92b2394448a459d02": "ec7d64b800d1d9dac2287c37dc1e0fa062192569",
+      "e085733b1200b8308f0011cf50d3abe79fa792b4": "ec7d64b800d1d9dac2287c37dc1e0fa062192569"
+    }
+  },
+  "matched_harness_blobs_equal": true,
+  "migration_and_runtime_database_identity_templates_are_distinct": true,
+  "native_image_source_groups_at_application_revision": [
+    {
+      "identical": true,
+      "path": "backend/app",
+      "review_git_object": "ea6886c6ec0b556d3a83b44b1a7e5ef5c51e94a7",
+      "tested_git_object": "ea6886c6ec0b556d3a83b44b1a7e5ef5c51e94a7"
+    },
+    {
+      "identical": true,
+      "path": "backend/alembic",
+      "review_git_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "tested_git_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6"
+    },
+    {
+      "identical": true,
+      "path": "backend/alembic.ini",
+      "review_git_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "tested_git_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f"
+    },
+    {
+      "identical": true,
+      "path": "backend/scripts",
+      "review_git_object": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+      "tested_git_object": "41cce55fd87502f6e57a782291de9e013a6e38ca"
+    },
+    {
+      "identical": true,
+      "path": "backend/compliance",
+      "review_git_object": "529e143333d0075b32f4c5a51845ad0a0fb57abf",
+      "tested_git_object": "529e143333d0075b32f4c5a51845ad0a0fb57abf"
+    },
+    {
+      "identical": true,
+      "path": "backend/.dockerignore",
+      "review_git_object": "991a8472a31f63c8dcdfc22ee735e83b7d03dd26",
+      "tested_git_object": "991a8472a31f63c8dcdfc22ee735e83b7d03dd26"
+    },
+    {
+      "identical": true,
+      "path": "backend/requirements-lock.txt",
+      "review_git_object": "53c239ffd4679ce835cd86d122df93ba9a11862a",
+      "tested_git_object": "53c239ffd4679ce835cd86d122df93ba9a11862a"
+    },
+    {
+      "identical": true,
+      "path": "backend/requirements.txt",
+      "review_git_object": "73b8e55f452a248483fd118fe2265b09f8f034f1",
+      "tested_git_object": "73b8e55f452a248483fd118fe2265b09f8f034f1"
+    },
+    {
+      "identical": true,
+      "path": "web",
+      "review_git_object": "cf5489d2a203de14a09ff4fb6337df87a3bb3b28",
+      "tested_git_object": "cf5489d2a203de14a09ff4fb6337df87a3bb3b28"
+    },
+    {
+      "identical": true,
+      "path": "docker",
+      "review_git_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "tested_git_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69"
+    },
+    {
+      "identical": true,
+      "path": "docker-compose.yml",
+      "review_git_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "tested_git_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26"
+    },
+    {
+      "identical": true,
+      "path": "docker-compose.build.yml",
+      "review_git_object": "15b1b8a21d80a46680fdf528635b216383285131",
+      "tested_git_object": "15b1b8a21d80a46680fdf528635b216383285131"
+    },
+    {
+      "identical": true,
+      "path": "VERSION",
+      "review_git_object": "7ec1d6db40877765247db18e7f9a4e36a0def4ad",
+      "tested_git_object": "7ec1d6db40877765247db18e7f9a4e36a0def4ad"
+    },
+    {
+      "identical": true,
+      "path": "LICENSE",
+      "review_git_object": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab",
+      "tested_git_object": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab"
+    }
+  ],
+  "new_DOM_test_excluded_from_Docker_context": false,
+  "openapi_file_sha256": "0e61be87290ac88864058898142e6b85c0729be56b5c10078255890e1633ef01",
+  "prepared_version_aligned": true,
+  "prior_release_consistency_source_files_unchanged": true,
+  "publication_or_merge_performed_by_reviewer": false,
+  "qualified_capacity_candidate_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+  "qualified_capacity_run_id": 37914335157,
+  "qualified_capacity_workflow_head": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+  "readiness_claim": false,
+  "release_notes_contract_anchor_matches": true,
+  "release_notes_version_matches": true,
+  "runtime_test_or_artifact_download_performed": false,
+  "schema_version": 1,
+  "source_applicability_preparation_sha256": "f88989d69938d83296f790ecefd61901d21aacf504b8db7d3b72cabfbe889d34",
+  "source_sha256": {
+    ".github/workflows/publish-images.yml": "1fe3072ba3911e5b455978e3f3147685f1d8c98d0e02f04f7689e8374aa88109",
+    "VERSION": "c89b87c262e9d5ffd20e73aac74a1772adcc9f5a21682cc33adcf5086e5fef5c",
+    "backend/app/main.py": "76c6e4658d1064271db91102fcd7e6758352e5c5fc5eeec137f14934b2418167",
+    "backend/app/version.py": "2423fa89c5f141592d4dfa54006751bd3bc08816711b29ef377d85e7e7a9bf13",
+    "backend/requirements-lock.txt": "c42689b53244004ad12e17ba4f0ea5f12b8e30d16ee56565b93ca0d2d0ab1ef1",
+    "backend/requirements.txt": "9f623337c1b124a6ea4e5cf140c1de676d53e63814c34843070a3a8757fcf0bc",
+    "docker-compose.build.yml": "b4df3a50abafaca1dd8fc8ee348e3f4bece0460d4693276f3bef86f53ada23aa",
+    "docker-compose.yml": "28ff5055e07fc4a818546f1610fc73cd18b011fa2cbe6b607d183fee941a88d3",
+    "docs/reference/openapi.json": "0e61be87290ac88864058898142e6b85c0729be56b5c10078255890e1633ef01",
+    "docs/releases/2.1.0.md": "e886464a3c8f183469987e9935ad634b6653b8c664597c41e9826af18c961b34",
+    "web/package-lock.json": "ff0c8a90497ff530bc41335654a59f644226e0782773f1454ab0a42afda8e64b",
+    "web/package.json": "bd0803202af4a09cfad0f838e8885b8e22958acfd3d80d5eee0a295f93f0aa39"
+  },
+  "unchanged_capacity_source_groups": [
+    {
+      "identical": true,
+      "path": "backend",
+      "review_git_object": "35235809474183c095174b54dd0e09699e0f109a",
+      "tested_git_object": "35235809474183c095174b54dd0e09699e0f109a"
+    },
+    {
+      "identical": true,
+      "path": ".github/workflows/capacity-trends.yml",
+      "review_git_object": "2f4eb4298f64d040875b38ed33dae0022ad78822",
+      "tested_git_object": "2f4eb4298f64d040875b38ed33dae0022ad78822"
+    },
+    {
+      "identical": true,
+      "path": "scripts/operations/run_capacity_reference.py",
+      "review_git_object": "9a0cdbbaeae3e329ff685a4c535a5609cfe78d1d",
+      "tested_git_object": "9a0cdbbaeae3e329ff685a4c535a5609cfe78d1d"
+    },
+    {
+      "identical": true,
+      "path": "scripts/operations/run_capacity_diagnostic.py",
+      "review_git_object": "b1f962ae2f4bab90346a161b6bb4d5c3b49173a1",
+      "tested_git_object": "b1f962ae2f4bab90346a161b6bb4d5c3b49173a1"
+    },
+    {
+      "identical": true,
+      "path": "scripts/operations/capacity_diagnostics.py",
+      "review_git_object": "a1c8a3010f1dd4dd2a4cc02ebd6b74b76590dd21",
+      "tested_git_object": "a1c8a3010f1dd4dd2a4cc02ebd6b74b76590dd21"
+    },
+    {
+      "identical": true,
+      "path": "scripts/operations/capacity_diagnostics_plugin.py",
+      "review_git_object": "7338b16acafa749ba1ad9e59019f367eeb57632d",
+      "tested_git_object": "7338b16acafa749ba1ad9e59019f367eeb57632d"
+    }
+  ],
+  "upgrade_bounded_stop_all_writers_then_dedicated_migration_then_up_wait": true,
+  "upgrade_stop_timeout_seconds": 300,
+  "upgrade_writer_services": [
+    "api",
+    "beat",
+    "worker",
+    "worker-ai",
+    "worker-exports",
+    "worker-maintenance",
+    "worker-notifications"
+  ],
+  "version_values": {
+    "backend_fallback": "2.1.0",
+    "openapi_info": "2.1.0",
+    "version_file": "2.1.0",
+    "web_lock_package_root": "2.1.0",
+    "web_lock_top": "2.1.0",
+    "web_package": "2.1.0"
+  },
+  "versioned_openapi_contract_anchor": "a608ae21656a8d50f83919e01a16751720c1199a7f4cd552465770bd3df16aaa"
+}

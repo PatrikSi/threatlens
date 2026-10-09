@@ -1,0 +1,248 @@
+{
+  "actual_image_id": "sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27",
+  "application_auth_network_requests": 0,
+  "attempts": 1,
+  "capture_errors": 0,
+  "cases": {
+    "blocked_network_requests": 0,
+    "console_errors": 0,
+    "executed": 2,
+    "expected": 2,
+    "failed": 0,
+    "page_errors": 0,
+    "passed": 2,
+    "unexpected_navigations": 0
+  },
+  "cleanup": {
+    "owned_containers_remaining": 0,
+    "owned_containers_removed": 1,
+    "status": "passed"
+  },
+  "cold_failure_cause": "unassigned; this static pass does not establish a product or host cause",
+  "finished_at_utc": "2026-10-09T11:46:34.947155+00:00",
+  "generic_error_listeners_retained": true,
+  "hashes": {
+    "browser_result": "cc955f8ede0a2c8e9adcfa76487524dc23a1e676a7ae2bdf4fe00b5ba4034430",
+    "controls_proof": "5659e5516b69e98b6fa0970ead8c33b9939496bd6381df0a33d82a9fb278d337",
+    "frozen_plan": "c932517c3c0920700837f61b8cb9fd94374297b0f3588afe78fba32ce4e6fb27",
+    "independent_pre_execution_review": "36df14ed18e42f0180dd5cae35e0975f8721d840ec68f9a2347ce5ca970b3c4c",
+    "launch_result": "14c05608de38018fcc6d99942780a9eba4673443692b1b2719817c2d1c5d6280",
+    "private_log": "dc7a39c5a489dfdab27f16d6d14ae8934da8daa1a8d1b85ba912b91079b0d711"
+  },
+  "interpretation_limits": [
+    "A cold minimal-form failure before any app/network action supports a browser/tool/host responsiveness issue but does not identify which layer.",
+    "A minimal-form pass cannot rule out product JavaScript/CSS interaction, compositor differences, intermittent host scheduling, or different cold app work.",
+    "Cold and warm contexts share one freshly started browser, so a difference can indicate first-context initialization cost; it is not a controlled product fix proof.",
+    "No warmup, skippedcase, timeout increase, threshold waiver or retries are allowed in the later actualapplication qualifier.",
+    "This diagnostic cannot clear either previous nativefailure or establish the authpatch as itscausefix."
+  ],
+  "limits": {
+    "action_ms": 30000,
+    "assertion_ms": 5000,
+    "maximum_numeric_samples": 1024,
+    "maximum_recorded_capture_errors": 64,
+    "original_outer_seconds": 900,
+    "positive_numeric_handshake_seconds": 5
+  },
+  "numeric_capture": {
+    "clock_limit": "Host observer offsets and driver stage offsets use different monotonic epochs; CPU/memory samples are whole-container non-atomic observations, not per-stage attribution",
+    "first_sample_before_browser_launch_required": true,
+    "first_sample_scope": "Pre-browser container process; no evidence of browser resource behavior",
+    "observed_memory_peak_bytes": 659841024,
+    "observed_process_count_peak": 5,
+    "observed_task_count_peak": 61,
+    "sampled_oom_events_peak": 0,
+    "sampled_oom_kill_events_peak": 0,
+    "sampled_period_delta": 19,
+    "sampled_restart_count_peak": 0,
+    "sampled_throttled_period_delta": 2,
+    "samples": 3,
+    "whole_container_sampled_cpu_delta_usec": 1815758,
+    "whole_container_sampled_throttled_delta_usec": 89906
+  },
+  "original_browser_cli_exit": 0,
+  "pinned_image": "mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27",
+  "previous_native_and_focused_failures_preserved": true,
+  "pure_controls": {
+    "after_popen_failure_owned_cleanup_passed": 1,
+    "before_popen_failure_control_failed": 1,
+    "node": 3,
+    "passed": 19,
+    "python": 16
+  },
+  "qualification": false,
+  "resource_caps": {
+    "Memory": 3221225472,
+    "MemorySwap": 3221225472,
+    "NanoCpus": 2000000000,
+    "PidsLimit": 768,
+    "ShmSize": 268435456
+  },
+  "schema": "threatlens-static-webkit-control-evidence-v1",
+  "source_hashes": {
+    "control_core.py": "75d8ef5c633e58e1f9fe00c42ce6286bec6590e3a6482ed5c63f517b58853138",
+    "gate.mjs": "4fdbf510881abbfed6e72ac2d158afc448a2b180033c9ed0356bea8701d6f0d3",
+    "gate.test.mjs": "c09171af79b96d25cd9d22dbf1400f9872c0c1ce5770392e805f5f4942b999f9",
+    "run.py": "eef1cd4604b375dfd869e102dac473e44942cfa05a619159b779d7a0e41987b6",
+    "static.mjs": "a100e45eaa492b651acdaba0b8b5fe3b0504cd6fa05bf51fd62bf4daeb4826f5",
+    "test_control_core.py": "a9bc7b84e33a62a0704e8f18c13ce72d0f0ab7ebcea4b73beb06d12fe9e7b6e7",
+    "test_run.py": "539f11a5a5598628fc92c6cf3a03e9ecf7bde4ba1240986acdc93c43ab621ed7"
+  },
+  "stage_intervals_ms": [
+    {
+      "context": "global",
+      "elapsed_ms": 0.956,
+      "end_ms": 2.256,
+      "stage": "await_numeric_sampler",
+      "start_ms": 1.3,
+      "status": "passed"
+    },
+    {
+      "context": "global",
+      "elapsed_ms": 928.994,
+      "end_ms": 932.331,
+      "stage": "launch_browser",
+      "start_ms": 3.337,
+      "status": "passed"
+    },
+    {
+      "context": "cold",
+      "elapsed_ms": 21.121,
+      "end_ms": 953.879,
+      "stage": "create_context",
+      "start_ms": 932.758,
+      "status": "passed"
+    },
+    {
+      "context": "cold",
+      "elapsed_ms": 464.775,
+      "end_ms": 1424.202,
+      "stage": "new_page",
+      "start_ms": 959.427,
+      "status": "passed"
+    },
+    {
+      "context": "cold",
+      "elapsed_ms": 31.23,
+      "end_ms": 1456.189,
+      "stage": "set_static_content",
+      "start_ms": 1424.959,
+      "status": "passed"
+    },
+    {
+      "context": "cold",
+      "elapsed_ms": 49.006,
+      "end_ms": 1505.691,
+      "stage": "fill_email",
+      "start_ms": 1456.685,
+      "status": "passed"
+    },
+    {
+      "context": "cold",
+      "elapsed_ms": 9.847,
+      "end_ms": 1518.07,
+      "stage": "fill_password",
+      "start_ms": 1508.223,
+      "status": "passed"
+    },
+    {
+      "context": "cold",
+      "elapsed_ms": 206.716,
+      "end_ms": 1725.486,
+      "stage": "submit_click",
+      "start_ms": 1518.77,
+      "status": "passed"
+    },
+    {
+      "context": "cold",
+      "elapsed_ms": 8.679,
+      "end_ms": 1734.581,
+      "stage": "assert_submitted",
+      "start_ms": 1725.902,
+      "status": "passed"
+    },
+    {
+      "context": "cold",
+      "elapsed_ms": 2.03,
+      "end_ms": 1736.931,
+      "stage": "close_context",
+      "start_ms": 1734.901,
+      "status": "passed"
+    },
+    {
+      "context": "warm",
+      "elapsed_ms": 3.139,
+      "end_ms": 1740.56,
+      "stage": "create_context",
+      "start_ms": 1737.421,
+      "status": "passed"
+    },
+    {
+      "context": "warm",
+      "elapsed_ms": 131.992,
+      "end_ms": 1874.878,
+      "stage": "new_page",
+      "start_ms": 1742.886,
+      "status": "passed"
+    },
+    {
+      "context": "warm",
+      "elapsed_ms": 3.969,
+      "end_ms": 1880.618,
+      "stage": "set_static_content",
+      "start_ms": 1876.649,
+      "status": "passed"
+    },
+    {
+      "context": "warm",
+      "elapsed_ms": 20.105,
+      "end_ms": 1902.056,
+      "stage": "fill_email",
+      "start_ms": 1881.951,
+      "status": "passed"
+    },
+    {
+      "context": "warm",
+      "elapsed_ms": 8.263,
+      "end_ms": 1910.738,
+      "stage": "fill_password",
+      "start_ms": 1902.475,
+      "status": "passed"
+    },
+    {
+      "context": "warm",
+      "elapsed_ms": 75.974,
+      "end_ms": 1987.046,
+      "stage": "submit_click",
+      "start_ms": 1911.072,
+      "status": "passed"
+    },
+    {
+      "context": "warm",
+      "elapsed_ms": 7.451,
+      "end_ms": 1995.089,
+      "stage": "assert_submitted",
+      "start_ms": 1987.638,
+      "status": "passed"
+    },
+    {
+      "context": "warm",
+      "elapsed_ms": 1.459,
+      "end_ms": 1996.808,
+      "stage": "close_context",
+      "start_ms": 1995.349,
+      "status": "passed"
+    },
+    {
+      "context": "global",
+      "elapsed_ms": 33.743,
+      "end_ms": 2031.348,
+      "stage": "close_browser",
+      "start_ms": 1997.605,
+      "status": "passed"
+    }
+  ],
+  "started_at_utc": "2026-10-09T11:46:31.439797+00:00",
+  "status": "passed",
+  "terminal_exit": 0
+}

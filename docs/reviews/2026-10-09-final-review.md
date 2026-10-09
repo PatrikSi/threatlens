@@ -2,39 +2,52 @@
 
 ThreatLens **2.1.0** is prepared, and the rebuilt synthetic local instance is
 running at **http://127.0.0.1:3001**. Current application/image candidate
-`aa92f8e7f9baf495f02c9bce89160b7a02f39514` contains all review corrections,
-including reduced envelope reads and the concurrent parent-reference guard.
-Both actual native images were freshly rebuilt, and readiness, HTTP/helpers
-and selected image scans pass. Full hosted quality passes all fifteen jobs.
-The single fresh uninstrumented capacity comparison passes with verified source,
-threshold, artifact and cleanup evidence. Final native browser qualification
-found a WebKit light-theme login failure; its cause is being investigated.
+`e085733b1200b8308f0011cf50d3abe79fa792b4` contains all review corrections,
+including reduced envelope reads, the concurrent parent-reference guard and
+synchronous post-login navigation. Fresh native build/runtime, HTTP/helpers
+and selected image scans pass. The current native browser run executes all
+33 checks, with **32 passed / one failed**. All six cookie-login checks pass,
+including WebKit light. The remaining Firefox dark-theme failure is a
+30-second screenshot timeout in the article/team workflow; its cause is
+unassigned, and that surface's accessibility audit is incomplete.
 Earlier failed outcomes remain preserved under their actual source revisions.
-All corrections were committed as `Patrik <patrik@local>`.
+All application corrections were committed as `Patrik <patrik@local>`.
 
-**Decision at this checkpoint: held for the native WebKit login failure.**
-No comparative threshold, resource limit, workload
-duration or authorization fence was weakened. Reviewed CodeQL dispositions
-leave a neutral aggregate check with the historical configuration warning.
+**Decision at this checkpoint: held for native capture completion and fresh
+final-head hosted quality.** No comparative threshold, resource limit, workload
+duration or authorization fence was weakened. Hosted quality at `aa92f8e7`
+passes all fifteen jobs; the later web correction requires fresh qualification
+on the final review commit. The single fresh uninstrumented capacity pair at
+`aa92f8e7` passes, with verified source, threshold, artifact and cleanup evidence.
+The later web change preserves all six measured backend/control groups and the
+matched runtime harness. It does not relabel the actual capacity candidate.
+
 Version 2.1.0 is already aligned across the version file, frontend metadata,
 OpenAPI and deployment defaults. These pre-merge corrections need no further
 version bump. [Draft PR #31](https://github.com/PatrikSi/threatlens/pull/31)
-contains the review candidate; remote main, release tags, published images and
-model promotion remain unchanged.
+contains the remote review candidate; the latest local checkpoint is pending
+publication to that branch. Remote main, release tags, published images and
+model promotion remain unchanged. The reviewed CodeQL dispositions retain a
+neutral aggregate check with the historical configuration warning.
 
-The new envelope writer correction passes **38/38 focused PostgreSQL cases**,
-full backend Ruff and the source-size gate. It removes redundant reads and
+The envelope writer correction at `aa92f8e7` passes **38/38 focused PostgreSQL
+cases** and full hosted backend validation. It removes redundant reads and
 revalidates parent ownership after a concurrent creator wins. The measured
 variant eliminates 24 SQL executions; its instrumented total time increased,
 so neither an end-to-end speedup nor the cause of earlier capacity flags is
 claimed. Historical `508c7413`/`6141a719` results retain their actual inputs.
+The navigation correction at `e085733b` fixes a demonstrated transient
+credential-form remount. Its unchanged new regression fails before and passes
+after; all **50 related authentication cases**, lint and TypeScript checks pass.
+It is not claimed to explain either earlier WebKit timeout.
 
 This follows the [Oct8 review](2026-10-08-final-local-review.md), preserving its
-original sources, failures and qualification limits.
-The [current release/source consistency proof](evidence/2026-10-09-final-review/release-consistency-aa92.json)
-records aligned version values, the distinct OpenAPI contract anchor and file
-hash, bounded writer shutdown before migration, and exactly matched baseline/
-candidate capacity harness blobs.
+original sources, failures and qualification limits. The
+[current release/source consistency proof](evidence/2026-10-09-final-review/release-consistency-e085.json)
+records aligned versions, the distinct OpenAPI contract anchor/file hash,
+bounded writer shutdown and exact unchanged capacity inputs. The new DOM test
+is a Docker build/typecheck input, and the new images retain their actual
+`e085733b` labels.
 
 ## Corrections completed in this pass
 
@@ -60,20 +73,82 @@ candidate capacity harness blobs.
 | Raw queue-configuration equality depended on ambient AMQP normalization | Isolate unfinalized configuration and verify effective normalized queues/routes separately. The regression and all 67 focused controls pass, followed by fresh full-suite validation. | `508c7413` |
 | Envelope persistence repeated known-absent and known-empty reads | Only successful local creation skips empty child reads; unique winners retain full reads, and snapshots reuse already validated persisted counts. The six-item measured variant removes 24 SQL executions, with policy/feed locks unchanged. Final fresh/replay query controls pass. | `aa92f8e7` |
 | Concurrent envelope creation could skip the own-envelope parent-source guard | Revalidate references with the actual winner's envelope ID after reload, before modifying lineage. One real PostgreSQL regression fails before and passes afterward; all 38 new/existing envelope cases pass, including rollback and both matching/conflicting winners. | `aa92f8e7` |
+| Successful authentication retired the cache before deferred navigation committed, briefly remounting a blank credential form | Keep session invalidation first and synchronously commit replacement navigation for password and MFA success. The integrated ordinary-login regression fails before and passes after; 50 related auth cases, lint and TypeScript pass, preserving old-cache/identity/lease/late-mutation fences. Earlier browser stalls retain unassigned causes. | `e085733b` |
 
 [Structured regression evidence](evidence/2026-10-09-final-review/regression-proof.json)
 records pinned environments, before/after failures, hashes and scope limits.
+[Login navigation controls](evidence/2026-10-09-final-review/login-navigation-controls.json)
+retain the new commit-bound before/after and session-isolation evidence.
 
 ## Actual native runtime
 
-The current images were freshly built at `aa92f8e7`, with one CPU, 1536 MiB,
+The exact current images were freshly built at `e085733b`, with one CPU,
+1536 MiB, no swap and one build operation at a time. Both builds pass on their
+first attempt; the owned builder and volume are removed. All seven writers stop
+before the dedicated migration. Independent inspection verifies twelve services:
+eleven running, ten healthy and a completed migration, zero restarts/OOM events,
+read-only roots and actual bounded CPU/memory/PIDs without swap. Strict readiness
+JSON (`ok: true`) and the checked-in 2.1.0 OpenAPI contract match.
+[Exact build/runtime evidence](evidence/2026-10-09-final-review/native-runtime-e085.json)
+retains the actual exits, limits, logs, migration and independent readiness check.
+
+| Image | Actual image ID | Runtime user |
+|---|---|---|
+| Backend | `sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5` | `app` |
+| Web | `sha256:5793441258dec702b2ff54c25d86dae35b2ef1cfa88e628eee0476f4f273a9a6` | `nginx` |
+
+Fresh HTTP qualification passes **44/44**, all three compensations, dependency/
+legal helpers, two non-root startup modes and the bounded network-free actual
+backend probe. The probe verifies the changed runtime module hashes, Beat's zero
+worker-implementation imports/all 31 schedules and the verified TLS 1.2 floor.
+All helper/probe containers are removed. Both exact images pass the selected
+HIGH/CRITICAL ignore-unfixed vulnerability and secret policy, with zero findings,
+a fresh database, zero original exits and three scanner containers removed.
+[Backend evidence](evidence/2026-10-09-final-review/native-backend-e085.json) and
+[scan evidence](evidence/2026-10-09-final-review/native-image-scans-e085.json)
+preserve the exact artifacts and scoped outcomes. A probe invocation initially
+omitted its required image argument and stopped before any workload/container;
+a readiness helper initially expected the wrong JSON field. Both helper errors
+remain preserved separately from successful actual-image/runtime qualification.
+
+The first browser sequence stops at a stale copied seed assertion before opening
+the database or creating a fixture/browser. Its original exit one and all four
+compensation checks are retained in the
+[pre-creation checkpoint](evidence/2026-10-09-final-review/native-frontend-e085-precreation.json).
+A new namespace corrects only that source guard to `e085733b`; actual constant
+controls improve from three failures/one pass to four passes, and both independent
+reads verify every current source guard. Selectors, actions and limits are unchanged.
+
+The subsequent fresh seed passes; permission transitions pass **seven/seven** and
+all six cleanup checks. The first actual full native run on these images executes
+**33/33**, with **32 passed / one failed**: Chromium 11/11, Firefox 10/11 and
+WebKit 11/11. All six cookie logins pass. The failed Firefox dark article/team
+case reaches its second screenshot, which times out at the unchanged 30-second
+operation limit. The case's 157.93 seconds include multiple operations and are
+not assigned to the screenshot. The first article PNG and a later fallback PNG
+exist; the team capture is absent. All generic page/console/API-500/external
+listeners report zero events. Thirty-one persisted accessibility surfaces report
+zero violations; the failed surface's audit is incomplete. Original exit is one,
+and owned browser cleanup reports zero errors/remnants. Source/manifests/drivers
+stay unchanged. The
+[failed current native checkpoint](evidence/2026-10-09-final-review/native-frontend-e085-checkpoint.json)
+retains those counts, exact engine order, image identities, limits and hash-only
+capture evidence. The
+[read-only capture-source assessment](evidence/2026-10-09-final-review/native-firefox-e085-capture-source.json)
+retains the pinned SDK await order and original call-log markers. Screenshot
+preparation/evaluation versus scheduling cause is unassigned. A focused diagnostic is prepared; no identical full-suite retry,
+capture bypass or weakened assertion is authorized.
+
+### Earlier native candidate `aa92f8e7` — retained
+
+These images were freshly built at `aa92f8e7`, with one CPU, 1536 MiB,
 no swap and one build operation at a time. Both builds pass on their first
 attempt, and the owned builder and volume are removed. All seven writers stop
 before the dedicated migration. Independent inspection verifies twelve services:
 eleven running, ten healthy and a completed migration, zero restarts/OOM events,
 read-only roots and actual bounded CPU/memory/PIDs without swap. Strict JSON
 readiness and equality with the checked-in 2.1.0 OpenAPI contract pass.
-The [exact current build/runtime record](evidence/2026-10-09-final-review/native-runtime-aa92.json)
+The [exact build/runtime record](evidence/2026-10-09-final-review/native-runtime-aa92.json)
 retains both original build exits, actual limits, writer shutdown, migration and
 the independent readiness check.
 
@@ -82,7 +157,7 @@ the independent readiness check.
 | Backend | `sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9` | `app` |
 | Web | `sha256:e0061cfce6f1d10fa7c4c68fadb84d2bd8d9805486c638f1de6b3158b4344490` | `nginx` |
 
-Fresh native HTTP qualification passes **44/44**, all three owned compensation
+That native HTTP qualification passes **44/44**, all three owned compensation
 checks, dependency/legal inventory and both non-root startup modes. The bounded,
 network-free actual backend probe verifies the two changed runtime source hashes,
 the Beat producer's zero worker-implementation imports, all 31 schedule entries
@@ -91,23 +166,21 @@ Both exact native images pass the established HIGH/CRITICAL, ignore-unfixed
 vulnerability and secret policy with zero selected findings, using the same fresh
 database in offline scan containers. Their original process exits are zero;
 three scanner/download containers are removed with zero errors or remnants.
-[Current HTTP/helper evidence](evidence/2026-10-09-final-review/native-backend-aa92.json)
-and [current image scan evidence](evidence/2026-10-09-final-review/native-image-scans-aa92.json)
+[HTTP/helper evidence at `aa92f8e7`](evidence/2026-10-09-final-review/native-backend-aa92.json)
+and [image scan evidence at `aa92f8e7`](evidence/2026-10-09-final-review/native-image-scans-aa92.json)
 retain the exact inputs, original exits, source hashes and scoped cleanup.
 
 The scanner's first current attempt stopped before any download, scan or container
 because the pinned tool image was absent locally. Restoration verified the raw
 multi-platform index hash and its AMD64 child, then pulled the same immutable pin.
-An earlier pre-pull assertion confused that index with the child configuration;
-it remains failed and started no scanner. The subsequent scan does not relabel
-those preflight outcomes.
+The subsequent scan does not relabel the missing-tool preflight outcome.
 
-Current native permission-transition qualification passes **seven/seven** with
+Its native permission-transition qualification passes **seven/seven** with
 all six cleanup checks. The first policy preflight had stopped before any browser
 case because the immutable Playwright image was missing. Its seed was compensated,
 and the exact registry index/AMD64 child were verified before restoring the same
 pin and using a new fixture. The subsequent first actual native 33-case run
-reports **28 passed / one failed / four skipped**: Chromium and Firefox pass all
+reports **28 passed / one failed / four not executed**: Chromium and Firefox pass all
 eleven each, while WebKit passes six and its light-theme login times out. The
 remaining four light-theme workflows were not executed. Original browser/launcher
 exit is one; the bounded browser container is removed with zero cleanup errors or
@@ -117,8 +190,17 @@ The screenshot shows an empty login form with SSO availability pending, rather
 than onboarding. `/start` is a workspace redirect; accepting it as successful
 login would weaken the assertion. Application versus driver/transport cause is
 unassigned. Source, manifests and all five driver payloads remain unchanged.
-This failed aggregate is retained while a targeted diagnostic is prepared.
-The [current frontend checkpoint](evidence/2026-10-09-final-review/native-frontend-aa92-checkpoint.json)
+This failed aggregate remains retained with its targeted diagnostic.
+The targeted WebKit-only run also fails in the first light context, this time at
+submit click before any login request; its dark context passes all six cases.
+The observed cold-client delays have no assigned cause. A later network-free
+static-form control passes both contexts, with the same immutable browser and
+resource limits; it cannot qualify ThreatLens or attribute either earlier failure.
+[Focused diagnostic](evidence/2026-10-09-final-review/native-webkit-aa92-diagnostic.json),
+[call-log adjudication](evidence/2026-10-09-final-review/native-webkit-aa92-call-log.json)
+and [static control](evidence/2026-10-09-final-review/native-webkit-static-control.json)
+retain original failures, timing scope and numeric capture.
+The [frontend checkpoint at `aa92f8e7`](evidence/2026-10-09-final-review/native-frontend-aa92-checkpoint.json)
 preserves the passed permission run, failed native aggregate, original exits,
 image/source identities, limits, cleanup and hash-only screenshot evidence.
 
@@ -214,7 +296,12 @@ selectors, assertions, deadlines and generic error listeners remain unchanged.
 
 ## Hosted quality and preserved failures
 
-Fresh [quality run 37914317245](https://github.com/PatrikSi/threatlens/actions/runs/37914317245)
+Fresh final-head quality remains required for the later `e085733b` web change.
+The final review commit must retain exact image-input groups and complete all
+fifteen jobs on its actual merge checkout before clearance. Old outcomes below
+remain bound to their recorded sources.
+
+The latest completed [quality run 37914317245](https://github.com/PatrikSi/threatlens/actions/runs/37914317245)
 at `aa92f8e7` passes **all fifteen jobs**. Backend reports **4,741 passed / five
 skipped** in 1094.38 seconds, overall coverage **87.08%**, reporting coverage
 **87.21%**, and all **58 critical module floors**. Capacity smoke, generated
@@ -456,7 +543,7 @@ analysis and SARIF identities are in the
 
 The single predeclared uninstrumented
 [current pair 37914335157](https://github.com/PatrikSi/threatlens/actions/runs/37914335157)
-compares matched-harness baseline `b73a3363` with final application candidate
+compares matched-harness baseline `b73a3363` with the measured candidate
 `aa92f8e7`, using each ref's locked dependencies. It **passes the unchanged
 20% regression gate**. Both 600-second workloads pass absolute budgets,
 with zero task/sampler errors, identical comparison fingerprints and all required
@@ -468,6 +555,12 @@ once, with no redispatch or repeated identical pair.
 The [verified current capacity record](evidence/2026-10-09-final-review/hosted-capacity-aa92.json)
 retains all artifact hashes, measurements, comparison, process/cleanup proofs
 and a deterministic replay of the exact comparator with an equal result.
+The later web-only `e085733b` correction preserves the entire backend tree,
+five qualification-control files and all three matched runtime harness blobs.
+Its [source consistency proof](evidence/2026-10-09-final-review/release-consistency-e085.json)
+keeps the actual tested capacity head/candidate at `aa92f8e7`, separately from
+new web/native/final-head quality. No new capacity pair is needed for unchanged
+measurement inputs.
 The [predeclared plan](evidence/2026-10-09-final-review/capacity-plan-aa92.json)
 records the original qualification intent and unchanged workload/deadlines.
 Actual application supervision pins one-core affinity and samples the owned
@@ -749,9 +842,10 @@ outputs and named human review of the twelve prepared cases. Provider-contract
 and configuration tests do not complete that approval; ordinary ingestion and
 classification do not require model promotion.
 
-The remaining current gate is diagnosis and correction of the native WebKit
-login failure, followed by appropriate browser qualification. Fresh
-`aa92f8e7` full quality and both platform jobs pass. Earlier failures remain
-recorded under their actual runtime and harness inputs.
+The remaining current gates are the Firefox native capture/audit completion
+and fresh hosted quality on the final review head. Current `e085733b` cookie
+logins, both exact images and all backend/runtime checks pass. Earlier failures
+remain recorded under their actual runtime and harness inputs; they are not
+assigned causes by later passing observations.
 The CodeQL neutral baseline-configuration warning and chosen-model
 promotion limits remain explicit; no merge, tag or publication has occurred.
