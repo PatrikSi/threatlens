@@ -609,6 +609,9 @@ jobs:
           from pathlib import Path
 
           root = Path(sys.argv[1])
+          # Compose grants Bake access to the build context. Keep its tracked
+          # Dockerfile inside that context, preserving the restrictive mode.
+          root.joinpath("docker/web.Dockerfile").replace(root / "web/Dockerfile.smoke")
           for relative in (
               "web/nginx/nginx.conf",
               "web/nginx/default.conf.template",
@@ -638,7 +641,7 @@ jobs:
                       }
           services["web"]["build"] = {
               "context": str(root / "web"),
-              "dockerfile": str(root / "docker/web.Dockerfile"),
+              "dockerfile": "Dockerfile.smoke",
           }
           override.write_text(json.dumps({"services": services}))
           with open(os.environ["GITHUB_ENV"], "a") as output:
