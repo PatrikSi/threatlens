@@ -126,6 +126,7 @@ class Recorder:
         self.data = {name: [] for name in self.limit}
         self.dropped = {name: 0 for name in self.limit}
         self.errors, self.aliases, self.fences, self.ending = [], {}, {}, set()
+        self.workload_query_failures = {}
         self.lock, self.local = threading.RLock(), threading.local()
         self.last_lock_sample = self.last_host_sample = -10**18
         self.sampler_count = self.sampler_gap_max = self.sampler_gap_sum = 0
@@ -139,6 +140,16 @@ class Recorder:
         with self.lock:
             if len(self.errors) < 100:
                 self.errors.append({"phase": phase, "error_type": type(error).__name__})
+
+    def workload_query_failed(self, error):
+        """Count captured DBAPI failures without judging workload recovery."""
+        error_type = type(error).__name__
+        if len(error_type) > 128:
+            raise ValueError("workload exception type bound")
+        with self.lock:
+            if error_type not in self.workload_query_failures and len(self.workload_query_failures) >= 32:
+                raise ValueError("workload exception category bound")
+            self.workload_query_failures[error_type] = self.workload_query_failures.get(error_type, 0) + 1
 
     def add(self, kind, value):
         with self.lock:
@@ -268,7 +279,7 @@ class Recorder:
         lanes = [value["lane"] for value in self.data["lanes"]]
         if expected_governance <= 0 or coverage["governance_operations"] != expected_governance or any(not coverage[key] for key in ["query_events", "lock_samples", "host_samples"]) or sorted(lanes) != ["ai_connection", "export", "feed", "governance", "repair"]:
             self.error("coverage", ValueError())
-        return {"status": "failed" if self.errors or any(self.dropped.values()) else "passed", "errors": self.errors, "dropped_events": self.dropped, "coverage": coverage, "observer_overhead": self.overhead, "sampler": {"observations": self.sampler_count, "gap_max_ns": self.sampler_gap_max, "gap_mean_ns": self.sampler_gap_sum // max(1, self.sampler_count - 1)}, "connection_alias_count": len(self.aliases), "lock_semantics": "Sampled query age while Lock-waiting; successful fence observations retire at pool return or next begin; transaction-end requests are not exact release times", **self.data}
+        return {"status": "failed" if self.errors or any(self.dropped.values()) else "passed", "errors": self.errors, "workload_query_failures": self.workload_query_failures, "dropped_events": self.dropped, "coverage": coverage, "observer_overhead": self.overhead, "sampler": {"observations": self.sampler_count, "gap_max_ns": self.sampler_gap_max, "gap_mean_ns": self.sampler_gap_sum // max(1, self.sampler_count - 1)}, "connection_alias_count": len(self.aliases), "lock_semantics": "Sampled query age while Lock-waiting; successful fence observations retire at pool return or next begin; transaction-end requests are not exact release times", **self.data}
 
 
 def host_sample(now):

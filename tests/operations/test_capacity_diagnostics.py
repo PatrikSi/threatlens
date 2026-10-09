@@ -99,6 +99,17 @@ class RecorderTests(unittest.TestCase):
         self.assertEqual(self.recorder.fences, {})
         self.assertEqual(self.recorder.data["queries"][0]["status"], "failed")
 
+    def test_workload_query_failure_counts_are_bounded_and_retain_no_message(self):
+        for _ in range(2):
+            self.recorder.workload_query_failed(RuntimeError("private SQL parameters"))
+        self.assertEqual(self.recorder.workload_query_failures, {"RuntimeError": 2})
+        for index in range(31):
+            self.recorder.workload_query_failed(type(f"DatabaseError{index}", (Exception,), {})())
+        with self.assertRaises(ValueError):
+            self.recorder.workload_query_failed(TypeError("private credential"))
+        self.assertEqual(len(self.recorder.workload_query_failures), 32)
+        self.assertNotIn("private", json.dumps(self.recorder.workload_query_failures))
+
     def test_fence_history_retires_on_pool_return_or_next_begin(self):
         for retirement in ["pool_returned", "begin"]:
             token = self.recorder.query_start(self.connection, "SELECT revision FROM data_policy_state FOR SHARE")
@@ -253,6 +264,72 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(session.exitstatus, 4)
         self.assertEqual(record["workload_exit_code"], 4)
         self.assertEqual(record["status"], "failed")
+
+    def captured_query_failure(self, exitcode=0, *, capture_fault=False):
+        @contextmanager
+        def operation(self, name):
+            yield {}
+
+        class Measurements:
+            pass
+
+        Measurements.operation = operation
+        Measurements.sample = lambda self, callback: callback()
+        capacity = types.ModuleType("tests.capacity")
+        capacity.workload_support = types.SimpleNamespace(Measurements=Measurements)
+        item = types.SimpleNamespace(module=types.SimpleNamespace(paced_lane=lambda *args, **kwargs: 0))
+        try:
+            with patch.dict(os.environ, self.environment, clear=True), patch.dict(sys.modules, {"tests.capacity": capacity}):
+                self.plugin.pytest_configure(None)
+                self.plugin.pytest_runtest_setup(item)
+                self.populate()
+                recorder = self.plugin._recorder
+                driver = types.SimpleNamespace(info=types.SimpleNamespace(backend_pid=976123456))
+                token = recorder.query_start(driver, "SELECT revision FROM data_policy_state FOR SHARE")
+                context = types.SimpleNamespace(original_exception=RuntimeError("private SQL parameters credential"), execution_context=types.SimpleNamespace(_capacity_observation=token))
+                callback = next(value[2] for value in self.plugin._listeners if value[1] == "handle_error")
+                if capture_fault:
+                    with patch.object(recorder, "workload_query_failed", create=True, side_effect=ValueError("private capture fault")):
+                        self.assertIsNone(callback(context))
+                else:
+                    self.assertIsNone(callback(context))
+                return self.finish(exitcode)
+        finally:
+            from sqlalchemy import event
+            for target, name, callback in self.plugin._listeners:
+                event.remove(target, name, callback)
+            for target, name, original in reversed(self.plugin._patches):
+                setattr(target, name, original)
+            self.plugin._listeners.clear()
+            self.plugin._patches.clear()
+
+    def test_captured_handled_query_failure_keeps_complete_workload_success(self):
+        session, record = self.captured_query_failure()
+        self.assertEqual(session.exitstatus, 0)
+        self.assertEqual(record["status"], "passed")
+        self.assertEqual(record["errors"], [])
+        self.assertEqual(record["workload_query_failures"], {"RuntimeError": 1})
+        self.assertEqual(record["workload_exit_code"], 0)
+        failed = [value for value in record["queries"] if value.get("status") == "failed"]
+        self.assertEqual([value["category"] for value in failed], ["policy_shared"])
+        self.assertEqual(self.plugin._recorder.fences, {})
+        self.assertNotIn("private", json.dumps(record))
+
+    def test_captured_query_failure_preserves_original_workload_failure(self):
+        session, record = self.captured_query_failure(1)
+        self.assertEqual(session.exitstatus, 1)
+        self.assertEqual(record["workload_exit_code"], 1)
+        self.assertEqual(record["status"], "passed")
+        self.assertEqual(record["workload_query_failures"], {"RuntimeError": 1})
+
+    def test_query_failure_capture_fault_still_fails_complete_diagnostics(self):
+        session, record = self.captured_query_failure(capture_fault=True)
+        self.assertEqual(int(session.exitstatus), 1)
+        self.assertEqual(record["workload_exit_code"], 0)
+        self.assertEqual(record["status"], "failed")
+        self.assertEqual(record["errors"], [{"phase": "workload_query_failure", "error_type": "ValueError"}])
+        self.assertTrue(any(value.get("status") == "failed" for value in record["queries"]))
+        self.assertNotIn("private", json.dumps(record))
 
     def test_stale_measurement_or_changed_observer_identity_fails(self):
         for key in ["THREATLENS_CAPACITY_RUN_ID", "THREATLENS_CAPACITY_DIAGNOSTICS_OBSERVER_SHA256"]:
