@@ -5,6 +5,7 @@ import sys
 
 from app.services import ioc_extraction
 from app.services.ioc_extraction import extract_iocs, normalize_ioc_search_value
+from tests.unit.ioc_capacity_test_support import untraced_child_environment
 
 
 def extract(text: str):
@@ -123,7 +124,8 @@ text += ('https://sample.example/path' + ')' * 4000 + ' ') * 400
 matches = extract_iocs(title='', summary=None, article_text=text)
 assert len(matches) == 800
 assert all(entry.value_norm in {'https://sample.example/path', 'sample.example'} for entry in matches)
-"""], timeout=20, capture_output=True, text=True, cwd=Path(__file__).resolve().parents[2])
+"""], timeout=20, capture_output=True, text=True, cwd=Path(__file__).resolve().parents[2],
+        env=untraced_child_environment())
     assert result.returncode == 0, result.stderr
 
 
@@ -140,5 +142,6 @@ assert len(matches) == 50000
 assert all(entry.transformations == ('refang_dot',) for entry in matches)
 assert all(text[entry.source_start:entry.source_end] == entry.value_raw for entry in matches)
 assert resource.getrusage(resource.RUSAGE_SELF).ru_maxrss - baseline < 128 * 1024
-"""], timeout=20, capture_output=True, text=True, cwd=Path(__file__).resolve().parents[2])
+"""], timeout=20, capture_output=True, text=True, cwd=Path(__file__).resolve().parents[2],
+        env=untraced_child_environment())
     assert result.returncode == 0, result.stderr
