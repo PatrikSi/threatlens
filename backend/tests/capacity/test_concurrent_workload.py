@@ -74,7 +74,7 @@ from app.tasks.celery_app import celery_app
 from scripts.capacity_results import seal_result
 from tests.capacity.deadline_probes import observe_deadlines
 from tests.capacity.disjoint_exports import run_disjoint_exports, seed_export_principals
-from tests.capacity.sustained import paced_lane
+from tests.capacity.sustained import SharedPacedLaneStart, paced_lane
 from tests.capacity.workload_support import (
     Measurements,
     PROFILES,
@@ -493,6 +493,10 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                         run_disjoint_exports, engine, export_principals, seed_feed_id, metrics, profile,
                     )
                     if duration:
+                        start_gate = SharedPacedLaneStart(
+                            participants=profile["start_gate_participants"],
+                            timeout_seconds=profile["start_gate_timeout_seconds"],
+                        )
                         jobs = [
                             executor.submit(
                                 paced_lane,
@@ -501,6 +505,7 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                                 ),
                                 duration_seconds=duration,
                                 interval_seconds=profile["service_interval_seconds"],
+                                start_gate=start_gate,
                             ),
                             executor.submit(
                                 paced_lane,
@@ -512,6 +517,7 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                                 initial_delay_seconds=profile[
                                     "governance_phase_seconds"
                                 ],
+                                start_gate=start_gate,
                             ),
                             executor.submit(
                                 paced_lane,
@@ -519,6 +525,7 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                                 duration_seconds=duration,
                                 interval_seconds=profile["service_interval_seconds"],
                                 initial_delay_seconds=profile["ai_phase_seconds"],
+                                start_gate=start_gate,
                             ),
                         ]
 
@@ -534,6 +541,7 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                             publish_batch,
                             duration_seconds=duration,
                             interval_seconds=profile["feed_interval_seconds"],
+                            start_gate=start_gate,
                         )
 
                         def repair_processing(_index):
@@ -545,6 +553,7 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                             repair_processing,
                             duration_seconds=duration,
                             interval_seconds=profile["processing_repair_interval_seconds"],
+                            start_gate=start_gate,
                         )
                         completed = [job.result(timeout=duration + 120) for job in jobs]
                         feed_batches = feed_job.result(timeout=120)
