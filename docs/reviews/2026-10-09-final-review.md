@@ -173,6 +173,10 @@ original exit precedence and cleanup errors. The clean operations suite records
 151 passes and one deliberate source-loss opt-in skip. The workflow runs only
 on its exact auxiliary review branch, without publication or default-branch
 changes. These controls validate the diagnostic, not an ARM startup fix.
+Only encrypted raw logs are uploaded; plaintext logs are excluded even when
+encryption fails. Ten retention fault controls and an exact extracted-workflow
+encryption/decryption round-trip pass, with the recipient private key retained
+outside the repository.
 The [runtime source attestation](evidence/2026-10-09-final-review/native-runtime-applicability-125.json)
 also confirms all 1,453 scoped paths, modes and blobs match the qualified native
 runtime; images keep their actual build revision.
@@ -367,6 +371,14 @@ identity is unassigned, and the graph is not an atomic witness of the original
 row. No new causal application defect is proved. Instrumentation perturbs timing,
 so this passing diagnostic does not clear the earlier uninstrumented failure.
 No retries, threshold changes, fence weakening or model promotion occurred.
+
+The [independent source review](evidence/2026-10-09-final-review/capacity-v2-source-review.json)
+confirms that all feed item upserts already precede event emission. Work under
+the shared policy fence persists event snapshots/provenance and verifies lease
+ownership before the atomic commit. Its source shape is consistent with the
+observed background acquisitions, but does not identify that task or establish
+the cause of the failed comparative peak. No authorization or transaction-order
+change is justified by this evidence.
 
 ## Feature completion and release boundary
 
