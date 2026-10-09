@@ -163,8 +163,16 @@ but produces no scheduler heartbeat before the unchanged 240-second watchdog
 grace; the original outer startup command exits 124. All eight subsequent ARM
 checks/scans are skipped, and cleanup succeeds. Relevant runtime inputs match
 the prior successful build, which does not dismiss this failure. A single bounded
-ARM startup diagnostic is being prepared to capture import stacks and numeric
-resource counters with the original images, watchdog and resource limits.
+ARM startup diagnostic is prepared to capture import stacks and numeric
+resource counters from the frozen `1251826` runtime. Its external, read-only
+Celery launcher preserves the original console interpreter, arguments, signals
+and exit behavior; the 240-second watchdog grace and resource limits are
+unchanged. [Diagnostic controls](evidence/2026-10-09-final-review/arm64-startup-diagnostic-controls.json)
+cover twelve launcher cases, missing/failed capture, resource mismatches,
+original exit precedence and cleanup errors. The clean operations suite records
+151 passes and one deliberate source-loss opt-in skip. The workflow runs only
+on its exact auxiliary review branch, without publication or default-branch
+changes. These controls validate the diagnostic, not an ARM startup fix.
 The [runtime source attestation](evidence/2026-10-09-final-review/native-runtime-applicability-125.json)
 also confirms all 1,453 scoped paths, modes and blobs match the qualified native
 runtime; images keep their actual build revision.

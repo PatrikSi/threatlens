@@ -1,0 +1,304 @@
+{
+  "application_changes": 0,
+  "beat_caps": {
+    "cpu": 0.5,
+    "cpu_shares": 1024,
+    "memory_bytes": 402653184,
+    "memory_swap_bytes": 402653184,
+    "pids": 96
+  },
+  "full_operations_controls": {
+    "elapsed_seconds": 1.025,
+    "errors": 0,
+    "failures": 0,
+    "log_sha256": "ffc7d4e9d30f53b1c5864eac4cf0a4076c939d83c675c6784da971c7d4d6702d",
+    "passed": 151,
+    "run": 152,
+    "skip_scope": "Deliberate source-loss opt-in case; actual disposable qualification is separately retained",
+    "skipped": 1
+  },
+  "proofs": {
+    "launcher": {
+      "controls": {
+        "arming_fault_regression": {
+          "after_all_methods": 12,
+          "after_all_passed": 12,
+          "after_elapsed_seconds": 0.009,
+          "after_exit_code": 0,
+          "after_log_sha256": "11c8519d15722c5820c6e4bec8e71d35973177f07a7c489b98de3bab47816d6d",
+          "before_exit_code": 1,
+          "before_log_sha256": "d050b1b9a63023779b68678822f0b5bdf20a5a127d4a1f3f6689920025e22806",
+          "before_methods": 1,
+          "before_subcase_errors": 4,
+          "scope": "new diagnostic prototype; no application before/after claim"
+        },
+        "console_proof_sha256": "37fb490342baf26c32e6070d2f9e28dc7a3ffc6dc925250f16ff0ce0294c6744",
+        "contract": {
+          "application_edits": 0,
+          "armed_before_celery_import": true,
+          "arming_failure_marker": "beat_startup_diagnostic_arm_failed",
+          "budget_changes": 0,
+          "console_entrypoint": "celery.__main__:main",
+          "explicit_ci_only": true,
+          "heartbeat_writes": 0,
+          "launcher_destination": "/opt/threatlens-beat-diagnostic/bin/celery",
+          "launcher_mode_octal": "0755",
+          "no_cancel_when_not_armed": true,
+          "ordinary_timer_arm_failure_preserves_original_console_status": true,
+          "original_arguments_environment_signal_handlers_preserved": true,
+          "original_console_argv0": "/usr/local/bin/celery",
+          "original_interpreter": "/usr/local/bin/python3.12",
+          "original_return_system_exit_exception_preserved": true,
+          "original_watchdog_command_unchanged": true,
+          "timer_canceled_in_finally": true,
+          "timer_exit": false,
+          "timer_repeat": true,
+          "timer_seconds": 60
+        },
+        "files": {
+          "scripts/operations/diagnose_beat_startup.py": "da097b318aaa69ebd744328785a26864453d8cac46bab978af769cf795869837",
+          "tests/operations/test_beat_startup_diagnostic.py": "1d7127f6563ebcbb891233352336f7a8e9147c2812a0907fcdeec598915cfac4"
+        },
+        "limits": [
+          "Pure mocked console/timer controls do not prove ARM startup root cause or successful QEMU diagnostic capture.",
+          "Diagnostic acceptance requires an armed marker and no arm_failed/cancel_failed; ordinary capture failures never substitute for original Celery status.",
+          "Raw stack/log artifacts remain private; frames contain no locals/environment/bind/body dump.",
+          "Original BaseException from timer arming propagates; ordinary Exception is a diagnostic failure only."
+        ],
+        "preserved_v1_controls_proof_sha256": "6b59a5fb3d4f159d02686868981df96bc2666b59190c242a76f7420e0781b811",
+        "schema": "beat-startup-diagnostic-controls-v2",
+        "validation": {
+          "db_service_provider_network_workload_runs": 0,
+          "git_diff_check": "passed",
+          "ruff": "passed"
+        }
+      },
+      "sha256": "9a56a19c7e771f03ab11e3315b391822d1c960881b65a3a8197fd41e7f38a8ce"
+    },
+    "markers": {
+      "controls": {
+        "bash_blocks": 12,
+        "checks": [
+          {
+            "case": "exact_markers",
+            "expected_exit": 0,
+            "status": "passed"
+          },
+          {
+            "case": "unprefixed_markers",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "echoed_commands",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "compose_prefix",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "arm_failure",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "cancel_failure",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "console_import_missing",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "line_bound",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "byte_bound",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "owned_beat_absent",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "remaining_containers_empty_list_failure_not_green",
+            "status": "passed"
+          },
+          {
+            "case": "remaining_volumes_empty_list_failure_not_green",
+            "status": "passed"
+          },
+          {
+            "case": "remaining_networks_empty_list_failure_not_green",
+            "status": "passed"
+          }
+        ],
+        "previous_observer_and_exit_controls_proof_sha256": "295fc48fb6cd3a4408f9dba0d0de67eba4f217cd1b9b357d38b9eb05197754c7",
+        "python_blocks": 7,
+        "runtime_source_revision": "1251826fa113aca4e084f0dd7239d056d97be3b2",
+        "schema_version": 1,
+        "scope": "isolated marker/cleanup failure controls and syntax only; no Docker, network or application workload",
+        "workflow_sha256": "e3772585fd0e73f39502ade20de007fddd22e875f3ce262d419c2aefa41c41c8",
+        "yaml": "passed"
+      },
+      "sha256": "4e6abd2b6bfba5de01fa6881318ba4e7433067088779dc562ad738f2d1e996db"
+    },
+    "observer": {
+      "controls": {
+        "bash_blocks": 12,
+        "checks": [
+          {
+            "case": "valid",
+            "expected_exit": 0,
+            "status": "passed"
+          },
+          {
+            "case": "absent_owned",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "missing_cgroup",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "wrong_command",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "wrong_grace",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "wrong_cpu",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "wrong_memory",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "wrong_owner",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "too_many_owned",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "docker_capture_error",
+            "expected_exit": 2,
+            "status": "passed"
+          },
+          {
+            "case": "five_original_exit_precedence_combinations",
+            "status": "passed"
+          }
+        ],
+        "limits": {
+          "beat_trace_tail_bytes": 524288,
+          "build_seconds": 1800,
+          "cgroup_file_bytes": 4096,
+          "cgroup_read_bytes": 32768,
+          "compose_wait_seconds": 480,
+          "final_samples_max": 1,
+          "job_minutes": 60,
+          "observe_period_seconds": 60,
+          "periodic_samples_max": 11,
+          "startup_tail_bytes": 262144,
+          "subprocess_seconds": 10,
+          "up_outer_seconds": 600,
+          "watchdog_startup_grace_seconds": 240
+        },
+        "python_blocks": 7,
+        "runtime_source_revision": "1251826fa113aca4e084f0dd7239d056d97be3b2",
+        "schema_version": 1,
+        "scope": "workflow syntax and isolated mocked observer/status controls only; no Docker, network or app workload",
+        "workflow_sha256": "ccfed60fda5c0f98c32b202889cde61b2aa1b34805063088eeefa762457861f1",
+        "yaml": "passed"
+      },
+      "sha256": "295fc48fb6cd3a4408f9dba0d0de67eba4f217cd1b9b357d38b9eb05197754c7"
+    },
+    "trigger_cleanup": {
+      "controls": {
+        "bash_blocks": 12,
+        "cleanup_cases": [
+          {
+            "expected_exit": 0,
+            "mock_fault": "none",
+            "status": "passed"
+          },
+          {
+            "expected_exit": 19,
+            "mock_fault": "down",
+            "status": "passed"
+          },
+          {
+            "expected_exit": 17,
+            "mock_fault": "containers",
+            "status": "passed"
+          },
+          {
+            "expected_exit": 17,
+            "mock_fault": "volumes",
+            "status": "passed"
+          },
+          {
+            "expected_exit": 17,
+            "mock_fault": "networks",
+            "status": "passed"
+          },
+          {
+            "expected_exit": 1,
+            "mock_fault": "remaining",
+            "status": "passed"
+          }
+        ],
+        "previous_controls": {
+          "marker_and_list_failure": "4e6abd2b6bfba5de01fa6881318ba4e7433067088779dc562ad738f2d1e996db",
+          "observer": "295fc48fb6cd3a4408f9dba0d0de67eba4f217cd1b9b357d38b9eb05197754c7"
+        },
+        "python_blocks": 8,
+        "schema_version": 1,
+        "scope": "exact push trigger and full mocked cleanup/trap controls; no Docker, network or runtime workload",
+        "trigger": {
+          "push": {
+            "branches": [
+              "review/arm64-startup-diagnostic-20261009"
+            ],
+            "paths": [
+              ".github/workflows/arm64-startup-diagnostic.yml",
+              "scripts/operations/diagnose_beat_startup.py"
+            ]
+          }
+        },
+        "trigger_cases": 5,
+        "workflow_sha256": "5051883ce2df6ebd2df3dde79e5013488f52e0bc924492c1f4e73dbbb8f6b68e",
+        "yaml": "passed"
+      },
+      "sha256": "7a2dd1df9afb1f21d9df0f766d4de3ff5bc8bd44703e3deda5fad1f7ee2e4269"
+    }
+  },
+  "raw_stack_artifact_publication": false,
+  "release_gate_status": "held",
+  "runtime_source_revision": "1251826fa113aca4e084f0dd7239d056d97be3b2",
+  "schema": "threatlens-arm64-startup-diagnostic-controls-v1",
+  "scope": "Opt-in diagnostic controls only; no application startup fix or release qualification claim",
+  "watchdog_grace_seconds": 240
+}
