@@ -1,0 +1,349 @@
+{
+  "after_check": {
+    "conclusion": "neutral",
+    "id": 113659780795,
+    "metadata_sha256": "e04042f11707813f3a4b078b55569f77efd294551c6ea8db80542504fcc1e86c",
+    "status": "completed",
+    "summary": "**Warning**: Code scanning cannot determine the alerts introduced by this pull request, because 2 configurations present on `refs/heads/main` were not found:\n\n### Actions workflow (`publish-images.yml`)\n\n* :question:&nbsp;&nbsp;`.github/workflows/publish-images.yml:codeql/language:javascript-typescript`\n* :question:&nbsp;&nbsp;`.github/workflows/publish-images.yml:codeql/language:python`\n\n\n[View all branch alerts](/PatrikSi/threatlens/security/code-scanning?query=pr%3A31+tool%3ACodeQL+is%3Aopen)."
+  },
+  "alerts": [
+    {
+      "after_sha256": "60ea84d88138f0a68ebd972fbd0cdcf1ac589d621f49612f4e29895c1ab3bfda",
+      "after_state": "dismissed",
+      "alert": 9,
+      "before_sha256": "97757c44dc648f27752c822ad5e21a26fa387f44bf81bcaa3c11fefa6d7f4a83",
+      "before_state": "open",
+      "comment": "Reviewed a6c07f7: SHA-256 is only an intermediate input to salted bcrypt verification. No fast password digest is persisted; successful legacy login upgrades to Argon2. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:15:46Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/app/core/security.py",
+      "reason": "false positive",
+      "rule": "py/weak-sensitive-data-hashing"
+    },
+    {
+      "after_sha256": "9cf3dfa436639a92f56af4ba60aadf3046889c0be04f4e972510b10a20b138e3",
+      "after_state": "dismissed",
+      "alert": 10,
+      "before_sha256": "7b94a6103e401b4348926ffe3cb9d04db962e99ac38cbc53c5e5ebf21997ecfb",
+      "before_state": "open",
+      "comment": "Reviewed a6c07f7: HMAC-SHA256 is only an intermediate input to the persisted salted bcrypt verifier. New passwords and successful legacy upgrades use Argon2. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:15:49Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/app/core/security.py",
+      "reason": "false positive",
+      "rule": "py/weak-sensitive-data-hashing"
+    },
+    {
+      "after_sha256": "93208fca202fda6bc296b7980638a7400667e1a6253eafb5c2a761bd35ea4258",
+      "after_state": "dismissed",
+      "alert": 17,
+      "before_sha256": "b553d0e6dfb3d936577e29c29b3b0b7de42574892ff0c26fd0a57e41b4361606",
+      "before_state": "open",
+      "comment": "Reviewed a6c07f7: All SMTP paths use the helper with an explicit TLS 1.2 minimum, preserving stronger defaults and certificate/hostname checks. The reported default-context call omits this subsequent assignment. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:15:53Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/app/services/smtp_transport.py",
+      "reason": "false positive",
+      "rule": "py/insecure-protocol"
+    },
+    {
+      "after_sha256": "b19ce7acc9acc1b20b48c59c00173b2ceb0c25df0b0abbb7bfe1b650d9729f02",
+      "after_state": "dismissed",
+      "alert": 19,
+      "before_sha256": "40cf3119832504ba37b853115c72a9f815ec1a8c5f6a2ebfce3e951c45daa02e",
+      "before_state": "open",
+      "comment": "Reviewed a6c07f7: The reported logged value is the constant AUTH_API_TOKEN credential-kind label, not the token value. This finding does not establish safety of unrelated exception text. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:15:57Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/app/api/deps.py",
+      "reason": "false positive",
+      "rule": "py/clear-text-logging-sensitive-data"
+    },
+    {
+      "after_sha256": "34849ed1e8564dda732dc747092b864921016edeb3bcd4e92d35aa430b6ac8ba",
+      "after_state": "dismissed",
+      "alert": 20,
+      "before_sha256": "de3c70762f6eb37b18a44043dbd591a1a6e82e81e36135c7720b4bdb9af49257",
+      "before_state": "open",
+      "comment": "Reviewed a6c07f7: The stat target is a server-generated tempfile in a private job claim directory, not a request-supplied pathname. Entry points validate UUIDs and the owned root excludes symlinks. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:15:59Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/app/services/export_artifacts.py",
+      "reason": "false positive",
+      "rule": "py/path-injection"
+    },
+    {
+      "after_sha256": "18a6401245406bc168bcb63d8a508aff1007e7e16db811464e253e167c7a6398",
+      "after_state": "dismissed",
+      "alert": 21,
+      "before_sha256": "1a038e975967ff66dbfbba7e6baa61a40ba0e3a8369a20d5778657327f3f6764",
+      "before_state": "open",
+      "comment": "Reviewed a6c07f7: CSV opens a server-generated tempfile in the private job claim directory. Request UUIDs are validated; the server creates the claim ID and owns the scratch root. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:16:02Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/app/services/export_artifacts.py",
+      "reason": "false positive",
+      "rule": "py/path-injection"
+    },
+    {
+      "after_sha256": "76315197d00257274f453daf33d8b75d95f942ba7648347652d244b34d78ad4f",
+      "after_state": "dismissed",
+      "alert": 22,
+      "before_sha256": "edff893782c18973a91b0aad6965d09001c7582d3779f493a55037030a17079c",
+      "before_state": "open",
+      "comment": "Reviewed a6c07f7: JSONL opens a server-generated tempfile in the private job claim directory. Request UUIDs are validated; the server creates the claim ID and owns the scratch root. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:16:05Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/app/services/export_artifacts.py",
+      "reason": "false positive",
+      "rule": "py/path-injection"
+    },
+    {
+      "after_sha256": "b4cabba941f2be230b5d8ef185b837573b34479eda5efc45fa9016115570b4bf",
+      "after_state": "dismissed",
+      "alert": 23,
+      "before_sha256": "8ded5d1a1cb74aa6c0b2aeb34acfe89212b56cfb248ab5f749362f9aee373c2a",
+      "before_state": "open",
+      "comment": "Reviewed a6c07f7: STIX opens a server-generated tempfile in the private job claim directory. Request UUIDs are validated; the server creates the claim ID and owns the scratch root. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:16:08Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/app/services/export_artifacts.py",
+      "reason": "false positive",
+      "rule": "py/path-injection"
+    },
+    {
+      "after_sha256": "590160630e9554f300a6e542c7c4e4ac4de5d29713cc5124a13adec83ccc0838",
+      "after_state": "dismissed",
+      "alert": 24,
+      "before_sha256": "6037a6a346ec9a4219ba9bd28dc6275ba46df2e611079041678a8999ada3a622",
+      "before_state": "open",
+      "comment": "Reviewed a6c07f7: MISP opens a server-generated tempfile in the private job claim directory. Request UUIDs are validated; the server creates the claim ID and owns the scratch root. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:16:11Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/app/services/export_artifacts.py",
+      "reason": "false positive",
+      "rule": "py/path-injection"
+    },
+    {
+      "after_sha256": "7781748d085dce580eae7d8593295036cbbeb62a8212f17ceb61f2bbc9ed50a4",
+      "after_state": "dismissed",
+      "alert": 25,
+      "before_sha256": "128fa513a892a185a538e80edf1ae19e5669d7563f2b09686ca4f5097e810fb0",
+      "before_state": "open",
+      "comment": "Reviewed a6c07f7: The bundle tempfile parent is a private, server-generated claim directory. Validated job UUIDs and server-generated claim UUIDs prevent client path components. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:16:14Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/app/services/export_artifacts.py",
+      "reason": "false positive",
+      "rule": "py/path-injection"
+    },
+    {
+      "after_sha256": "8b82a72f9ac62edb02114e59ace4f8263c50fea22d6041305266945fb62d2025",
+      "after_state": "dismissed",
+      "alert": 26,
+      "before_sha256": "21d2dd02dfff9c96d85ded0005f6e8c2c47dc16bca2350d88eabaedf10da868a",
+      "before_state": "open",
+      "comment": "Reviewed a6c07f7: mkstemp uses fixed names inside the private, server-generated claim directory. Validated job UUIDs and server-generated claim UUIDs constrain its parent. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:16:17Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/app/services/export_artifacts.py",
+      "reason": "false positive",
+      "rule": "py/path-injection"
+    },
+    {
+      "after_sha256": "b5e13f97671b5719b6942d07b5867a3964f1babf9b88e5deec6716560170e6a1",
+      "after_state": "dismissed",
+      "alert": 27,
+      "before_sha256": "bac6346aafe27c16212d8fb37705e258be79577a7bb9605f23d0b46e3e7bfc37",
+      "before_state": "open",
+      "comment": "Reviewed a6c07f7: unlink targets a server-generated export artifact within the private claim directory. Validated UUID entry points and server-owned nonsymlink scratch roots constrain paths. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:16:19Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/app/services/export_artifacts.py",
+      "reason": "false positive",
+      "rule": "py/path-injection"
+    },
+    {
+      "after_sha256": "64396f625f16e05c9e200669da556be41dd01ecc3e0c0631e4bb7f01130a26cb",
+      "after_state": "dismissed",
+      "alert": 29,
+      "before_sha256": "4629b3a063fbfc5b96fa14a6d4ba5ecb84c74654cb6899a58a2b1b8bab7217f8",
+      "before_state": "open",
+      "comment": "Reviewed a6c07f7: rmtree targets a server-generated private claim directory. Validated job UUIDs, server-generated claim UUIDs and owned nonsymlink scratch roots constrain removal. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:16:22Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/app/services/export_job_worker.py",
+      "reason": "false positive",
+      "rule": "py/path-injection"
+    },
+    {
+      "after_sha256": "66ba97e62981e751560379e8483f6ebb109d56f8fded78de9b48b68d37c405f5",
+      "after_state": "dismissed",
+      "alert": 31,
+      "before_pr_instance_state": "open",
+      "before_sha256": "bcb6e9c3a1289737980d6ca3446afcf42fae87c24067e865802045f0af83d3ea",
+      "before_state": null,
+      "comment": "Reviewed a6c07f7: The pathname joins canonical validated job UUIDs with a server-generated claim UUID under a private owned root. Request/worker entry points validate UUIDs; symlink roots are rejected. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:17:56Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/app/services/export_job_scratch.py",
+      "reason": "false positive",
+      "rule": "py/path-injection"
+    },
+    {
+      "after_sha256": "32de8ec412284fe1760ceaf1b77edc7fd094a8f35cd006e043019e6194e94922",
+      "after_state": "dismissed",
+      "alert": 32,
+      "before_pr_instance_state": "open",
+      "before_sha256": "c42d5bf77687bb331439ce50632c0b6af4638a1e0dd75825186714d8f797c83e",
+      "before_state": null,
+      "comment": "Reviewed a6c07f7: Recovery-code HMAC uses APP_DATA_ENCRYPTION_KEY and purpose separation, not the JWT secret. Codes contain 80 random bits and are throttled and atomically single-use; no fast password hash. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:17:59Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/app/services/secret_storage.py",
+      "reason": "false positive",
+      "rule": "py/weak-sensitive-data-hashing"
+    },
+    {
+      "after_sha256": "a30c3d0b07f02db780dee30eea45f67ba431c5ec48a6a8c7789066c37ca85129",
+      "after_state": "dismissed",
+      "alert": 33,
+      "before_pr_instance_state": "open",
+      "before_sha256": "a9f18061da52c957958dc19c8d25a481d66b2c81a44030ef9fcf33ef851425d6",
+      "before_state": null,
+      "comment": "Reviewed a6c07f7: The reported URL check is a substring assertion over synthetic STIX export content in a test fixture. It is not a runtime URL allowlist or security validation. Reopen if assumptions change.",
+      "dismissed_at": "2026-10-09T04:18:02Z",
+      "dismissed_by": "PatrikSi",
+      "path": "backend/tests/integration/test_indicator_publications.py",
+      "reason": "used in tests",
+      "rule": "py/incomplete-url-substring-sanitization"
+    }
+  ],
+  "before_check": {
+    "conclusion": "failure",
+    "id": 113659780795,
+    "metadata_sha256": "20fa8f0d60446a873287824b121b0c16d4141328017b50269924d374ce60b3d7"
+  },
+  "dismissal_reasons": {
+    "false positive": 15,
+    "used in tests": 1
+  },
+  "dismissed_count": 16,
+  "independent_review_sha256": "70a633658227b25389ad008a8ba4823fab69e879f7fca32b7b8b2060999021f7",
+  "kind": "reviewed-per-alert-codeql-dispositions",
+  "limitations": [
+    "Per-alert dispositions reflect the reviewed current source and documented assumptions; reopen if these change.",
+    "GitHub instance states retain scanner detection states; disposition was verified through alert state and dismissal reason.",
+    "Raw analyses still contain26 reported results. Ten existing alerts were not modified.",
+    "The neutral aggregate warns about main/PR caller-derived analysis configuration differences. Both current language analyses completed over the full source trees.",
+    "Automated source-flow review is not human model-quality approval."
+  ],
+  "query_or_severity_or_exclusion_changes": false,
+  "raw_latest_analysis_result_count": 26,
+  "rejected_request": {
+    "reason": "Initial comment exceeded280-character API limit; zero mutations before corrected requests.",
+    "status": 422
+  },
+  "schema_version": 1,
+  "source_revision": "a6c07f7f2718cd4f9a6caab823b481fc2ac7525e",
+  "synthetic_merge_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+  "unmodified_existing_alert_count": 10,
+  "verified_final_readback": [
+    {
+      "alert": 9,
+      "reason": "false positive",
+      "response_sha256": "60ea84d88138f0a68ebd972fbd0cdcf1ac589d621f49612f4e29895c1ab3bfda",
+      "state": "dismissed"
+    },
+    {
+      "alert": 10,
+      "reason": "false positive",
+      "response_sha256": "9cf3dfa436639a92f56af4ba60aadf3046889c0be04f4e972510b10a20b138e3",
+      "state": "dismissed"
+    },
+    {
+      "alert": 17,
+      "reason": "false positive",
+      "response_sha256": "93208fca202fda6bc296b7980638a7400667e1a6253eafb5c2a761bd35ea4258",
+      "state": "dismissed"
+    },
+    {
+      "alert": 19,
+      "reason": "false positive",
+      "response_sha256": "b19ce7acc9acc1b20b48c59c00173b2ceb0c25df0b0abbb7bfe1b650d9729f02",
+      "state": "dismissed"
+    },
+    {
+      "alert": 20,
+      "reason": "false positive",
+      "response_sha256": "34849ed1e8564dda732dc747092b864921016edeb3bcd4e92d35aa430b6ac8ba",
+      "state": "dismissed"
+    },
+    {
+      "alert": 21,
+      "reason": "false positive",
+      "response_sha256": "18a6401245406bc168bcb63d8a508aff1007e7e16db811464e253e167c7a6398",
+      "state": "dismissed"
+    },
+    {
+      "alert": 22,
+      "reason": "false positive",
+      "response_sha256": "76315197d00257274f453daf33d8b75d95f942ba7648347652d244b34d78ad4f",
+      "state": "dismissed"
+    },
+    {
+      "alert": 23,
+      "reason": "false positive",
+      "response_sha256": "b4cabba941f2be230b5d8ef185b837573b34479eda5efc45fa9016115570b4bf",
+      "state": "dismissed"
+    },
+    {
+      "alert": 24,
+      "reason": "false positive",
+      "response_sha256": "590160630e9554f300a6e542c7c4e4ac4de5d29713cc5124a13adec83ccc0838",
+      "state": "dismissed"
+    },
+    {
+      "alert": 25,
+      "reason": "false positive",
+      "response_sha256": "7781748d085dce580eae7d8593295036cbbeb62a8212f17ceb61f2bbc9ed50a4",
+      "state": "dismissed"
+    },
+    {
+      "alert": 26,
+      "reason": "false positive",
+      "response_sha256": "8b82a72f9ac62edb02114e59ace4f8263c50fea22d6041305266945fb62d2025",
+      "state": "dismissed"
+    },
+    {
+      "alert": 27,
+      "reason": "false positive",
+      "response_sha256": "b5e13f97671b5719b6942d07b5867a3964f1babf9b88e5deec6716560170e6a1",
+      "state": "dismissed"
+    },
+    {
+      "alert": 29,
+      "reason": "false positive",
+      "response_sha256": "64396f625f16e05c9e200669da556be41dd01ecc3e0c0631e4bb7f01130a26cb",
+      "state": "dismissed"
+    },
+    {
+      "alert": 31,
+      "reason": "false positive",
+      "response_sha256": "66ba97e62981e751560379e8483f6ebb109d56f8fded78de9b48b68d37c405f5",
+      "state": "dismissed"
+    },
+    {
+      "alert": 32,
+      "reason": "false positive",
+      "response_sha256": "32de8ec412284fe1760ceaf1b77edc7fd094a8f35cd006e043019e6194e94922",
+      "state": "dismissed"
+    },
+    {
+      "alert": 33,
+      "reason": "used in tests",
+      "response_sha256": "a30c3d0b07f02db780dee30eea45f67ba431c5ec48a6a8c7789066c37ca85129",
+      "state": "dismissed"
+    }
+  ]
+}
