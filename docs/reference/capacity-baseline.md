@@ -318,6 +318,24 @@ Results, logs, and compatibility/regression output are retained for
 90 days. Incompatible measurement contracts fail visibly; changing start
 phases, repair cadence, caps, or dataset shape requires a new baseline.
 
+The sustained arrival model uses one monotonic epoch after all five paced
+lanes reach a bounded readiness barrier. Export, feed and repair begin at that
+epoch; AI starts at +0.25 seconds and governance at +0.5 seconds. Every lane
+shares the epoch-relative duration deadline. Slow operations still advance
+without catch-up bursts. If a participant never reaches readiness, the barrier
+fails instead of letting other lanes measure a shifted workload or hang.
+
+The earlier `paced_closed_loop` contract used an independent epoch on each
+executor entry. Captured startup skew reached 304 ms despite equal nominal
+fingerprints, changing actual policy-fence overlap. The corrected arrival
+identity is incompatible with that historical protocol. To compare an older
+application with the corrected candidate, commit the identical corrected
+harness files onto the older application's isolated checkout, retaining its
+application code and locked dependencies. Record that actual backport commit,
+the original application base, and Git-object equivalence for both harness and
+application inputs. Preserve historical measurements and failures; a corrected
+harness does not retrospectively make them pass.
+
 Before each reference advances, an independent outer driver verifies that no
 running or stopped containers remain under that supervisor's exact run label
 on the established local Docker endpoint. It observes late daemon completion

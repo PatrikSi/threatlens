@@ -1,0 +1,61 @@
+{
+  "application_source_revision": "79001439677cae246faef0a398ddea50c47faf80",
+  "budget_violations": {},
+  "cleanup_error_count": 0,
+  "cleanup_remaining_count": 0,
+  "cleanup_status": "passed",
+  "coverage": {
+    "governance_operations": 5,
+    "host_samples": 14,
+    "lane_starts": 5,
+    "lock_samples": 117,
+    "operation_events": 17,
+    "query_events": 342
+  },
+  "diagnostic_errors": [],
+  "diagnostic_sha256": "fb43480aa5d0169409ca71e9cfd05fc7be315ce46b8eef8b426e95e27e19221a",
+  "diagnostic_status": "passed",
+  "dropped_events": {
+    "host": 0,
+    "lanes": 0,
+    "locks": 0,
+    "operations": 0,
+    "queries": 0,
+    "transactions": 0
+  },
+  "duration_seconds": 10,
+  "elapsed_seconds": 29.179,
+  "exit_code": 0,
+  "frozen_application_sources_unchanged": true,
+  "independent_verifier_exit_code": 0,
+  "kind": "short-local-shared-epoch-integration-validation",
+  "log_sha256": "167dfa2a8efc6d837ae977ca1c1a48a3aecb8c93ff866c9daca070a97a8185bd",
+  "measurement_status": "passed",
+  "observed_same_index_service_phase_offsets": {
+    "ai_connection_after_export_ms": {
+      "count": 5,
+      "max": 451.181,
+      "median": 250.001,
+      "min": 249.968
+    },
+    "governance_after_export_ms": {
+      "count": 5,
+      "max": 501.572,
+      "median": 500.019,
+      "min": 499.973
+    }
+  },
+  "observer_lane_timestamp_semantics": "Entry before the readiness barrier; actual operation timestamps above assess phase alignment.",
+  "observer_source_sha256": {
+    "capacity_diagnostics.py": "f3796416913df27ea72069ead23c991ba06bd8349fc1a20760f18b7a56c0b764",
+    "capacity_diagnostics_plugin.py": "22d56d2ef8b3326129ead4c32827408719cf43e13c2f361af3ba1424f352ddbe",
+    "run_capacity_diagnostic.py": "91aee260744f5b27e5744f02e7ef042af91c2d3950c2b717cf69317a38a4e857"
+  },
+  "release_capacity_qualification": false,
+  "source_dirty": false,
+  "workload_completed": {
+    "ai": 5,
+    "exports": 5,
+    "governance": 5
+  }
+}
