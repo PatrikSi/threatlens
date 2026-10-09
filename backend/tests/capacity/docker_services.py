@@ -6,6 +6,7 @@ import json
 import os
 import socket
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -13,10 +14,13 @@ from pathlib import Path
 import psycopg
 import redis
 
+from scripts.capacity_process import require_local_docker
+
 
 class DockerService:
     def __init__(self, kind):
         self.kind = kind
+        self.environment = dict(require_local_docker())
         self.id = None
         self.run_id = os.environ["THREATLENS_CAPACITY_RUN_ID"]
         self.limits = json.loads(os.environ.get("THREATLENS_CAPACITY_LIMITS", "{}"))
@@ -24,7 +28,8 @@ class DockerService:
 
     def command(self, *args):
         return subprocess.check_output(
-            ["docker", *args], text=True, stderr=subprocess.PIPE, timeout=90
+            ["docker", *args], text=True, stderr=subprocess.PIPE, timeout=90,
+            env=self.environment,
         ).strip()
 
     def __enter__(self):
@@ -87,7 +92,7 @@ class DockerService:
             self.wait_ready()
             return self
         except BaseException:
-            self.__exit__(None, None, None)
+            self.__exit__(*sys.exc_info())
             raise
 
     def wait_ready(self):
@@ -119,8 +124,15 @@ class DockerService:
         self.command("start", self.id)
         self.wait_ready()
 
-    def __exit__(self, *_args):
+    def __exit__(self, exception_type, *_args):
         if self.id:
-            subprocess.run(
-                ["docker", "rm", "-f", "-v", self.id], capture_output=True, timeout=20
-            )
+            try:
+                result = subprocess.run(
+                    ["docker", "rm", "-f", "-v", self.id], capture_output=True, timeout=20,
+                    env=self.environment,
+                )
+                if result.returncode:
+                    raise RuntimeError("Owned capacity service removal failed")
+            except (OSError, RuntimeError, subprocess.SubprocessError):
+                if exception_type is None:
+                    raise

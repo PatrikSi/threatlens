@@ -154,6 +154,8 @@ def test_fixture_container_identity_excludes_image_pull_stderr(monkeypatch):
     from tests.capacity.docker_services import DockerService
 
     monkeypatch.setenv("THREATLENS_CAPACITY_RUN_ID", "fixture")
+    monkeypatch.setenv("DOCKER_HOST", "unix:///run/owned-docker.sock")
+    monkeypatch.delenv("DOCKER_CONTEXT", raising=False)
 
     def output(command, **kwargs):
         assert kwargs["stderr"] == subprocess.PIPE
@@ -176,6 +178,7 @@ sys.path.insert(0, {str(scripts)!r})
 import run_capacity_baseline as runner
 import subprocess
 # This process-lifetime test has no Docker resources; keep discovery isolated.
+runner.require_local_docker = lambda: {{'DOCKER_HOST': 'unix:///run/fixture-docker.sock'}}
 real_run = subprocess.run
 def isolated_run(command, **kwargs):
     if command[0] == 'docker':

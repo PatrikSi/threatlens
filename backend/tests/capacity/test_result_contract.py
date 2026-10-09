@@ -55,7 +55,7 @@ def test_incompatible_hardware_workload_or_target_is_not_compared(field, value):
 
 
 @pytest.mark.parametrize(
-    "mutation", ["schema", "fingerprint", "failed", "budget", "sampler", "dirty"]
+    "mutation", ["schema", "fingerprint", "failed", "budget", "sampler", "dirty", "cleanup"]
 )
 def test_reject_invalid_or_failed_results(mutation):
     a = run()
@@ -69,10 +69,21 @@ def test_reject_invalid_or_failed_results(mutation):
         a["source_dirty"] = True
     elif mutation == "budget":
         a["budget_violations"] = {"memory": 1}
+    elif mutation == "cleanup":
+        a["cleanup"] = {"status": "failed", "remaining_container_ids": ["owned"]}
     else:
         a["sampler"] = {"errors": ["ConnectionError"]}
     with pytest.raises(ValueError):
         compare_results(a, run())
+
+
+@pytest.mark.parametrize("cleanup", [None, [], "passed", True, 1])
+@pytest.mark.parametrize("side", ["baseline", "candidate"])
+def test_malformed_cleanup_evidence_is_a_contract_error(cleanup, side):
+    baseline, candidate = run(), run()
+    (baseline if side == "baseline" else candidate)["cleanup"] = cleanup
+    with pytest.raises(ValueError, match="cleanup evidence must be an object"):
+        compare_results(baseline, candidate)
 
 
 def test_small_sample_and_zero_baseline_are_not_fabricated_percentages():
