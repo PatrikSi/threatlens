@@ -163,7 +163,7 @@ but produces no scheduler heartbeat before the unchanged 240-second watchdog
 grace; the original outer startup command exits 124. All eight subsequent ARM
 checks/scans are skipped, and cleanup succeeds. Relevant runtime inputs match
 the prior successful build, which does not dismiss this failure. A single bounded
-ARM startup diagnostic is prepared to capture import stacks and numeric
+ARM startup diagnostic captures import stacks and numeric
 resource counters from the frozen `1251826` runtime. Its external, read-only
 Celery launcher preserves the original console interpreter, arguments, signals
 and exit behavior; the 240-second watchdog grace and resource limits are
@@ -177,6 +177,20 @@ Only encrypted raw logs are uploaded; plaintext logs are excluded even when
 encryption fails. Ten retention fault controls and an exact extracted-workflow
 encryption/decryption round-trip pass, with the recipient private key retained
 outside the repository.
+The single [diagnostic run 37898777870](https://github.com/PatrikSi/threatlens/actions/runs/37898777870)
+at diagnostic source `e5fd9e3` completes successfully against frozen runtime
+`1251826`. Its [verified retained outcome](evidence/2026-10-09-final-review/arm64-startup-diagnostic-outcome.json)
+records original startup exit zero, all fourteen independent capture checks,
+exact decrypted-log hash consistency and zero owned cleanup remnants. Four
+stack dumps show SQLAlchemy and Pydantic initialization in worker task imports,
+then the normal scheduler loop. The early banner and service start occur about
+47.962 and 152.239 seconds after arming. Initial sampled whole-container CPU
+usage is near its half-core limit, with throttled periods; no OOM or restart is
+recorded. Those samples have a separate clock and do not prove the cause of the
+earlier failure. A private parser's initial zero Compose state counts were
+corrected for the owned container's two-space separator; the original
+projection is retained. This instrumented startup pass does not clear the
+failed uninstrumented ARM quality run.
 The [runtime source attestation](evidence/2026-10-09-final-review/native-runtime-applicability-125.json)
 also confirms all 1,453 scoped paths, modes and blobs match the qualified native
 runtime; images keep their actual build revision.
@@ -379,6 +393,13 @@ ownership before the atomic commit. Its source shape is consistent with the
 observed background acquisitions, but does not identify that task or establish
 the cause of the failed comparative peak. No authorization or transaction-order
 change is justified by this evidence.
+
+The [phase and host projection](evidence/2026-10-09-final-review/capacity-v2-phase-host.json)
+retains actual service separation, operation coverage and sampled host counters
+for the same diagnostic pair. Its shared-epoch estimate is an inferred upper
+bound; observer elapsed sums exclude nested snapshot work and cannot be
+subtracted as workload CPU costs. Neither sampled counters nor service overlap
+establish a blocking task or dismiss the failed release comparison.
 
 ## Feature completion and release boundary
 

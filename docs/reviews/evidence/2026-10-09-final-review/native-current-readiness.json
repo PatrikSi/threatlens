@@ -1,0 +1,22 @@
+{
+  "/api/openapi.json": {
+    "content_type": "application/json",
+    "ok": "2.1.0",
+    "status": 200
+  },
+  "/api/v1/health/ready": {
+    "content_type": "application/json",
+    "ok": true,
+    "status": 200
+  },
+  "application_image_matches": 9,
+  "checked_utc": "2026-10-09T07:26:07.195303+00:00",
+  "owned_native_stack": {
+    "completed_zero": 1,
+    "healthy": 10,
+    "restart_count": 0,
+    "running": 11,
+    "service_count": 12
+  },
+  "scope": "Read-only current readiness/image identity check; no workload repeat"
+}
