@@ -1,0 +1,59 @@
+{
+  "actual_comparison_failure_retained": true,
+  "actual_raw_measurement_shape": {
+    "budget_violations": "typed empty dict",
+    "process_exit_code_field_exists": false,
+    "sampler_errors": "typed empty list",
+    "task_errors": "typed empty list"
+  },
+  "application_source_revision": "6141a7192e3d6970be9e67230da14b64da1c8894",
+  "before": {
+    "errors": 0,
+    "failed": 1,
+    "log_sha256": "63f0e2c2883b98beabb700a2433553c8303a5f4390fe51a812f3f5b3cd99f688",
+    "passed": 0,
+    "scope": "Counterfactual successful comparison with actual measurement schema rejected by prior predicate",
+    "tests_run": 1
+  },
+  "comparison_byte_semantics_unchanged": true,
+  "corrected_evidence_sha256": "f0aa0fe618240a4ea537c343feb835e34933a8763e8ff9af11d216bb26c46a15",
+  "current_source_capacity_gate_passed": false,
+  "exit_scope": "Both supervisor subprocesses returned zero because bash-e sequential loop calls a wrapper that preserves each original workload exit; no raw measurement exit-code field exists",
+  "final_after": {
+    "errors": 0,
+    "failed": 0,
+    "log_sha256": "4c7e23fc70073ee0ac708f61beb3214f18b3337f78449ab13ba237f2704fbfda",
+    "passed": 44,
+    "tests_run": 44
+  },
+  "first_after": {
+    "errors": 0,
+    "failed": 0,
+    "log_sha256": "173fe37afd75f2db914cd41bfa3b326df38810b70dd326707a0d9f37d6ed02a1",
+    "passed": 39,
+    "tests_run": 39
+  },
+  "frozen_source_hashes": {
+    ".github/workflows/capacity-trends.yml": "8b02921cdb6e2f5e4cf39a88d6402bba12ee89b6c3068e36cbf4d7876c8f5061",
+    "scripts/operations/run_capacity_reference.py": "345dd3c3bc5f61895b241976a8cc2c79f667785b8ff08f297f312190eb279325"
+  },
+  "kind": "retained_capacity_projection_correction_proof",
+  "new_downloads": 0,
+  "new_workload_executions": 0,
+  "original_evidence_sha256": "6283dc4c4e3c1f275e5b8c7a491ecda561578825c494c243b84f85cf3333b301",
+  "original_helper_sha256": "799701e9fad4a264179de12ed222bb967b97a85ca6249a3ec65f73f8df09636a",
+  "projector_sha256": "236ec6f48143feed7e1d510b0ddf8983b9f2bd83d38d16359f16ef00eff3113e",
+  "release_clearance": false,
+  "retained_artifact_only": true,
+  "schema_version": 1,
+  "status": "passed",
+  "tests_sha256": "06197ee34ebeb12ba14ade3f917c581cf8c83eb20b20ee0ccd1221d03cbf6063",
+  "wrapper_test_scaffold_failure": {
+    "errors": 4,
+    "failed": 0,
+    "log_sha256": "10d5c38ca85f7bd99f6b327bb5a75625d4a9b04668b467b38326215c2c757be0",
+    "passed": 40,
+    "reason": "Mock omitted subprocess.STDOUT constant; test fixture corrected without product change",
+    "tests_run": 44
+  }
+}

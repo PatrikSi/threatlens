@@ -1,0 +1,516 @@
+{
+  "actual_disposable_recovery_drill": {
+    "log_sha256": "5bfc4b85c138bfe4c096b403f9620ca5cf16d2961c866ae169e0bcd0d016339b",
+    "scope": "Actual disposable4+1drills passed; log evidence only here, separate artifact capture owned by root",
+    "test_summaries": [
+      {
+        "duration_seconds": 152.716,
+        "stage": "unittest",
+        "terminal_summary": "OK",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 4,
+        "tests_run": 4,
+        "tests_skipped": 0
+      },
+      {
+        "duration_seconds": 57.56,
+        "stage": "unittest",
+        "terminal_summary": "OK",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 1,
+        "tests_run": 1,
+        "tests_skipped": 0
+      }
+    ]
+  },
+  "all_quality_checkout_revisions_match_immutable_merge": true,
+  "application_source_revision": "6141a7192e3d6970be9e67230da14b64da1c8894",
+  "backend": {
+    "conclusion": "failure",
+    "critical_module_floor_count": 58,
+    "critical_module_rounded_reports_captured": 58,
+    "critical_module_strict_gate": "skipped_after_test_failure",
+    "failed_tests": [
+      "tests/unit/test_beat_app.py::test_scheduler_configuration_is_an_independent_copy_of_worker_configuration"
+    ],
+    "failure_observation": "task_queues configuration differs after lazy queue normalization; application cause under independent source review",
+    "failure_type": "AssertionError",
+    "job_id": 113729891755,
+    "log_sha256": "40e5b850ef6a70d0ef0a65d9c6b7c058a2060ac525ea3075f17ebde57ffbdaa9",
+    "overall_coverage_percent": 87.07,
+    "overall_floor_percent": 79,
+    "overall_floor_reached": true,
+    "skipped_following_steps": [
+      "Run isolated concurrent capacity smoke",
+      "Enforce critical backend coverage floors",
+      "Verify generated API contract",
+      "Verify browser preview fixture matches backend policy",
+      "Verify runtime lockfile",
+      "Audit Python runtime dependencies"
+    ],
+    "test_summaries": [
+      {
+        "counts": {
+          "failed": 1,
+          "passed": 4732,
+          "skipped": 5
+        },
+        "duration_seconds": 1234.33,
+        "stage": "pytest"
+      }
+    ]
+  },
+  "browser_totals": {
+    "deliberate_split_skips": 6,
+    "passed": 210,
+    "retry_markers": 0
+  },
+  "browsers": [
+    {
+      "browser_retry_markers": 0,
+      "conclusion": "success",
+      "job_id": 113729891969,
+      "log_sha256": "8f3200bcec21808498cfb622f6fa01be4335bc2d9df80c1516504523c62897b9",
+      "name": "Browser workflows (firefox)",
+      "numeric_test_summaries": [
+        {
+          "count": 49,
+          "duration": 1.8,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_interactions"
+        },
+        {
+          "count": 2,
+          "duration": null,
+          "duration_unit": null,
+          "outcome": "skipped",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 19,
+          "duration": 1.9,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 2,
+          "duration": 51.8,
+          "duration_unit": "s",
+          "outcome": "passed",
+          "stage": "browser_real_server_ai_statistics"
+        }
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "conclusion": "success",
+      "job_id": 113729892049,
+      "log_sha256": "ae165388d8aea607a6445873f4bee7c9a39b915f0914f5e41b7ec624b0d1f07c",
+      "name": "Browser workflows (chromium)",
+      "numeric_test_summaries": [
+        {
+          "count": 49,
+          "duration": 1.3,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_interactions"
+        },
+        {
+          "count": 2,
+          "duration": null,
+          "duration_unit": null,
+          "outcome": "skipped",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 19,
+          "duration": 1.5,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 2,
+          "duration": 48.3,
+          "duration_unit": "s",
+          "outcome": "passed",
+          "stage": "browser_real_server_ai_statistics"
+        }
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "conclusion": "success",
+      "job_id": 113729892060,
+      "log_sha256": "6e1948676471269fcfae3e21394398d60231cfd043954e5c092793dc8a3eceb2",
+      "name": "Browser workflows (webkit)",
+      "numeric_test_summaries": [
+        {
+          "count": 49,
+          "duration": 1.8,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_interactions"
+        },
+        {
+          "count": 2,
+          "duration": null,
+          "duration_unit": null,
+          "outcome": "skipped",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 19,
+          "duration": 1.6,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 2,
+          "duration": 50.2,
+          "duration_unit": "s",
+          "outcome": "passed",
+          "stage": "browser_real_server_ai_statistics"
+        }
+      ]
+    }
+  ],
+  "capacity": {
+    "artifact_capture_owner": "root",
+    "conclusion": "failure",
+    "interpretation": "Comparison step failed; detailed artifact evidence captured separately without retry",
+    "run_attempt": 1,
+    "run_id": 37903114128,
+    "status": "completed",
+    "url": "https://github.com/PatrikSi/threatlens/actions/runs/37903114128"
+  },
+  "codeql_aggregate": [
+    {
+      "annotation_levels": {},
+      "annotations_count": 0,
+      "captured_annotations_count": 0,
+      "completed_at": "2026-10-09T08:08:55Z",
+      "conclusion": "neutral",
+      "head_sha": "6141a7192e3d6970be9e67230da14b64da1c8894",
+      "historical_configuration_warning_present": true,
+      "html_url": "https://github.com/PatrikSi/threatlens/runs/113730250213",
+      "id": 113730250213,
+      "name": "CodeQL",
+      "started_at": "2026-10-09T08:08:53Z",
+      "status": "completed"
+    }
+  ],
+  "codeql_analysis_summaries": [
+    {
+      "analysis_id": 1921782569,
+      "category": ".github/workflows/quality-gates.yml:codeql/language:javascript-typescript",
+      "code_flow_result_count": 0,
+      "commit_revision": "4be116759b10ab93ea71c2cb85f55d8615ae0e04",
+      "evaluated_rule_count": 87,
+      "result_count": 1,
+      "rule_result_counts": {
+        "js/incomplete-url-scheme-check": 1
+      },
+      "sarif_sha256": "a7a32e95ab924df52520dda2cd75cf18b5023f7cbf3b7ee1ea3c7581468bc6fa"
+    },
+    {
+      "analysis_id": 1921790032,
+      "category": ".github/workflows/quality-gates.yml:codeql/language:python",
+      "code_flow_result_count": 22,
+      "commit_revision": "4be116759b10ab93ea71c2cb85f55d8615ae0e04",
+      "evaluated_rule_count": 43,
+      "result_count": 25,
+      "rule_result_counts": {
+        "py/clear-text-logging-sensitive-data": 6,
+        "py/clear-text-storage-sensitive-data": 1,
+        "py/incomplete-url-substring-sanitization": 2,
+        "py/insecure-protocol": 1,
+        "py/path-injection": 10,
+        "py/weak-sensitive-data-hashing": 5
+      },
+      "sarif_sha256": "f82a52cdca845e05a7f2cc5e8027e1f35da0482850e32cd9c9dc5ad2f5a3d0ce"
+    }
+  ],
+  "codeql_open_alert_counts": {
+    "current_pull_request": 10,
+    "repository_default_branch_listing": 11
+  },
+  "codeql_scope": "Current both-language analyses plus separate neutral aggregate retaining historical configuration warning; PR10 and repository11 are different scopes; findings/dispositions remain",
+  "containers": [
+    {
+      "built_image_ids": {
+        "threatlens-backend:dev": "sha256:7738960031ba47508adee3848512ffd057e050a0f1f83df0882aaafae585b6d5",
+        "threatlens-web:dev": "sha256:a5339b12871970a7828751b4bf103f1703cec11d2eff8bafeb5c35c2312d09b9"
+      },
+      "conclusion": "success",
+      "image_scan_summaries": [
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-backend:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 95,
+          "target_type_counts": {
+            "debian": 1,
+            "python-pkg": 94
+          }
+        },
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-web:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 1,
+          "target_type_counts": {
+            "alpine": 1
+          }
+        }
+      ],
+      "job_id": 113729891925,
+      "log_sha256": "a2ead9ead96ff8c795d3c5038d9695d51b18fbc31f0666ace719a0762c39fd40",
+      "name": "Container smoke and image scan (arm64)",
+      "smoke_and_scan_steps": {
+        "Build and start stack": "success",
+        "Scan backend image": "success",
+        "Scan web image": "success",
+        "Stop stack": "success",
+        "Verify access logs omit sensitive query values": "success",
+        "Verify bootstrap administrator login": "success",
+        "Verify bounded editorial uploads through the proxy": "success",
+        "Verify checked-in dependency and legal artifacts": "skipped",
+        "Verify legacy and hardened web image startup": "success",
+        "Verify running stack": "success"
+      }
+    },
+    {
+      "built_image_ids": {
+        "threatlens-backend:dev": "sha256:83f2c25c23ffd6b8c0f757589a8bfcc6314c7dade4bb9bfe6d62e5cbfb3f19b2",
+        "threatlens-web:dev": "sha256:d174d01f3668abbb8b343b4b1eacc92dec07aec931e8d32e6160616261f9115d"
+      },
+      "conclusion": "success",
+      "image_scan_summaries": [
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-backend:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 95,
+          "target_type_counts": {
+            "debian": 1,
+            "python-pkg": 94
+          }
+        },
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-web:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 1,
+          "target_type_counts": {
+            "alpine": 1
+          }
+        }
+      ],
+      "job_id": 113729892021,
+      "log_sha256": "f668b5490b0425c1f1b3da17f444394982de8fd8a051dd63e276ae220aeca36f",
+      "name": "Container smoke and image scan (amd64)",
+      "smoke_and_scan_steps": {
+        "Build and start stack": "success",
+        "Scan backend image": "success",
+        "Scan web image": "success",
+        "Stop stack": "success",
+        "Verify access logs omit sensitive query values": "success",
+        "Verify bootstrap administrator login": "success",
+        "Verify bounded editorial uploads through the proxy": "success",
+        "Verify checked-in dependency and legal artifacts": "success",
+        "Verify legacy and hardened web image startup": "success",
+        "Verify running stack": "success"
+      }
+    }
+  ],
+  "frontend": {
+    "frontend_test_files_passed": 164,
+    "frontend_test_files_total": 164,
+    "frontend_tests_passed": 1374,
+    "frontend_tests_total": 1374,
+    "log_sha256": "74d1cefea4413a82a2cabac076dac4f1a0a786bd69aaa9999be0dce95b9fb5bb",
+    "npm_audit_vulnerability_counts": {
+      "critical": 0,
+      "high": 0,
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "total": 0
+    },
+    "npm_security_audit_pass_marker": true
+  },
+  "kind": "beat_producer_quality_public_projection",
+  "limitations": [
+    "Backend full suite failed one new configuration assertion; downstream strict coverage, capacity smoke, contract and audit checks were skipped",
+    "ARM64 legal inventory intentionally skipped on its architecture path; AMD64 inventory passed",
+    "Earlier125ARM and790uninstrumented capacity failures remain separate evidence; no causal assignment or retrospective waiver",
+    "No merge, version promotion, tag, publication or retry performed by this capture"
+  ],
+  "quality_job_counts": {
+    "failed": 1,
+    "passed": 14,
+    "skipped": 0,
+    "total": 15
+  },
+  "quality_jobs": [
+    {
+      "conclusion": "success",
+      "job_id": 113729891519,
+      "log_sha256": "b89638c6a015fff848b6e771efd47864ae17c32093fbfa49124fec2675249339",
+      "name": "PostgreSQL migration round trip"
+    },
+    {
+      "conclusion": "failure",
+      "job_id": 113729891755,
+      "log_sha256": "40e5b850ef6a70d0ef0a65d9c6b7c058a2060ac525ea3075f17ebde57ffbdaa9",
+      "name": "Backend tests and contract"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 113729891807,
+      "log_sha256": "33ade00d719cd55c8e7d6155af838a0aed2a8286fbff3f405c1295706865c187",
+      "name": "Repository diff hygiene"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 113729891862,
+      "log_sha256": "37f03ddc47aa852514733e2c03bbdde966d8876208e9f47b0efbe2d4b6d1c39b",
+      "name": "CodeQL (javascript-typescript)"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 113729891924,
+      "log_sha256": "4e982d1055359e7b5c476bd4b2ad591bd2ede91d1efcecb367320a88be6a19c9",
+      "name": "OpenSearch connector vendor contract"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 113729891925,
+      "log_sha256": "a2ead9ead96ff8c795d3c5038d9695d51b18fbc31f0666ace719a0762c39fd40",
+      "name": "Container smoke and image scan (arm64)"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 113729891960,
+      "log_sha256": "2c1aca893104f5f73a5d5644367439a340e5a3b1880063187c3c896eea871651",
+      "name": "MCP protocol and pinned SDK interoperability"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 113729891969,
+      "log_sha256": "8f3200bcec21808498cfb622f6fa01be4335bc2d9df80c1516504523c62897b9",
+      "name": "Browser workflows (firefox)"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 113729892021,
+      "log_sha256": "f668b5490b0425c1f1b3da17f444394982de8fd8a051dd63e276ae220aeca36f",
+      "name": "Container smoke and image scan (amd64)"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 113729892028,
+      "log_sha256": "74d1cefea4413a82a2cabac076dac4f1a0a786bd69aaa9999be0dce95b9fb5bb",
+      "name": "Frontend tests and build"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 113729892031,
+      "log_sha256": "ae153f7f1a7c2ab249ca6c4127ec33104a4d5556226f588178de658d96031f92",
+      "name": "Recovery tooling tests"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 113729892032,
+      "log_sha256": "df7ffb7ccbe83491bc97dc78de121cdfb050ead90221220dab66309e68a369a0",
+      "name": "CodeQL (python)"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 113729892049,
+      "log_sha256": "ae165388d8aea607a6445873f4bee7c9a39b915f0914f5e41b7ec624b0d1f07c",
+      "name": "Browser workflows (chromium)"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 113729892060,
+      "log_sha256": "6e1948676471269fcfae3e21394398d60231cfd043954e5c092793dc8a3eceb2",
+      "name": "Browser workflows (webkit)"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 113730916006,
+      "log_sha256": "5bfc4b85c138bfe4c096b403f9620ca5cf16d2961c866ae169e0bcd0d016339b",
+      "name": "Disposable PostgreSQL recovery drill"
+    }
+  ],
+  "quality_run": {
+    "conclusion": "failure",
+    "event": "pull_request",
+    "run_attempt": 1,
+    "run_id": 37903060980,
+    "status": "completed",
+    "url": "https://github.com/PatrikSi/threatlens/actions/runs/37903060980"
+  },
+  "recovery_tooling": {
+    "log_sha256": "ae153f7f1a7c2ab249ca6c4127ec33104a4d5556226f588178de658d96031f92",
+    "skip_scope": "Four Docker-dependent recovery unit cases and one source-loss opt-in operations unit case deliberately skipped; actual disposable recovery and source-loss drills executed separately",
+    "test_summaries": [
+      {
+        "duration_seconds": 157.178,
+        "stage": "unittest",
+        "terminal_summary": "OK (skipped=4)",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 121,
+        "tests_run": 125,
+        "tests_skipped": 4
+      },
+      {
+        "duration_seconds": 1.244,
+        "stage": "unittest",
+        "terminal_summary": "OK (skipped=1)",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 152,
+        "tests_run": 153,
+        "tests_skipped": 1
+      }
+    ]
+  },
+  "schema_version": 1,
+  "source_applicability": {
+    "application_and_image_inputs_match_frozen_source": true,
+    "head_tree": "db43a8bf71ab2bdf8c8374310d672198420cb7c4",
+    "merge_tree": "db43a8bf71ab2bdf8c8374310d672198420cb7c4",
+    "merge_tree_matches_head": true
+  },
+  "synthetic_merge_revision": "4be116759b10ab93ea71c2cb85f55d8615ae0e04",
+  "workflow_head_revision": "6141a7192e3d6970be9e67230da14b64da1c8894"
+}
