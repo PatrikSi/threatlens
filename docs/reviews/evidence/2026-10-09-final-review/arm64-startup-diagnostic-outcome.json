@@ -1,0 +1,165 @@
+{
+  "backend_image_id": "sha256:f90f247b5d751908526379df4d445f9bc9b5ec67be368b1e442efb1d935456bf",
+  "capture": {
+    "checks": {
+      "both_log_hashes_decrypted_exact": true,
+      "build_original_passed": true,
+      "cgroup_sample_reconciliation": true,
+      "console_contract": true,
+      "deadlines": true,
+      "encrypted_retention": true,
+      "final_owned_capture": true,
+      "independent_cleanup": true,
+      "observed_watchdog_caps_isolation": true,
+      "observer_capture": true,
+      "original_start_status_retained": true,
+      "private_trace_marker_reconciliation": true,
+      "source_identity": true,
+      "trace_markers": true
+    },
+    "cleanup": {
+      "cleanup_exit_code": 0,
+      "compose_down_succeeded": true,
+      "owned_scope_only": true,
+      "resource_probes": {
+        "containers": {
+          "queried": true,
+          "remaining": 0
+        },
+        "networks": {
+          "queried": true,
+          "remaining": 0
+        },
+        "volumes": {
+          "queried": true,
+          "remaining": 0
+        }
+      },
+      "status": "passed"
+    },
+    "marker_counts": {
+      "beat_startup_diagnostic_arm_failed": 0,
+      "beat_startup_diagnostic_armed": 1,
+      "beat_startup_diagnostic_cancel_failed": 0,
+      "beat_startup_diagnostic_console_imported": 1
+    },
+    "passed_checks": 14,
+    "required_checks": 14,
+    "status": "passed"
+  },
+  "diagnostic_source_revision": "e5fd9e3e9d49eaf4271c6bef4acf14c9029b5522",
+  "job": 113716194685,
+  "limits": [
+    "Trace elapsed times use Docker wall-clock events relative to arming; resource intervals use a separate collector monotonic clock. These epochs cannot be joined as exact timestamps.",
+    "CPU and memory counters cover the full container, including watchdog, child, health probes and diagnostic reads. Near-quota sampled CPU and throttling do not establish the previous failure cause or a quiet host.",
+    "Zero sampled OOM or restart counters do not exclude unsampled resource stress. Changed import stacks followed by scheduler sleep show progress in this attempt, not a fix or prior deadlock diagnosis.",
+    "The original frozen-runtime ARM qualification failure and failed uninstrumented capacity comparison remain preserved. This diagnostic pass does not clear either release gate."
+  ],
+  "original_start_exit_code": 0,
+  "proof_sha256": {
+    "analyzer_controls": "cec9c6724659c47a98fc5b6576a4c514e1aad0c49bbd23582df5271e53f5f92f",
+    "capture_verdict": "23f0a222935cde3cb34b2bdb719a0847dc7f3ccdee233abb0b15d49971924a8a",
+    "corrected_trace_projection": "a4908064202ecfcccd7a688ea5de9434aa28e83ed8a475f4ce9ee7dc34479a67",
+    "independent_analyzer_review": "645f63ebf92c9cc3bc1a8d2b2e22212e5857e9afe0842f6d26a27a6ffcb3ac2b"
+  },
+  "resource_samples": {
+    "count": 8,
+    "limits": {
+      "CpuShares": 1024,
+      "Memory": 402653184,
+      "MemorySwap": 402653184,
+      "NanoCpus": 500000000,
+      "PidsLimit": 96
+    },
+    "same_restart_running_cpu_intervals": [
+      {
+        "collector_start_to_start_seconds": 60.015,
+        "cpu_usage_cores_approximate": 0.49444,
+        "cpu_usage_us": 29673862,
+        "periods": 598,
+        "throttled_periods": 571,
+        "throttled_us": 32480083
+      },
+      {
+        "collector_start_to_start_seconds": 59.983,
+        "cpu_usage_cores_approximate": 0.501752,
+        "cpu_usage_us": 30096488,
+        "periods": 602,
+        "throttled_periods": 602,
+        "throttled_us": 63864654
+      },
+      {
+        "collector_start_to_start_seconds": 59.984,
+        "cpu_usage_cores_approximate": 0.314221,
+        "cpu_usage_us": 18848129,
+        "periods": 384,
+        "throttled_periods": 374,
+        "throttled_us": 21039272
+      },
+      {
+        "collector_start_to_start_seconds": 46.377,
+        "cpu_usage_cores_approximate": 0.161521,
+        "cpu_usage_us": 7490794,
+        "periods": 159,
+        "throttled_periods": 147,
+        "throttled_us": 9001138
+      }
+    ],
+    "sampled_memory_current_peak_bytes": 312500224,
+    "sampled_memory_peak_counter_bytes": 376061952,
+    "sampled_oom_counter_max": 0,
+    "sampled_oom_kill_counter_max": 0,
+    "sampled_oom_killed_any": false,
+    "sampled_restart_count_max": 0
+  },
+  "retained_release_state": {
+    "application_startup_fix_demonstrated": false,
+    "original_arm_qualification_failure_preserved": true,
+    "previous_failure_root_cause_established": false,
+    "release_clearance": false,
+    "uninstrumented_capacity_failure_preserved": true
+  },
+  "run": 37898777870,
+  "runtime_source_revision": "1251826fa113aca4e084f0dd7239d056d97be3b2",
+  "schema": "arm64-startup-diagnostic-public-v2",
+  "scope": "One bounded instrumented startup of unchanged frozen runtime; no application fix or release clearance established",
+  "trace": {
+    "arming_attempts": 1,
+    "beat_service_start_seconds_after_arming": 152.239,
+    "dump_count": 4,
+    "dumps": [
+      {
+        "observed_source_phase": "SQLAlchemy ORM event-registration import",
+        "seconds_after_arming": 60.016,
+        "stack_shape_changed_from_previous_dump": null
+      },
+      {
+        "observed_source_phase": "Pydantic schema-generation import",
+        "seconds_after_arming": 120.027,
+        "stack_shape_changed_from_previous_dump": true
+      },
+      {
+        "observed_source_phase": "Normal Celery Beat Service.start loop at time.sleep",
+        "seconds_after_arming": 180.029,
+        "stack_shape_changed_from_previous_dump": true
+      },
+      {
+        "observed_source_phase": "Normal Celery Beat Service.start loop at time.sleep",
+        "seconds_after_arming": 240.029,
+        "stack_shape_changed_from_previous_dump": false
+      }
+    ],
+    "early_beat_banner_seconds_after_arming": 47.962,
+    "malformed_frames": 0,
+    "owned_compose_state_counts": {
+      "Created": 1,
+      "Exited": 0,
+      "Healthy": 1,
+      "Started": 1,
+      "Starting": 1,
+      "Unhealthy": 0,
+      "Waiting": 1
+    }
+  },
+  "workflow_conclusion": "success"
+}
