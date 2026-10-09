@@ -1,0 +1,637 @@
+{
+  "actual_disposable_recovery_drill": {
+    "log_sha256": "a8f543584b33e33f575730200f2fc6a8bd3fd051217a233d60195099d02c2c2e",
+    "source_loss_artifact": {
+      "artifact_id": 11598994003,
+      "artifact_record_sha256": "906e533122f5eb30c8d2bc393028d002d4b8493bf29a9af54da42aee2da058c3",
+      "artifact_zip_sha256": "f2ed1f7b944c856757272b62b4622b0c5628c449884713334ae318eefe041785",
+      "backend_image_id": "sha256:f2ee0ffb843738057cc3e3997fed0451643ae51d66bf61940638a7b891cdc65f",
+      "backend_source_sha256": "ace944abf18ab3ca36ce92d03243f442167bddf7123b59859f7ce412a482a3c8",
+      "cleanup": {
+        "completed": true
+      },
+      "comparison_scope": "Disposable hosted source-loss reconstruction; merge tree equals frozen workflow head and app/image inputs equal790; not deployment fault-domain clearance",
+      "exact_source_matches_verified_merge": true,
+      "finished_at": "2026-10-09T06:30:06.662972+00:00",
+      "independent_key_used": true,
+      "kind": "host_loss_qualification",
+      "migration_head": "0125_webhook_article_text",
+      "outbound_quarantined": true,
+      "production_qualified": false,
+      "restore_verified": true,
+      "schema_version": 1,
+      "scope": "disposable_local_fault_domain_simulation",
+      "source_environment_removed": true,
+      "source_revision": "fd35591d1bdccb9a076be611ba2a898f363b681f",
+      "started_at": "2026-10-09T06:29:01.269058+00:00",
+      "status": "passed"
+    },
+    "test_summaries": [
+      {
+        "duration_seconds": 174.229,
+        "stage": "unittest",
+        "terminal_summary": "OK",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 4,
+        "tests_run": 4,
+        "tests_skipped": 0
+      },
+      {
+        "duration_seconds": 65.396,
+        "stage": "unittest",
+        "terminal_summary": "OK",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 1,
+        "tests_run": 1,
+        "tests_skipped": 0
+      }
+    ]
+  },
+  "all_quality_checkout_revisions_match_immutable_merge": true,
+  "application_source_revision": "79001439677cae246faef0a398ddea50c47faf80",
+  "backend": {
+    "all_job_steps_succeeded": true,
+    "critical_module_floor_count": 58,
+    "log_sha256": "af683c3aa2f05d31874a390953abb26386b2f28e0838aa182e6595e4916c292f",
+    "overall_coverage_percent": 87.06,
+    "reporting_coverage_percent": 87.21,
+    "test_summaries": [
+      {
+        "counts": {
+          "passed": 4690,
+          "skipped": 5
+        },
+        "duration_seconds": 823.55,
+        "stage": "pytest"
+      }
+    ]
+  },
+  "browsers": [
+    {
+      "conclusion": "success",
+      "log_sha256": "d3a53b4a5b2f183c1eb76e338eecae8f9401cc3073342894f36a84e2153dc05f",
+      "name": "Browser workflows (chromium)",
+      "retry_markers": 0,
+      "test_summaries": [
+        {
+          "count": 49,
+          "duration": 1.2,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_interactions"
+        },
+        {
+          "count": 2,
+          "duration": null,
+          "duration_unit": null,
+          "outcome": "skipped",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 19,
+          "duration": 1.5,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 2,
+          "duration": 48.6,
+          "duration_unit": "s",
+          "outcome": "passed",
+          "stage": "browser_real_server_ai_statistics"
+        }
+      ]
+    },
+    {
+      "conclusion": "success",
+      "log_sha256": "ffe5d1dc9b85e50080057b666f4d902ca90aa4c482de88c9d9fd81a7fc433a4e",
+      "name": "Browser workflows (webkit)",
+      "retry_markers": 0,
+      "test_summaries": [
+        {
+          "count": 49,
+          "duration": 1.9,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_interactions"
+        },
+        {
+          "count": 2,
+          "duration": null,
+          "duration_unit": null,
+          "outcome": "skipped",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 19,
+          "duration": 1.7,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 2,
+          "duration": 50.5,
+          "duration_unit": "s",
+          "outcome": "passed",
+          "stage": "browser_real_server_ai_statistics"
+        }
+      ]
+    },
+    {
+      "conclusion": "success",
+      "log_sha256": "35c0e4b61b3791cf083139062aeb3ea92df446169613146d3cbbaa421371ea7b",
+      "name": "Browser workflows (firefox)",
+      "retry_markers": 0,
+      "test_summaries": [
+        {
+          "count": 49,
+          "duration": 1.3,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_interactions"
+        },
+        {
+          "count": 2,
+          "duration": null,
+          "duration_unit": null,
+          "outcome": "skipped",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 19,
+          "duration": 1.4,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 2,
+          "duration": 47.4,
+          "duration_unit": "s",
+          "outcome": "passed",
+          "stage": "browser_real_server_ai_statistics"
+        }
+      ]
+    }
+  ],
+  "capacity": {
+    "diagnostic_run_id": 37893213636,
+    "prior_uninstrumented_and_diagnostic_failures_retained": [
+      37876316405,
+      37880757288,
+      37885492555,
+      37888628612
+    ],
+    "release_clearance": false
+  },
+  "codeql_aggregate": [
+    {
+      "annotation_levels": {},
+      "annotations_count": 0,
+      "captured_annotations_count": 0,
+      "completed_at": "2026-10-09T06:23:23Z",
+      "conclusion": "neutral",
+      "head_sha": "1251826fa113aca4e084f0dd7239d056d97be3b2",
+      "historical_configuration_warning_present": true,
+      "html_url": "https://github.com/PatrikSi/threatlens/runs/113698737900",
+      "id": 113698737900,
+      "name": "CodeQL",
+      "started_at": "2026-10-09T06:23:21Z",
+      "status": "completed"
+    }
+  ],
+  "codeql_analysis_summaries": [
+    {
+      "analysis_id": 1921308325,
+      "category": ".github/workflows/quality-gates.yml:codeql/language:javascript-typescript",
+      "code_flow_result_count": 0,
+      "commit_revision": "fd35591d1bdccb9a076be611ba2a898f363b681f",
+      "evaluated_rule_count": 87,
+      "result_count": 1,
+      "sarif_sha256": "930c7be4ad42be40d24e1c049b41514e0273f244fc9827b94495ba3fb785194e"
+    },
+    {
+      "analysis_id": 1921310350,
+      "category": ".github/workflows/quality-gates.yml:codeql/language:python",
+      "code_flow_result_count": 22,
+      "commit_revision": "fd35591d1bdccb9a076be611ba2a898f363b681f",
+      "evaluated_rule_count": 43,
+      "result_count": 25,
+      "sarif_sha256": "c3a9501bb62112ed1b2e8d4a09fe6417e44bb6367061a6bb9fc4c2cc6a1c4a82"
+    }
+  ],
+  "codeql_open_alert_counts": {
+    "current_pr_ref": 10,
+    "repository_default_branch_listing": 11,
+    "scope_difference": "Default-main listing retains historical #28; current PR tracks the updated scratch flow as previously dismissed #31, not a new open alert"
+  },
+  "codeql_scope": "Current both-language analyses plus separate neutral aggregate retaining historical configuration warning; findings/dispositions remain, not zero-findings clearance",
+  "containers": [
+    {
+      "built_image_ids": {
+        "threatlens-backend:dev": "sha256:4e8af3cde812b84da4e4ff93eb5d3052be97915f4d362c22e8e0fdb80da6d83f",
+        "threatlens-web:dev": "sha256:fc8f3966b37b84a6595294a787fba56a9ee16a597af64dfb8a979067fed53a91"
+      },
+      "conclusion": "failure",
+      "image_scan_summaries": [],
+      "log_sha256": "2450cd28edb49467159712cbd23b2c2aa56ffc3a29065d6f08515c10acf2dc9e",
+      "name": "Container smoke and image scan (arm64)",
+      "steps": [
+        {
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Checkout repository",
+          "number": 2,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Set up ARM64 emulation",
+          "number": 3,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Generate isolated Compose environment",
+          "number": 4,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Validate Compose configuration",
+          "number": 5,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Prepare restrictive frontend build context",
+          "number": 6,
+          "status": "completed"
+        },
+        {
+          "conclusion": "failure",
+          "name": "Build and start stack",
+          "number": 7,
+          "status": "completed"
+        },
+        {
+          "conclusion": "skipped",
+          "name": "Verify running stack",
+          "number": 8,
+          "status": "completed"
+        },
+        {
+          "conclusion": "skipped",
+          "name": "Verify legacy and hardened web image startup",
+          "number": 9,
+          "status": "completed"
+        },
+        {
+          "conclusion": "skipped",
+          "name": "Verify access logs omit sensitive query values",
+          "number": 10,
+          "status": "completed"
+        },
+        {
+          "conclusion": "skipped",
+          "name": "Verify bootstrap administrator login",
+          "number": 11,
+          "status": "completed"
+        },
+        {
+          "conclusion": "skipped",
+          "name": "Verify checked-in dependency and legal artifacts",
+          "number": 12,
+          "status": "completed"
+        },
+        {
+          "conclusion": "skipped",
+          "name": "Verify bounded editorial uploads through the proxy",
+          "number": 13,
+          "status": "completed"
+        },
+        {
+          "conclusion": "skipped",
+          "name": "Scan backend image",
+          "number": 14,
+          "status": "completed"
+        },
+        {
+          "conclusion": "skipped",
+          "name": "Scan web image",
+          "number": 15,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Show container logs after failure",
+          "number": 16,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Stop stack",
+          "number": 17,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Post Set up ARM64 emulation",
+          "number": 33,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Post Checkout repository",
+          "number": 34,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 35,
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "built_image_ids": {
+        "threatlens-backend:dev": "sha256:df6a2ec28b4e161026880f8896eea92bb1919cde5932299ab49809e15fd9e12d",
+        "threatlens-web:dev": "sha256:c7443cb6364923e819244c03ba4bd29dfd2d9ee0faac8fa5189c08d2a5a1bc33"
+      },
+      "conclusion": "success",
+      "image_scan_summaries": [
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-backend:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 95,
+          "target_type_counts": {
+            "debian": 1,
+            "python-pkg": 94
+          }
+        },
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-web:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 1,
+          "target_type_counts": {
+            "alpine": 1
+          }
+        }
+      ],
+      "log_sha256": "05802a951638664367c3130efbb6f6d25bb8584c6153035d68aba35d24408b0a",
+      "name": "Container smoke and image scan (amd64)",
+      "steps": [
+        {
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Checkout repository",
+          "number": 2,
+          "status": "completed"
+        },
+        {
+          "conclusion": "skipped",
+          "name": "Set up ARM64 emulation",
+          "number": 3,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Generate isolated Compose environment",
+          "number": 4,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Validate Compose configuration",
+          "number": 5,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Prepare restrictive frontend build context",
+          "number": 6,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Build and start stack",
+          "number": 7,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Verify running stack",
+          "number": 8,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Verify legacy and hardened web image startup",
+          "number": 9,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Verify access logs omit sensitive query values",
+          "number": 10,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Verify bootstrap administrator login",
+          "number": 11,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Verify checked-in dependency and legal artifacts",
+          "number": 12,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Verify bounded editorial uploads through the proxy",
+          "number": 13,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Scan backend image",
+          "number": 14,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Scan web image",
+          "number": 15,
+          "status": "completed"
+        },
+        {
+          "conclusion": "skipped",
+          "name": "Show container logs after failure",
+          "number": 16,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Stop stack",
+          "number": 17,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Post Scan web image",
+          "number": 32,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Post Scan backend image",
+          "number": 33,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Post Checkout repository",
+          "number": 34,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 35,
+          "status": "completed"
+        }
+      ]
+    }
+  ],
+  "frontend": {
+    "frontend_test_files_passed": 164,
+    "frontend_test_files_total": 164,
+    "frontend_tests_passed": 1374,
+    "frontend_tests_total": 1374,
+    "log_sha256": "096662a55dd688ce707bb9dea43262dc85a8b362249e2f16152632915477ca32",
+    "npm_audit_vulnerability_counts": {
+      "critical": 0,
+      "high": 0,
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "total": 0
+    },
+    "npm_security_audit_pass_marker": true
+  },
+  "job_log_hashes": {
+    "Backend tests and contract": "af683c3aa2f05d31874a390953abb26386b2f28e0838aa182e6595e4916c292f",
+    "Browser workflows (chromium)": "d3a53b4a5b2f183c1eb76e338eecae8f9401cc3073342894f36a84e2153dc05f",
+    "Browser workflows (firefox)": "35c0e4b61b3791cf083139062aeb3ea92df446169613146d3cbbaa421371ea7b",
+    "Browser workflows (webkit)": "ffe5d1dc9b85e50080057b666f4d902ca90aa4c482de88c9d9fd81a7fc433a4e",
+    "CodeQL (javascript-typescript)": "44016098b60368d1d1553ff9e72dd68efb272f59c3218f90aca3e3dcbf4548f3",
+    "CodeQL (python)": "3f8db9e6f7231cc48494aa521124bb2b3b05071690517a19dd7f85c812e408d2",
+    "Container smoke and image scan (amd64)": "05802a951638664367c3130efbb6f6d25bb8584c6153035d68aba35d24408b0a",
+    "Container smoke and image scan (arm64)": "2450cd28edb49467159712cbd23b2c2aa56ffc3a29065d6f08515c10acf2dc9e",
+    "Disposable PostgreSQL recovery drill": "a8f543584b33e33f575730200f2fc6a8bd3fd051217a233d60195099d02c2c2e",
+    "Frontend tests and build": "096662a55dd688ce707bb9dea43262dc85a8b362249e2f16152632915477ca32",
+    "MCP protocol and pinned SDK interoperability": "a93e33fcb6a6a98d39834cefbfc16b7d186a83aba1cb6152ca06a02d58ad1993",
+    "OpenSearch connector vendor contract": "ebe0d2f55d63e560002b00efab7868901c35693a124477026063109f833c10c2",
+    "PostgreSQL migration round trip": "00acc7e19962b15566452b0b566e98ff75ac2c06e2e37b72d0c7f3d4b9f6f708",
+    "Recovery tooling tests": "d4000561d65c186e9d5807f831b925d81c6aec84f48022a3bc6817e52ce1a4b0",
+    "Repository diff hygiene": "0eab838abd9d7f25c13f82b25f776b38215e57c2ebf1617c2c75a8d434aca13a"
+  },
+  "kind": "exact_source_hosted_quality_public_projection",
+  "limitations": [
+    "Hosted reference jobs do not certify intended deployment hardware.",
+    "Disposable source-loss simulation is not deployment fault-domain qualification.",
+    "Quality success does not clear retained failed capacity comparisons."
+  ],
+  "quality_run": {
+    "conclusion": "failure",
+    "id": 37893170768,
+    "job_count": 15,
+    "passed_job_count": 14,
+    "status": "completed",
+    "url": "https://github.com/PatrikSi/threatlens/actions/runs/37893170768"
+  },
+  "recovery_tooling": {
+    "log_sha256": "d4000561d65c186e9d5807f831b925d81c6aec84f48022a3bc6817e52ce1a4b0",
+    "skip_scope": "Four Docker-dependent recovery unit cases and one source-loss opt-in unit case deliberately skipped; actual disposable4+1drills are separately executed",
+    "test_summaries": [
+      {
+        "duration_seconds": 162.147,
+        "stage": "unittest",
+        "terminal_summary": "OK (skipped=4)",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 121,
+        "tests_run": 125,
+        "tests_skipped": 4
+      },
+      {
+        "duration_seconds": 1.223,
+        "stage": "unittest",
+        "terminal_summary": "OK (skipped=1)",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 139,
+        "tests_run": 140,
+        "tests_skipped": 1
+      }
+    ]
+  },
+  "schema_version": 1,
+  "source_applicability": {
+    "application_and_image_input_objects": [
+      {
+        "frozen_application_git_object": "7e9e7f8ec896993a55e8d71d2859674f11b692f1",
+        "identical": true,
+        "path": "backend",
+        "workflow_head_git_object": "7e9e7f8ec896993a55e8d71d2859674f11b692f1"
+      },
+      {
+        "frozen_application_git_object": "33bc4dbe0ddb10a1c0ddd44868b022feb9815f10",
+        "identical": true,
+        "path": "web",
+        "workflow_head_git_object": "33bc4dbe0ddb10a1c0ddd44868b022feb9815f10"
+      },
+      {
+        "frozen_application_git_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+        "identical": true,
+        "path": "docker",
+        "workflow_head_git_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69"
+      }
+    ],
+    "application_and_image_inputs_match_frozen_source": true,
+    "synthetic_merge_tree": "dc7196f9b654746ce0a9c2a2decda744c60e3aed",
+    "synthetic_merge_tree_matches_review_head": true,
+    "workflow_head_tree": "dc7196f9b654746ce0a9c2a2decda744c60e3aed"
+  },
+  "synthetic_merge_revision": "fd35591d1bdccb9a076be611ba2a898f363b681f",
+  "workflow_head_revision": "1251826fa113aca4e084f0dd7239d056d97be3b2"
+}
