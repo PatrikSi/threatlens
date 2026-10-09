@@ -201,11 +201,23 @@ Diagnostic tooling is committed as `2993227`; its
 confirms unchanged application/image inputs. A clean Recovery-job environment
 initially failed seven new plugin controls because it installed only cryptography.
 The job now derives the exact declared pytest/SQLAlchemy pins and uses runtime
-constraints for their dependency closure. All **114 operations tests** and
-`pip check` pass in that fresh, twelve-package environment, without installing
-the full backend development stack or skipping controls. The
+constraints for their dependency closure. The fresh, twelve-package environment reports **113 passes, one deliberate
+source-loss opt-in skip and zero errors**, and `pip check` passes. The hosted
+recovery drill separately exercises that source-loss reconstruction case. The
 [before/after proof](evidence/2026-10-09-final-review/diagnostic-clean-dependencies.json)
 retains both outcomes and the existing job deadline.
+
+Two follow-up diagnostic contracts are fixed locally. Captured, recovered
+workload query failures retain type/count summaries without marking capture as
+failed; observer faults still fail. Four new regression controls failed before
+and all 24 observer controls pass afterward. Standalone verification now also
+requires a passing measurement and integer-zero original workload exit; four
+negative controls failed before correction. The operations suite reports
+119 passes and one deliberate opt-in skip afterward. The
+[query-outcome proof](evidence/2026-10-09-final-review/diagnostic-query-outcomes.json)
+and [workload-verification proof](evidence/2026-10-09-final-review/diagnostic-workload-verification.json)
+preserve the results. Neither correction changes the frozen observer used by
+the running hosted diagnostic or the application workload.
 
 Each pair has matching fingerprints internally, but the two hosted pairs used
 different CPU models. Cross-run absolute improvements cannot establish the
