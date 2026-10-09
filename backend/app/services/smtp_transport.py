@@ -85,12 +85,12 @@ def prepare_smtp_session(
         if operation_deadline is not None and isinstance(server, smtplib.SMTP):
             start_smtp_tls(
                 server,
-                context=ssl.create_default_context(),
+                context=_smtp_client_context(),
                 operation_deadline=operation_deadline,
             )
         else:
             _require_smtp_response(
-                server.starttls(context=ssl.create_default_context()),
+                server.starttls(context=_smtp_client_context()),
                 expected_code=220,
             )
         renew_smtp_operation_lease(lease_heartbeat, active)
@@ -186,6 +186,14 @@ def _resolve_smtp_addresses(
     return addresses
 
 
+def _smtp_client_context() -> ssl.SSLContext:
+    context = ssl.create_default_context()
+    # Keep certificate/hostname verification and enforce the same TLS floor
+    # even on Python/OpenSSL builds with permissive protocol defaults.
+    context.minimum_version = max(context.minimum_version, ssl.TLSVersion.TLSv1_2)
+    return context
+
+
 def _new_smtp_client(
     active: ActiveSMTPSettings,
     *,
@@ -196,7 +204,7 @@ def _new_smtp_client(
     if active.security == "ssl_tls":
         server: smtplib.SMTP = smtplib.SMTP_SSL(
             timeout=timeout,
-            context=ssl.create_default_context(),
+            context=_smtp_client_context(),
             local_hostname=local_hostname,
         )
     else:
