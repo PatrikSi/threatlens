@@ -748,22 +748,33 @@ def _persist_data_access_envelope_sources(
         envelope_id=envelope.id if envelope is not None else None,
         sources=sources,
     )
+    created = False
     if envelope is None:
-        envelope = _get_or_create_envelope(
+        envelope, created = _get_or_create_envelope(
             db,
             resource_type=resource_type,
             resource_id=resource_id,
             policy_revision=current_revision,
         )
+        if not created:
+            # A unique-key winner can make an initially valid parent belong to
+            # this envelope. Recheck references using the reloaded identity.
+            lineage.validate_source_references(
+                db,
+                envelope_id=envelope.id,
+                sources=sources,
+            )
 
-    existing_rows = lineage.source_models(db, envelope.id, for_update=True)
+    # Only a successful insertion in this transaction establishes an empty
+    # envelope. A concurrent winner still requires the complete persisted reads.
+    existing_rows = [] if created else lineage.source_models(db, envelope.id, for_update=True)
     existing_by_identity = {
         lineage.source_identity_from_model(row): row for row in existing_rows
     }
     desired_by_identity = {
         lineage.source_identity(source): source for source in sources
     }
-    aggregate_counts = _label_counts(db, envelope.id)
+    aggregate_counts = {} if created else _label_counts(db, envelope.id)
 
     if not existing_rows and aggregate_counts:
         desired_counts = lineage.source_label_counts(sources)
@@ -818,7 +829,7 @@ def _persist_data_access_envelope_sources(
 
     if changed or not existing_rows:
         db.flush()
-        lineage.rebuild_source_aggregates(
+        aggregate_counts = lineage.rebuild_source_aggregates(
             db,
             envelope,
             current_revision=current_revision,
@@ -830,7 +841,7 @@ def _persist_data_access_envelope_sources(
             aggregate_counts=aggregate_counts,
             source_rows=existing_rows,
         )
-    return _snapshot(envelope, _label_counts(db, envelope.id))
+    return _snapshot(envelope, aggregate_counts)
 
 
 def _get_or_create_envelope(
@@ -839,16 +850,8 @@ def _get_or_create_envelope(
     resource_type: str,
     resource_id: uuid.UUID,
     policy_revision: int,
-) -> DataAccessEnvelope:
-    envelope = _get_envelope_model(
-        db,
-        resource_type=resource_type,
-        resource_id=resource_id,
-        for_update=True,
-    )
-    if envelope is not None:
-        return envelope
-
+) -> tuple[DataAccessEnvelope, bool]:
+    """Create after the caller's locked miss, or reload the unique-key winner."""
     envelope = DataAccessEnvelope(
         resource_type=resource_type,
         resource_id=resource_id,
@@ -859,6 +862,7 @@ def _get_or_create_envelope(
         with db.begin_nested():
             db.add(envelope)
             db.flush()
+        return envelope, True
     except IntegrityError as exc:
         envelope = _get_envelope_model(
             db,
@@ -870,7 +874,7 @@ def _get_or_create_envelope(
             raise DataPolicyUnavailable(
                 "The data access envelope could not be created or reloaded. Retry the operation."
             ) from exc
-    return envelope
+        return envelope, False
 
 
 def _get_envelope_model(
