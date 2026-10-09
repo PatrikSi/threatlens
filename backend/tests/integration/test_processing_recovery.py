@@ -42,6 +42,9 @@ def processing_env(export_env, monkeypatch):
             "read:operations",
             "write:operations",
         ]
+        # This fixture already has committed article input. Automatic repair
+        # should not mistake it for initial ingestion still awaiting a fetch.
+        db.get(Item, env.item_id).status = "content_fetched"
         db.commit()
     # Suppress outbound alert queue publication while retaining its durable intent.
     monkeypatch.setattr(
@@ -574,7 +577,7 @@ def test_round_robin_admits_a_new_feed_before_more_old_feed_backlog(
         for feed in (old_feed, newcomer):
             for _ in range(2):
                 key = uuid.uuid4().hex
-                upsert_item_from_parsed(
+                item, _, _ = upsert_item_from_parsed(
                     db,
                     feed,
                     SimpleNamespace(
@@ -585,6 +588,7 @@ def test_round_robin_admits_a_new_feed_before_more_old_feed_backlog(
                         published_at=None,
                     ),
                 )
+                item.status = "error"
         newcomer_id = newcomer.id
         db.commit()
     try:
@@ -616,6 +620,9 @@ def test_each_selected_stage_commits_real_domain_results(
             item.tagging_retry_at = datetime.now(timezone.utc)
             db.commit()
     if stage == "article":
+        with Session(env.engine) as db:
+            db.get(Item, env.item_id).status = "new"
+            db.commit()
         monkeypatch.setattr(
             "app.tasks.article_fetch_tasks._fetch_candidates",
             lambda *_a, **_kw: ArticleFetchResult(
@@ -948,6 +955,7 @@ def test_exhausted_cancelled_prefix_does_not_hide_new_work_from_same_feed(
                 published_at=None,
             ),
         )
+        item.status = "error"
         new_id = item.id
         db.commit()
     with Session(env.engine) as db:

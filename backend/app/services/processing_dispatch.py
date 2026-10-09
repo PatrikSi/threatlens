@@ -148,10 +148,7 @@ def discover_processing_work(db: Session, *, stage=None) -> int:
                         rows.c.work_status == "succeeded",
                         detached_retry,
                     ),
-                    or_(
-                        rows.c.stage != "article",
-                        rows.c.article_repair_eligible,
-                    ),
+                    rows.c.automatic_repair_eligible,
                 ),
             )
         )
