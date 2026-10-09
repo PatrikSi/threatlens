@@ -4,8 +4,8 @@ ThreatLens **2.1.0** is prepared, and the rebuilt synthetic local instance is
 running at **http://127.0.0.1:3001**. Current application/image candidate
 `6141a7192e3d6970be9e67230da14b64da1c8894` contains the Beat producer dependency
 correction and the shared-start capacity harness. Its actual native images have
-been rebuilt and basic readiness verified; fresh browser and permission qualification passes. Backend helper and image
-scan qualification is being completed at this checkpoint. Earlier
+been rebuilt and basic readiness verified; fresh browser, permission and backend HTTP/helper qualification passes.
+Selected native image scan qualification is being completed at this checkpoint. Earlier
 native evidence applies to `fec81ca` and its recorded equivalent image inputs.
 Images retain their actual build revision. All corrections were committed as
 `Patrik <patrik@local>`.
@@ -84,8 +84,17 @@ browser container is removed. The
 [current frontend record](evidence/2026-10-09-final-review/native-frontend-6141.json)
 also preserves the inherited seed-cleanup exit defect: two mocked failure
 outcomes exited zero before correction and correctly exit nonzero afterward.
-Original cleanup status remains recorded. HTTP/helper and selected image scans
-are still being completed; basic readiness does not complete those checks.
+Original cleanup status remains recorded.
+[Fresh HTTP/helper evidence](evidence/2026-10-09-final-review/native-backend-6141.json)
+records **44/44 HTTP cases**, all three owned compensation checks, dependency/
+legal inventory and both non-root startup modes. All four helper containers are
+removed, with zero cleanup errors or remnants. A separate bounded, non-root,
+network-free backend image probe verifies the selected Beat loader imports zero
+of fifteen worker implementations, retains all 31 schedule entries and leaves
+the worker unfinalized. It also verifies TLS 1.2, certificate verification and
+hostname checking on Python 3.12.13/OpenSSL 3.0.20, without a handshake or task
+publication. Its container is removed. Selected native image scans are still
+being completed; these behavior checks do not clear comparative capacity.
 
 The following completed native qualification is retained for the earlier
 `fec81ca` image inputs. It does not qualify the changed Beat producer at `6141a719`.
