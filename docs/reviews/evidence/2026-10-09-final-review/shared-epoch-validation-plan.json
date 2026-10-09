@@ -1,0 +1,31 @@
+{
+  "automatic_retries": 0,
+  "candidate_revision": "79001439677cae246faef0a398ddea50c47faf80",
+  "diagnostics": false,
+  "duration_seconds_per_ref": 600,
+  "kind": "predeclared_corrected_protocol_validation",
+  "limits_unchanged": true,
+  "matched_baseline_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+  "original_application_baseline_revision": "35ac120b28820b6e5b1222a50b5f70f7a6b85c3b",
+  "regression_threshold_percent": 20,
+  "resource_caps": {
+    "application_cpu_count": 1,
+    "application_max_rss_mib": 1024,
+    "postgres_cpu_count": 0.5,
+    "postgres_max_memory_mib": 512,
+    "redis_cpu_count": 0.5,
+    "redis_max_memory_mib": 128
+  },
+  "run_ids": {
+    "matched_release_comparison": 37888628612,
+    "unchanged_source_control": 37888630228
+  },
+  "runs": [
+    "shared-epoch-release",
+    "shared-epoch-unchanged-source-control"
+  ],
+  "schema_version": 1,
+  "scope": "Each pair sequential on its own fresh hosted runner; unchanged-source control diagnoses reference variation and cannot alone clear the release comparison.",
+  "target_id": "github-hosted-reference-shared-epoch-oct9",
+  "workflow_head_revision": "b06b364d41fee438f854a5fe9a13a8d8183a5a2e"
+}
