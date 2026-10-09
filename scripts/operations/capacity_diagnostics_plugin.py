@@ -97,9 +97,8 @@ def pytest_runtest_setup(item):
             guarded("pool_return", lambda: _recorder.transaction(driver, "pool_returned"))
 
     def failed(context):
-        _recorder.error("query_execute", context.original_exception)
-        token = getattr(context.execution_context, "_capacity_observation", None)
-        guarded("query_failed", lambda: _recorder.query_end(token, succeeded=False))
+        guarded("workload_query_failure", lambda: _recorder.workload_query_failed(context.original_exception))
+        guarded("query_failed", lambda: _recorder.query_end(getattr(context.execution_context, "_capacity_observation", None), succeeded=False))
 
     for target, name, callback in [(Engine, "before_cursor_execute", before), (Engine, "after_cursor_execute", after), (Engine, "handle_error", failed), (Engine, "begin", begin), (Engine, "commit", commit), (Engine, "rollback", rollback), (Pool, "checkin", checkin)]:
         event.listen(target, name, callback)
