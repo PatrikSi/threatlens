@@ -287,11 +287,12 @@ def test_cancellation_after_provider_response_does_not_publish(db_session, accep
         return _completion()
 
     monkeypatch.setattr("app.services.ai_integration._call_ai_json", cancel_during_response)
-    invoke_worker(db_session, monkeypatch, state["run"].id)
+    result = invoke_worker(db_session, monkeypatch, state["run"].id)
     db_session.refresh(state["run"])
     db_session.refresh(state["row"])
     assert state["run"].status == "skipped"
     assert state["run"].reason == "canceled"
+    assert result == {"status": "skipped", "reason": "canceled"}
     assert state["row"].result_json is None
 
 

@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 
 from app.core import config
 from app.models.ai_task_run import AITaskRun
-from app.services.ai_execution_ownership import ai_worker_execution
+from app.services.ai_execution_ownership import AIExecutionSuperseded, ai_worker_execution
 from app.models.article import Article
 from app.models.item import Item
 from app.services import ai_config, ai_integration, ai_ops
@@ -77,22 +77,31 @@ def run_generate_item_ai_enrichment(
             result = ai_integration.run_item_ai_enrichment(
                 db, item_id=parsed_item_id, force=force, task_run_id=parsed_run_id
             )
+        except AIExecutionSuperseded:
+            raise
         except AIWorkflowDeferred as exc:
             if parsed_run_id is not None:
                 defer_ai_workflow_run(db, run_id=parsed_run_id, reason=exc.reason,
                                       retry_after_seconds=exc.retry_after_seconds)
                 db.commit()
             return {"status": "queued", "reason": exc.reason, "item_id": item_id}
-        except Exception:
+        except Exception as exc:
             db.rollback()
-            _finish_unexpected_item_error(db, task, parsed_run_id)
-            logger.exception(
-                "AI enrichment task failed unexpectedly for item %s", item_id
+            finished_run = _finish_unexpected_item_error(db, task, parsed_run_id)
+            # Error settlement can fail while handling a provider error. Its
+            # exception chain may contain echoed article text or SQL values.
+            logger.error(
+                "AI enrichment task failed unexpectedly item_id=%s task_run_id=%s error_type=%s",
+                item_id, parsed_run_id, type(exc).__name__,
             )
+            if parsed_run_id:
+                return _committed_item_outcome(finished_run, item_id)
             return {"status": "error", "reason": "unexpected_error", "item_id": item_id}
         if parsed_run_id:
-            _finish_item_result(db, task, parsed_run_id, result)
+            finished_run = _finish_item_result(db, task, parsed_run_id, result)
         db.commit()
+        if parsed_run_id:
+            return _committed_item_outcome(finished_run, item_id)
         if result.enrichment is None:
             return {
                 "status": result.status,
@@ -199,10 +208,20 @@ def _finish_skipped_item_run(db, task, run_id: uuid.UUID | None, reason: str) ->
     db.commit()
 
 
-def _finish_unexpected_item_error(db, task, run_id: uuid.UUID | None) -> None:
+def _committed_item_outcome(run: AITaskRun | None, item_id: str):
+    if run is None:
+        status, reason = "skipped", "task_not_found"
+    elif ai_ops.ai_task_run_stop_reason(run) == "superseded_delivery":
+        status, reason = "skipped", "superseded_delivery"
+    else:
+        status, reason = run.status, run.reason
+    return {"status": status, "reason": reason, "item_id": item_id}
+
+
+def _finish_unexpected_item_error(db, task, run_id: uuid.UUID | None) -> AITaskRun | None:
     if run_id is None:
         return
-    ai_ops.finish_ai_task_run(
+    run = ai_ops.finish_ai_task_run(
         db,
         run_id=run_id,
         status=ai_ops.AI_STATUS_ERROR,
@@ -211,11 +230,12 @@ def _finish_unexpected_item_error(db, task, run_id: uuid.UUID | None) -> None:
         worker_name=getattr(task.request, "hostname", None),
     )
     db.commit()
+    return run
 
 
-def _finish_item_result(db, task, run_id: uuid.UUID, result) -> None:
+def _finish_item_result(db, task, run_id: uuid.UUID, result) -> AITaskRun | None:
     enrichment = result.enrichment
-    ai_ops.finish_ai_task_run(
+    return ai_ops.finish_ai_task_run(
         db,
         run_id=run_id,
         status=(
