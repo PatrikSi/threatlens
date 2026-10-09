@@ -188,6 +188,28 @@ describe('useWorkspaceSettingsController', () => {
     expect(controllerMocks.getRolePolicies).not.toHaveBeenCalled()
   })
 
+  it.each([['read:workspace'], ['read:items']])('retains draft protection when policy management is revoked to %s', async (permission) => {
+    renderController()
+    await waitForController()
+    act(() => controller().setRoleDraft((current) => current ? { ...current, landingModuleId: 'primary.alerts' } : current))
+    const triggerLocalRefresh = controller().setRoleDraft
+    controllerMocks.currentUserAccess = { permissions: [permission], durable_permissions: [permission] }
+    act(() => triggerLocalRefresh((current) => current ? { ...current } : current))
+
+    expect(controller().canManagePolicies).toBe(false)
+    expect(controller().roleDraft?.landingModuleId).not.toBe('primary.alerts')
+    expect(controller().roleDirty).toBe(true)
+    const unload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(unload)
+    expect(unload.defaultPrevented).toBe(true)
+    await act(async () => { await router.navigate('/elsewhere') })
+    expect(router.state.location.pathname).toBe('/workspace')
+    expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('unsaved workspace changes')
+    const cancel = document.querySelector<HTMLButtonElement>('[role="alertdialog"] button')!
+    act(() => cancel.click())
+    expect(controllerMocks.updateRolePolicy).not.toHaveBeenCalled()
+  })
+
   it('preserves concurrent dirty drafts across query refreshes and unrelated mutation success', async () => {
     controllerMocks.workspace = workspaceValue(effectiveWorkspace(), {
       ...preferences(),

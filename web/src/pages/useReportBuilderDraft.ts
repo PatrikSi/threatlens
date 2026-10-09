@@ -4,7 +4,7 @@ import type { ReportDeliveryMode, ReportPromptConfig, ReportSectionConfig, Repor
 import type { ExportFilterDraft } from './exportPageModel'
 import { reportBuilderFromTemplate } from './reportingPageModel'
 
-export function useReportBuilderDraft(templates: ReportTemplate[] | undefined, canAuthor: boolean, editorialDirty = false) {
+export function useReportBuilderDraft(templates: ReportTemplate[] | undefined, editorialDirty = false) {
   const [initial] = useState(() => reportBuilderFromTemplate(undefined))
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const selectedTemplateIdRef = useRef(selectedTemplateId)
@@ -22,7 +22,7 @@ export function useReportBuilderDraft(templates: ReportTemplate[] | undefined, c
   const fingerprintRef = useRef(fingerprint)
   fingerprintRef.current = fingerprint
   const dirty = fingerprint !== baseline
-  const confirmDiscard = useUnsavedChangesWarning((canAuthor && dirty) || editorialDirty, 'Discard unsaved report changes or review notes?', { ignoreSearchChanges: true })
+  const confirmDiscard = useUnsavedChangesWarning(dirty || editorialDirty, 'Discard unsaved report changes or review notes?', { ignoreSearchChanges: true })
   const initializedRef = useRef(false)
 
   const hydrate = useCallback((template: ReportTemplate) => {

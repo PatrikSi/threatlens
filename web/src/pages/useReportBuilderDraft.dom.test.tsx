@@ -18,11 +18,13 @@ const template: ReportTemplate = {
 let root: Root | undefined
 let router: ReturnType<typeof createMemoryRouter>
 let templates: ReportTemplate[]
+let canAuthor: boolean
 let draft: ReturnType<typeof useReportBuilderDraft>
 let rerender: () => void
-function Harness() { const [, update] = useReducer((n: number) => n + 1, 0); rerender = update; draft = useReportBuilderDraft(templates, true); return <>{draft.discardDialog}<span>Builder</span></> }
+function Harness() { const [, update] = useReducer((n: number) => n + 1, 0); rerender = update; draft = useReportBuilderDraft(templates); return <>{draft.discardDialog}<span>{canAuthor ? 'Builder' : 'Read-only reporting'}</span></> }
 function render() {
   templates = [structuredClone(template)]
+  canAuthor = true
   router = createMemoryRouter([{ path: '/reporting', element: <Harness /> }, { path: '/dashboard', element: <p>Dashboard</p> }], { initialEntries: ['/reporting'] })
   const element = document.createElement('div'); document.body.append(element); root = createRoot(element)
   act(() => root!.render(<RouterProvider router={router} />))
@@ -83,5 +85,24 @@ describe('report builder draft hydration', () => {
     expect(draft.dirty).toBe(true)
     act(() => expect(draft.acceptSubmission(draft.fingerprint)).toBe(true))
     expect(draft.dirty).toBe(false)
+  })
+
+  it('preserves navigation protection for a dirty draft after report write access is revoked', async () => {
+    render()
+    act(() => draft.setTitle('Draft created before permission loss'))
+    canAuthor = false
+    act(() => rerender())
+    expect(draft.title).toBe('Draft created before permission loss')
+    const unload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(unload)
+    expect(unload.defaultPrevented).toBe(true)
+    await act(async () => { await router.navigate('/dashboard') })
+    expect(router.state.location.pathname).toBe('/reporting')
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+    click('Cancel')
+    expect(draft.title).toBe('Draft created before permission loss')
+    await act(async () => { await router.navigate('/dashboard') })
+    click('Discard changes')
+    expect(router.state.location.pathname).toBe('/dashboard')
   })
 })
