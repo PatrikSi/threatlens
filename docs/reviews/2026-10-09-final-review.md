@@ -2,26 +2,20 @@
 
 ThreatLens **2.1.0** is prepared, and the rebuilt synthetic local instance is
 running at **http://127.0.0.1:3001**. Current application/image candidate
-`6141a7192e3d6970be9e67230da14b64da1c8894` contains the Beat producer dependency
-correction and the shared-start capacity harness. Its actual native images have
-been rebuilt and readiness verified; fresh browser, permission, backend HTTP/helper
-and selected image scan qualification passes. Earlier
-native evidence applies to `fec81ca` and its recorded equivalent image inputs.
-Images retain their actual build revision. All corrections were committed as
-`Patrik <patrik@local>`.
+`aa92f8e7f9baf495f02c9bce89160b7a02f39514` contains all review corrections,
+including reduced envelope reads and the concurrent parent-reference guard.
+Both actual native images were freshly rebuilt, and readiness, HTTP/helpers
+and selected image scans pass. Full hosted quality passes all fifteen jobs.
+The single fresh uninstrumented capacity comparison passes with verified source,
+threshold, artifact and cleanup evidence. Final native browser qualification
+found a WebKit light-theme login failure; its cause is being investigated.
+Earlier failed outcomes remain preserved under their actual source revisions.
+All corrections were committed as `Patrik <patrik@local>`.
 
-**Decision at this checkpoint: held for qualification of the new envelope
-correction and comparative capacity. The latest completed full quality at
-`508c7413` passes all fifteen jobs, including the full backend suite and ARM64
-smoke/scan job. The earlier raw queue-configuration assertion failure is retained
-and its test isolation correction is fully qualified. The uninstrumented
-600-second pair at application revision `6141a719` fails two p95 comparisons,
-at +21.064% and +22.583% against the unchanged 20% threshold.** Both reference
-workloads pass absolute budgets and independent cleanup. A test-only queue-normalization isolation correction passes its deterministic
-regression and all 67 focused Beat controls, followed by 4,733 passing backend
-cases in the fresh full run. Capacity causes remain unassigned. Reviewed
-CodeQL dispositions cleared its failure, leaving a neutral check with a
-baseline-configuration warning.
+**Decision at this checkpoint: held for the native WebKit login failure.**
+No comparative threshold, resource limit, workload
+duration or authorization fence was weakened. Reviewed CodeQL dispositions
+leave a neutral aggregate check with the historical configuration warning.
 Version 2.1.0 is already aligned across the version file, frontend metadata,
 OpenAPI and deployment defaults. These pre-merge corrections need no further
 version bump. [Draft PR #31](https://github.com/PatrikSi/threatlens/pull/31)
@@ -30,13 +24,14 @@ model promotion remain unchanged.
 
 The new envelope writer correction passes **38/38 focused PostgreSQL cases**,
 full backend Ruff and the source-size gate. It removes redundant reads and
-revalidates parent ownership after a concurrent creator wins. Its fresh hosted
-quality, comparative capacity and changed native image qualification are next;
-the completed `508c7413`/`6141a719` results above retain their actual inputs.
+revalidates parent ownership after a concurrent creator wins. The measured
+variant eliminates 24 SQL executions; its instrumented total time increased,
+so neither an end-to-end speedup nor the cause of earlier capacity flags is
+claimed. Historical `508c7413`/`6141a719` results retain their actual inputs.
 
 This follows the [Oct8 review](2026-10-08-final-local-review.md), preserving its
 original sources, failures and qualification limits.
-The [current release/source consistency proof](evidence/2026-10-09-final-review/release-consistency-6141.json)
+The [current release/source consistency proof](evidence/2026-10-09-final-review/release-consistency-aa92.json)
 records aligned version values, the distinct OpenAPI contract anchor and file
 hash, bounded writer shutdown before migration, and exactly matched baseline/
 candidate capacity harness blobs.
@@ -61,17 +56,77 @@ candidate capacity harness blobs.
 | Automatic classification/IOC/tagging recovery started while article input was still pending | Automatic derivation waits for committed fetch input; failed-fetch fallback and explicit waiting/manual recovery remain available. Six regressions failed before; all 67 new/existing integration cases pass after explicit fixture prerequisites. The initial fixed run's two fixture-selection failures are retained. | `20c289a` |
 | Watchdog-selected Beat scheduler bypassed bounded canary admission | Compose bounded admission with the persistent watchdog heartbeat scheduler. The actual selected-class Redis regression grew to 63 messages against cap eight before correction. All 20 scheduler/heartbeat/control cases pass afterward with unchanged limits. | `fec81ca` |
 | Legacy capacity baseline cleanup lacked independent verification before candidate measurement | An outer driver verifies exact run-label ownership, including stopped containers, on the same frozen endpoint before advancing. Unknown/late/remnant results fail closed; workload exits and measurement artifacts are preserved. The actual old workflow handoff regression failed before; 11 controls pass afterward. Original baseline contamination was not proved. | `a6c07f7` |
-| Envelope persistence repeated known-absent and known-empty reads | Only successful local creation skips empty child reads; unique winners retain full reads, and snapshots reuse already validated persisted counts. The six-item measured variant removes 24 SQL executions, with policy/feed locks unchanged. Final fresh/replay query controls pass. | Current envelope correction |
-| Concurrent envelope creation could skip the own-envelope parent-source guard | Revalidate references with the actual winner's envelope ID after reload, before modifying lineage. One real PostgreSQL regression fails before and passes afterward; all 38 new/existing envelope cases pass, including rollback and both matching/conflicting winners. | Current envelope correction |
+| Beat loaded every worker implementation before starting its scheduler | Use a dedicated producer with copied configuration and equivalent task messages; bounded watchdog behavior and worker registration are retained. All 67 focused controls and fresh full-suite/platform jobs pass. | `6141a719` |
+| Raw queue-configuration equality depended on ambient AMQP normalization | Isolate unfinalized configuration and verify effective normalized queues/routes separately. The regression and all 67 focused controls pass, followed by fresh full-suite validation. | `508c7413` |
+| Envelope persistence repeated known-absent and known-empty reads | Only successful local creation skips empty child reads; unique winners retain full reads, and snapshots reuse already validated persisted counts. The six-item measured variant removes 24 SQL executions, with policy/feed locks unchanged. Final fresh/replay query controls pass. | `aa92f8e7` |
+| Concurrent envelope creation could skip the own-envelope parent-source guard | Revalidate references with the actual winner's envelope ID after reload, before modifying lineage. One real PostgreSQL regression fails before and passes afterward; all 38 new/existing envelope cases pass, including rollback and both matching/conflicting winners. | `aa92f8e7` |
 
 [Structured regression evidence](evidence/2026-10-09-final-review/regression-proof.json)
 records pinned environments, before/after failures, hashes and scope limits.
 
 ## Actual native runtime
 
-The current native images are built at `6141a719`, and actual inspection verifies
+The current images were freshly built at `aa92f8e7`, with one CPU, 1536 MiB,
+no swap and one build operation at a time. Both builds pass on their first
+attempt, and the owned builder and volume are removed. All seven writers stop
+before the dedicated migration. Independent inspection verifies twelve services:
+eleven running, ten healthy and a completed migration, zero restarts/OOM events,
+read-only roots and actual bounded CPU/memory/PIDs without swap. Strict JSON
+readiness and equality with the checked-in 2.1.0 OpenAPI contract pass.
+The [exact current build/runtime record](evidence/2026-10-09-final-review/native-runtime-aa92.json)
+retains both original build exits, actual limits, writer shutdown, migration and
+the independent readiness check.
+
+| Image | Actual image ID | Runtime user |
+|---|---|---|
+| Backend | `sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9` | `app` |
+| Web | `sha256:e0061cfce6f1d10fa7c4c68fadb84d2bd8d9805486c638f1de6b3158b4344490` | `nginx` |
+
+Fresh native HTTP qualification passes **44/44**, all three owned compensation
+checks, dependency/legal inventory and both non-root startup modes. The bounded,
+network-free actual backend probe verifies the two changed runtime source hashes,
+the Beat producer's zero worker-implementation imports, all 31 schedule entries
+and the unchanged verified TLS 1.2 floor. All helper/probe containers are removed.
+Both exact native images pass the established HIGH/CRITICAL, ignore-unfixed
+vulnerability and secret policy with zero selected findings, using the same fresh
+database in offline scan containers. Their original process exits are zero;
+three scanner/download containers are removed with zero errors or remnants.
+[Current HTTP/helper evidence](evidence/2026-10-09-final-review/native-backend-aa92.json)
+and [current image scan evidence](evidence/2026-10-09-final-review/native-image-scans-aa92.json)
+retain the exact inputs, original exits, source hashes and scoped cleanup.
+
+The scanner's first current attempt stopped before any download, scan or container
+because the pinned tool image was absent locally. Restoration verified the raw
+multi-platform index hash and its AMD64 child, then pulled the same immutable pin.
+An earlier pre-pull assertion confused that index with the child configuration;
+it remains failed and started no scanner. The subsequent scan does not relabel
+those preflight outcomes.
+
+Current native permission-transition qualification passes **seven/seven** with
+all six cleanup checks. The first policy preflight had stopped before any browser
+case because the immutable Playwright image was missing. Its seed was compensated,
+and the exact registry index/AMD64 child were verified before restoring the same
+pin and using a new fixture. The subsequent first actual native 33-case run
+reports **28 passed / one failed / four skipped**: Chromium and Firefox pass all
+eleven each, while WebKit passes six and its light-theme login times out. The
+remaining four light-theme workflows were not executed. Original browser/launcher
+exit is one; the bounded browser container is removed with zero cleanup errors or
+remnants. Generic page, console, API-500 and external-request listeners report
+zero events. They do not capture lower HTTP statuses or prove successful login.
+The screenshot shows an empty login form with SSO availability pending, rather
+than onboarding. `/start` is a workspace redirect; accepting it as successful
+login would weaken the assertion. Application versus driver/transport cause is
+unassigned. Source, manifests and all five driver payloads remain unchanged.
+This failed aggregate is retained while a targeted diagnostic is prepared.
+The [current frontend checkpoint](evidence/2026-10-09-final-review/native-frontend-aa92-checkpoint.json)
+preserves the passed permission run, failed native aggregate, original exits,
+image/source identities, limits, cleanup and hash-only screenshot evidence.
+
+### Earlier native candidate `6141a719` — retained
+
+The earlier native images are built at `6141a719`, and actual inspection verifies
 twelve services: eleven running, ten healthy and a completed migration, with no
-restarts. JSON readiness and live contract checks pass. The current image IDs are:
+restarts. JSON readiness and live contract checks pass. Their image IDs are:
 
 | Image | Actual image ID | Runtime user |
 |---|---|---|
@@ -159,7 +214,23 @@ selectors, assertions, deadlines and generic error listeners remain unchanged.
 
 ## Hosted quality and preserved failures
 
-Fresh [quality run 37907945272](https://github.com/PatrikSi/threatlens/actions/runs/37907945272)
+Fresh [quality run 37914317245](https://github.com/PatrikSi/threatlens/actions/runs/37914317245)
+at `aa92f8e7` passes **all fifteen jobs**. Backend reports **4,741 passed / five
+skipped** in 1094.38 seconds, overall coverage **87.08%**, reporting coverage
+**87.21%**, and all **58 critical module floors**. Capacity smoke, generated
+OpenAPI, preview-policy agreement, runtime lock and Python audit pass. Frontend
+passes **1,374 tests / 164 files** and its audit. Browsers pass **210 cases**, with
+six deliberate split skips and zero retries. AMD64 and ARM64 image smoke/scans
+pass. Recovery tooling passes 121 cases with four deliberate opt-in skips;
+operations passes 152 with one deliberate opt-in skip. The separate actual
+disposable recovery/source-loss drills pass all four plus one cases. Every
+quality checkout matches the immutable merge tree, equal to the candidate tree.
+Both language analyses and the separate neutral CodeQL aggregate are retained.
+The [exact-source full quality record](evidence/2026-10-09-final-review/hosted-quality-aa92.json)
+retains all fifteen job/log identities; capacity remains a separately verified
+result rather than a conclusion inferred from the quality jobs.
+
+Earlier [quality run 37907945272](https://github.com/PatrikSi/threatlens/actions/runs/37907945272)
 at `508c7413` passes **all fifteen jobs**. Backend reports **4,733 passed / five
 skipped** in 1172.08 seconds, overall coverage **87.06%**, reporting coverage
 **87.21%**, and all **58 critical module floors**. Capacity smoke, generated
@@ -171,7 +242,7 @@ build, scan and stack smoke jobs pass. The
 keeps immutable checkout identity, all fifteen job outcomes and log hashes.
 Only a Docker-excluded unit test and documentation changed from `6141a719`;
 the native images retain their actual `6141a719` labels. This full validation
-clears the earlier backend test failure while comparative capacity remains held.
+cleared the earlier backend test failure; comparative capacity was held at that checkpoint.
 
 Earlier [quality run 37903060980](https://github.com/PatrikSi/threatlens/actions/runs/37903060980)
 at `6141a719` completes with **fourteen passed jobs and one backend failure**.
@@ -373,9 +444,63 @@ default-main listing eleven; no further dispositions, query changes or severity
 changes were made. Exact analysis IDs and SARIF hashes are retained in the
 current quality record.
 
+Current `aa92f8e7` analyses retain **25 Python and one JavaScript results**:
+Python analysis `1922341461` and JavaScript analysis `1922335253`. No result or
+code-flow location points to either changed envelope/lineage runtime file.
+The aggregate remains neutral with zero annotations and the historical
+configuration warning; PR/main open-alert scopes remain ten/eleven. Exact
+analysis and SARIF identities are in the
+[current full quality record](evidence/2026-10-09-final-review/hosted-quality-aa92.json).
+
 ## Capacity comparison
 
-The current uninstrumented
+The single predeclared uninstrumented
+[current pair 37914335157](https://github.com/PatrikSi/threatlens/actions/runs/37914335157)
+compares matched-harness baseline `b73a3363` with final application candidate
+`aa92f8e7`, using each ref's locked dependencies. It **passes the unchanged
+20% regression gate**. Both 600-second workloads pass absolute budgets,
+with zero task/sampler errors, identical comparison fingerprints and all required
+samples. Source/target labels, five-lane arrival contract and resource limits
+match the frozen plan. Both independent cleanup attestations pass sixteen probes
+with zero errors or remnants; the successful sequential Bash `-e` step and frozen
+exit-preserving wrapper verify both workload exits. The artifact was downloaded
+once, with no redispatch or repeated identical pair.
+The [verified current capacity record](evidence/2026-10-09-final-review/hosted-capacity-aa92.json)
+retains all artifact hashes, measurements, comparison, process/cleanup proofs
+and a deterministic replay of the exact comparator with an equal result.
+The [predeclared plan](evidence/2026-10-09-final-review/capacity-plan-aa92.json)
+records the original qualification intent and unchanged workload/deadlines.
+Actual application supervision pins one-core affinity and samples the owned
+process-tree RSS against a 1 GiB ceiling with an 840-second watchdog. PostgreSQL
+uses 0.5 CPU/512 MiB and Redis 0.5 CPU/128 MiB; both Docker fixtures enforce no
+swap. The immutable plan's application `swap:false` was predeclared but is not
+enforced or attested by this process supervisor. Application/host swap policy
+is unobserved; it is not claimed as a verified capacity control. Native image,
+builder, runtime and scanner no-swap controls are separately verified.
+
+| Metric | Baseline | Candidate | Change |
+|---|---:|---:|---:|
+| Processing-dispatch queue p95 | 178.850 ms | 167.452 ms | −6.373% |
+| Feed task p95 | 778.198 ms | 468.734 ms | −39.767% |
+| Governance p95 | 115.699 ms | 103.397 ms | −10.633% |
+| Sampled waiting-query age peak | 456.502 ms | 205.363 ms | −55.014% |
+
+The full comparison retains every metric and three optional series without
+enough samples: asynchronous export, its success subset and export policy
+conflicts. No required series is insufficient. Baseline logs contain 156
+successful and eight attention processing returns; candidate logs contain 155
+successful returns. These counts are preserved rather than replaced with a
+blanket all-task-success claim. Each ref completes 300 governance operations;
+AI successes are 301, while exports succeed/conflict 294/7 versus 296/5.
+This one sequential pair qualifies the configured GitHub reference gate. It
+does not estimate run-to-run variance, qualify intended deployment hardware or
+establish why earlier comparisons failed. `Conclusive` denotes required sample
+coverage. The observed lower metrics do not establish a causal speedup from the
+read reduction. Earlier failed comparisons remain failed under their own inputs.
+
+### Earlier capacity outcomes and diagnosis — retained
+
+The earlier uninstrumented
 [release pair 37903114128](https://github.com/PatrikSi/threatlens/actions/runs/37903114128)
 compares matched-harness baseline `b73a3363` with new application candidate
 `6141a719`, using each reference's locked dependencies. Both 600-second workloads
@@ -561,7 +686,7 @@ for the same peak. These pairs ran on different hosted machines; their absolute
 values cannot establish a causal cross-host comparison or dismiss the failure.
 The [source, result and cleanup evidence](evidence/2026-10-09-final-review/hosted-shared-epoch-pairs.json)
 retains both complete outcomes and the earlier failed pairs. The release capacity
-gate remains failed.
+gate remained failed at that checkpoint.
 
 The version 2 observer retains bounded numeric snapshots of the original sampler
 without consuming its cursor result, and records later waiter/blocker context
@@ -624,12 +749,9 @@ outputs and named human review of the twelve prepared cases. Provider-contract
 and configuration tests do not complete that approval; ordinary ingestion and
 classification do not require model promotion.
 
-The current unresolved gates are fresh full qualification of the envelope
-correction and the uninstrumented comparative capacity failure.
-Fresh `508c7413` full backend validation and both platform jobs pass; the earlier
-failed outcomes remain recorded. Current `6141a719` native behavior and selected
-image scan checks pass. The earlier native qualification and
-`a6c07f7`/`b06b364` hosted results apply to their recorded runtime/image inputs;
-they do not replace the fresh candidate's failing or pending checks.
+The remaining current gate is diagnosis and correction of the native WebKit
+login failure, followed by appropriate browser qualification. Fresh
+`aa92f8e7` full quality and both platform jobs pass. Earlier failures remain
+recorded under their actual runtime and harness inputs.
 The CodeQL neutral baseline-configuration warning and chosen-model
 promotion limits remain explicit; no merge, tag or publication has occurred.
