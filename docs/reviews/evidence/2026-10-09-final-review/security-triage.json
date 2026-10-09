@@ -1,0 +1,1071 @@
+{
+  "schema_version": 1,
+  "review_date": "2026-10-09",
+  "analyzed_candidates": [
+    "c4faef4edc2074f4e1ef961c7e3116637c3f4f96",
+    "ff9ac246b0ff766a158b1ea310a02a6f7dd8741b"
+  ],
+  "original_merge_commit": "84ff46dca9d5d20c79732aa2f5ed1e932db6c346",
+  "original_merge_tree": "ce8f06fffe41a78c87400aa2469bc69494f06a8a",
+  "original_python_sarif_sha256": "59e721e94ada8178b92956749279d9029cab621385478cf669013f98bbbba6ef",
+  "summary": {
+    "python_high_alerts": 25,
+    "javascript_high_alerts": 1,
+    "python_contextual_or_fixture_findings": 24,
+    "smtp_policy_gap_corrected": 1,
+    "javascript_negative_fixture_assertions": 1,
+    "alerts_dismissed_or_suppressed": 0
+  },
+  "smtp_fix_commit": "5859215",
+  "smtp_validation": {
+    "before": {
+      "passed": 6,
+      "failed": 3,
+      "errors": 0
+    },
+    "after": {
+      "passed": 12,
+      "failed": 0,
+      "errors": 0
+    },
+    "network_io": "forbidden by test fixture",
+    "environment": "Pinned Python 3.12.3/OpenSSL 3.0.13; differs from container Python 3.12.13",
+    "limits": "Context configuration was tested; no legacy TLS negotiation or exploitation was demonstrated."
+  },
+  "status": "All 26 high alerts remain reported in the subsequent ff9 analysis; triage does not change alert state.",
+  "limitations": [
+    "Triage covers the reported source flows, not all possible log exception messages or future callers.",
+    "Export path assessment depends on canonical UUID entry points and private owned scratch-directory filesystem isolation.",
+    "Runtime TLS defaults vary; the explicit TLS 1.2 minimum preserves a stronger runtime default.",
+    "Non-SMTP tests were source-inspected for this triage; the hosted frontend suite independently includes the JavaScript fixture assertion."
+  ],
+  "alerts": [
+    {
+      "alert": 1,
+      "rule": "py/weak-sensitive-data-hashing",
+      "sink": {
+        "path": "backend/app/core/security.py",
+        "line": 183
+      },
+      "disposition": "intentional high-entropy token verifier",
+      "reason": "SHA-256 hashes a generated bearer token with secrets.token_urlsafe(32), providing 256 random secret bits. It is not the account password hash.",
+      "source_evidence": [
+        {
+          "path": "backend/app/core/security.py",
+          "line": 163,
+          "reason": "32 random bytes in API-token secret"
+        },
+        {
+          "path": "backend/app/core/security.py",
+          "line": 182,
+          "reason": "SHA-256 token verifier"
+        },
+        {
+          "path": "backend/app/core/security.py",
+          "line": 91,
+          "reason": "New account passwords use Argon2"
+        }
+      ]
+    },
+    {
+      "alert": 2,
+      "rule": "py/incomplete-url-substring-sanitization",
+      "sink": {
+        "path": "backend/tests/integration/test_security_surface_api.py",
+        "line": 112
+      },
+      "disposition": "error-message substring assertion fixture",
+      "reason": "This asserts that a rejected AI-provider configuration response mentions the required OpenAI endpoint after HTTP status 422. It is not an allowlist or outbound URL authorization check.",
+      "source_evidence": [
+        {
+          "path": "backend/tests/integration/test_security_surface_api.py",
+          "line": 111,
+          "reason": "Assert configuration rejected"
+        },
+        {
+          "path": "backend/tests/integration/test_security_surface_api.py",
+          "line": 112,
+          "reason": "Check diagnostic message contents"
+        }
+      ]
+    },
+    {
+      "alert": 4,
+      "rule": "py/clear-text-logging-sensitive-data",
+      "sink": {
+        "path": "backend/app/services/auth_rate_limit.py",
+        "line": 106
+      },
+      "disposition": "constant namespace misclassified as password",
+      "reason": "Both SARIF source flows begin at the fixed strings password_verify and mfa_action. The flagged logger argument is namespace. Neither contains an account password or submitted MFA code. Other logged email/IP/error values are separate from this reported flow.",
+      "source_evidence": [
+        {
+          "path": "backend/app/services/auth_rate_limit.py",
+          "line": 33,
+          "reason": "Fixed password_verify namespace"
+        },
+        {
+          "path": "backend/app/services/auth_rate_limit.py",
+          "line": 34,
+          "reason": "Fixed mfa_action namespace"
+        }
+      ]
+    },
+    {
+      "alert": 5,
+      "rule": "py/clear-text-logging-sensitive-data",
+      "sink": {
+        "path": "backend/app/services/auth_rate_limit.py",
+        "line": 181
+      },
+      "disposition": "constant namespace misclassified as password",
+      "reason": "Both SARIF source flows begin at the fixed strings password_verify and mfa_action. The flagged logger argument is namespace. Neither contains an account password or submitted MFA code. Other logged email/IP/error values are separate from this reported flow.",
+      "source_evidence": [
+        {
+          "path": "backend/app/services/auth_rate_limit.py",
+          "line": 33,
+          "reason": "Fixed password_verify namespace"
+        },
+        {
+          "path": "backend/app/services/auth_rate_limit.py",
+          "line": 34,
+          "reason": "Fixed mfa_action namespace"
+        }
+      ]
+    },
+    {
+      "alert": 9,
+      "rule": "py/weak-sensitive-data-hashing",
+      "sink": {
+        "path": "backend/app/core/security.py",
+        "line": 116
+      },
+      "disposition": "intentional legacy password verification prehash",
+      "reason": "The SHA-256/HMAC digest is only an intermediate bcrypt input. A salted bcrypt verifier remains the persisted legacy password hash, and a successful legacy login returns a replacement Argon2 hash.",
+      "source_evidence": [
+        {
+          "path": "backend/app/core/security.py",
+          "line": 99,
+          "reason": "Legacy format recognized before prehash"
+        },
+        {
+          "path": "backend/app/core/security.py",
+          "line": 116,
+          "reason": "V2 HMAC or V1 SHA-256 prehash"
+        },
+        {
+          "path": "backend/app/core/security.py",
+          "line": 123,
+          "reason": "Result verified against salted bcrypt"
+        },
+        {
+          "path": "backend/app/core/security.py",
+          "line": 77,
+          "reason": "Successful legacy verification upgrades to Argon2"
+        }
+      ]
+    },
+    {
+      "alert": 10,
+      "rule": "py/weak-sensitive-data-hashing",
+      "sink": {
+        "path": "backend/app/core/security.py",
+        "line": 114
+      },
+      "disposition": "intentional legacy password verification prehash",
+      "reason": "The SHA-256/HMAC digest is only an intermediate bcrypt input. A salted bcrypt verifier remains the persisted legacy password hash, and a successful legacy login returns a replacement Argon2 hash.",
+      "source_evidence": [
+        {
+          "path": "backend/app/core/security.py",
+          "line": 99,
+          "reason": "Legacy format recognized before prehash"
+        },
+        {
+          "path": "backend/app/core/security.py",
+          "line": 114,
+          "reason": "V2 HMAC or V1 SHA-256 prehash"
+        },
+        {
+          "path": "backend/app/core/security.py",
+          "line": 123,
+          "reason": "Result verified against salted bcrypt"
+        },
+        {
+          "path": "backend/app/core/security.py",
+          "line": 77,
+          "reason": "Successful legacy verification upgrades to Argon2"
+        }
+      ]
+    },
+    {
+      "alert": 13,
+      "rule": "py/clear-text-storage-sensitive-data",
+      "sink": {
+        "path": "tests/recovery/test_recovery_manifest.py",
+        "line": 239
+      },
+      "disposition": "synthetic secret fixture",
+      "reason": "The test writes a fixed synthetic key into a TemporaryDirectory fixture, runs the fingerprint command, and asserts that stdout/stderr do not contain the key. It does not store a real production credential.",
+      "source_evidence": [
+        {
+          "path": "tests/recovery/test_recovery_manifest.py",
+          "line": 33,
+          "reason": "TemporaryDirectory lifetime"
+        },
+        {
+          "path": "tests/recovery/test_recovery_manifest.py",
+          "line": 237,
+          "reason": "Fixed synthetic secret"
+        },
+        {
+          "path": "tests/recovery/test_recovery_manifest.py",
+          "line": 248,
+          "reason": "Assert secret absent from output"
+        }
+      ]
+    },
+    {
+      "alert": 14,
+      "rule": "py/clear-text-logging-sensitive-data",
+      "sink": {
+        "path": "backend/app/services/auth_rate_limit.py",
+        "line": 245
+      },
+      "disposition": "constant namespace misclassified as password",
+      "reason": "Both SARIF source flows begin at the fixed strings password_verify and mfa_action. The flagged logger argument is namespace. Neither contains an account password or submitted MFA code. Other logged email/IP/error values are separate from this reported flow.",
+      "source_evidence": [
+        {
+          "path": "backend/app/services/auth_rate_limit.py",
+          "line": 33,
+          "reason": "Fixed password_verify namespace"
+        },
+        {
+          "path": "backend/app/services/auth_rate_limit.py",
+          "line": 34,
+          "reason": "Fixed mfa_action namespace"
+        }
+      ]
+    },
+    {
+      "alert": 15,
+      "rule": "py/clear-text-logging-sensitive-data",
+      "sink": {
+        "path": "backend/app/api/deps.py",
+        "line": 975
+      },
+      "disposition": "configured proxy hostname misclassified as secret",
+      "reason": "SARIF traces trusted_proxy_hosts through strip/lower to the logged hostname. This deployment setting names trusted proxies and contains no credential. It is not a provider secret. OS exception-message handling is outside the flagged hostname flow.",
+      "source_evidence": [
+        {
+          "path": "backend/app/api/deps.py",
+          "line": 899,
+          "reason": "Read configured trusted_proxy_hosts"
+        },
+        {
+          "path": "backend/app/api/deps.py",
+          "line": 953,
+          "reason": "Resolve names for proxy trust"
+        },
+        {
+          "path": "backend/app/api/deps.py",
+          "line": 975,
+          "reason": "Log failed hostname resolution"
+        }
+      ]
+    },
+    {
+      "alert": 16,
+      "rule": "py/weak-sensitive-data-hashing",
+      "sink": {
+        "path": "backend/app/services/local_mfa.py",
+        "line": 685
+      },
+      "disposition": "intentional high-entropy challenge verifier",
+      "reason": "MFA challenge credentials contain secrets.token_urlsafe(32), providing 256 random secret bits. The flagged SHA-256 digest verifies that opaque challenge, not the password, a six-digit TOTP, or a recovery code.",
+      "source_evidence": [
+        {
+          "path": "backend/app/services/local_mfa.py",
+          "line": 345,
+          "reason": "UUID and random 32-byte challenge secret"
+        },
+        {
+          "path": "backend/app/services/local_mfa.py",
+          "line": 349,
+          "reason": "Only token_hash persisted"
+        },
+        {
+          "path": "backend/app/services/local_mfa.py",
+          "line": 355,
+          "reason": "Challenge expiry applied"
+        }
+      ]
+    },
+    {
+      "alert": 17,
+      "rule": "py/insecure-protocol",
+      "sink": {
+        "path": "backend/app/services/smtp_transport.py",
+        "line": 256
+      },
+      "disposition": "policy gap fixed",
+      "reason": "Frozen source delegates its protocol floor to ssl.create_default_context(). Pinned local Python 3.12.3/OpenSSL 3.0.13 returns MINIMUM_SUPPORTED with TLS1.0/1.1 protocol-disable flags unset. Security level 2 and verification are enabled, so old-protocol negotiation was not demonstrated. The bounded SMTP helper now enforces at least TLS1.2 at implicit TLS, fenced STARTTLS and unfenced STARTTLS, preserving stronger defaults and certificate/hostname verification. No SMTP network I/O occurred.",
+      "source_evidence": [
+        {
+          "path": "backend/app/services/smtp_transport.py",
+          "line": 88,
+          "reason": "Frozen fenced STARTTLS default context"
+        },
+        {
+          "path": "backend/app/services/smtp_transport.py",
+          "line": 93,
+          "reason": "Frozen unfenced STARTTLS default context"
+        },
+        {
+          "path": "backend/app/services/smtp_transport.py",
+          "line": 199,
+          "reason": "Frozen implicit TLS default context"
+        },
+        {
+          "path": "backend/app/services/smtp_transport.py",
+          "line": 189,
+          "reason": "Working-tree shared SMTP context helper"
+        }
+      ]
+    },
+    {
+      "alert": 18,
+      "rule": "js/incomplete-url-scheme-check",
+      "sink": {
+        "path": "web/src/workspace/workspaceModel.test.ts",
+        "line": 286
+      },
+      "disposition": "negative fixture assertion, trusted local routes used at runtime",
+      "reason": "The startsWith check is a negative assertion for a crafted registry/effective response, not the production URL validator. resolveWorkspaceModel iterates the fixed trusted module definitions; resolveModule copies the trusted definition route and only merges visibility/order metadata. Unknown server module IDs are discarded, and a mismatched route for a known ID produces a warning while the local route remains.",
+      "source_evidence": [
+        {
+          "path": "web/src/workspace/workspaceModel.ts",
+          "line": 99,
+          "reason": "Iterate fixed trusted local module definitions"
+        },
+        {
+          "path": "web/src/workspace/workspaceModel.ts",
+          "line": 209,
+          "reason": "Return trusted definition route"
+        },
+        {
+          "path": "web/src/workspace/workspaceModel.test.ts",
+          "line": 284,
+          "reason": "Known-module external route remains local and unknown JavaScript route is excluded"
+        }
+      ]
+    },
+    {
+      "alert": 19,
+      "rule": "py/clear-text-logging-sensitive-data",
+      "sink": {
+        "path": "backend/app/api/deps.py",
+        "line": 748
+      },
+      "disposition": "constant credential kind misclassified as password",
+      "reason": "The SARIF source is AUTH_API_TOKEN = api_token, assigned to request.state.auth_credential_kind. The flagged logger argument names the authentication mechanism, not its credential. Exception tracebacks are conditional on verbose logging; this disposition does not guarantee all exception strings are harmless.",
+      "source_evidence": [
+        {
+          "path": "backend/app/core/credential_types.py",
+          "line": 5,
+          "reason": "Constant authentication-mechanism label"
+        },
+        {
+          "path": "backend/app/api/deps.py",
+          "line": 827,
+          "reason": "Assign label after API-token resolution"
+        },
+        {
+          "path": "backend/app/api/deps.py",
+          "line": 745,
+          "reason": "Log mechanism, source IP and error type"
+        }
+      ]
+    },
+    {
+      "alert": 20,
+      "rule": "py/path-injection",
+      "sink": {
+        "path": "backend/app/services/export_artifacts.py",
+        "line": 113
+      },
+      "disposition": "path flow bounded by canonical UUID and private server-owned scratch",
+      "reason": "CodeQL models the typed browser-harness UUID argument as user input and carries it into stat temporary artifact. Current HTTP UUID parsing and production Celery UUID parsing cannot preserve traversal characters. The second path component is a server UUID; root is private and database-bound. File paths are created by tempfile, not from the user download filename. No reachable path injection was found for this reported flow; this assumes the existing entry points and deployment filesystem isolation.",
+      "source_evidence": [
+        {
+          "path": "web/browser/server/fixture_server.py",
+          "line": 157,
+          "reason": "Only SARIF taint source: typed uuid.UUID browser-control route parameter"
+        },
+        {
+          "path": "backend/app/tasks/export_tasks.py",
+          "line": 60,
+          "reason": "Production Celery entry point explicitly parses uuid.UUID"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 116,
+          "reason": "Claim token generated as uuid.uuid4"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 18,
+          "reason": "Database-bound root uses fixed prefix, UID and SHA-256 digest"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 27,
+          "reason": "Root must be owned private directory, not symlink"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 34,
+          "reason": "Claim leaf assembled from canonical UUIDs"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 290,
+          "reason": "Artifact directory is that server-derived scratch"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 322,
+          "reason": "Artifact leaf comes from mkstemp with fixed per-format suffix"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 313,
+          "reason": "User prefix affects sanitized download name only"
+        }
+      ]
+    },
+    {
+      "alert": 21,
+      "rule": "py/path-injection",
+      "sink": {
+        "path": "backend/app/services/export_artifacts.py",
+        "line": 139
+      },
+      "disposition": "path flow bounded by canonical UUID and private server-owned scratch",
+      "reason": "CodeQL models the typed browser-harness UUID argument as user input and carries it into open CSV artifact. Current HTTP UUID parsing and production Celery UUID parsing cannot preserve traversal characters. The second path component is a server UUID; root is private and database-bound. File paths are created by tempfile, not from the user download filename. No reachable path injection was found for this reported flow; this assumes the existing entry points and deployment filesystem isolation.",
+      "source_evidence": [
+        {
+          "path": "web/browser/server/fixture_server.py",
+          "line": 157,
+          "reason": "Only SARIF taint source: typed uuid.UUID browser-control route parameter"
+        },
+        {
+          "path": "backend/app/tasks/export_tasks.py",
+          "line": 60,
+          "reason": "Production Celery entry point explicitly parses uuid.UUID"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 116,
+          "reason": "Claim token generated as uuid.uuid4"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 18,
+          "reason": "Database-bound root uses fixed prefix, UID and SHA-256 digest"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 27,
+          "reason": "Root must be owned private directory, not symlink"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 34,
+          "reason": "Claim leaf assembled from canonical UUIDs"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 290,
+          "reason": "Artifact directory is that server-derived scratch"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 322,
+          "reason": "Artifact leaf comes from mkstemp with fixed per-format suffix"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 313,
+          "reason": "User prefix affects sanitized download name only"
+        }
+      ]
+    },
+    {
+      "alert": 22,
+      "rule": "py/path-injection",
+      "sink": {
+        "path": "backend/app/services/export_artifacts.py",
+        "line": 160
+      },
+      "disposition": "path flow bounded by canonical UUID and private server-owned scratch",
+      "reason": "CodeQL models the typed browser-harness UUID argument as user input and carries it into open JSONL artifact. Current HTTP UUID parsing and production Celery UUID parsing cannot preserve traversal characters. The second path component is a server UUID; root is private and database-bound. File paths are created by tempfile, not from the user download filename. No reachable path injection was found for this reported flow; this assumes the existing entry points and deployment filesystem isolation.",
+      "source_evidence": [
+        {
+          "path": "web/browser/server/fixture_server.py",
+          "line": 157,
+          "reason": "Only SARIF taint source: typed uuid.UUID browser-control route parameter"
+        },
+        {
+          "path": "backend/app/tasks/export_tasks.py",
+          "line": 60,
+          "reason": "Production Celery entry point explicitly parses uuid.UUID"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 116,
+          "reason": "Claim token generated as uuid.uuid4"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 18,
+          "reason": "Database-bound root uses fixed prefix, UID and SHA-256 digest"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 27,
+          "reason": "Root must be owned private directory, not symlink"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 34,
+          "reason": "Claim leaf assembled from canonical UUIDs"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 290,
+          "reason": "Artifact directory is that server-derived scratch"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 322,
+          "reason": "Artifact leaf comes from mkstemp with fixed per-format suffix"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 313,
+          "reason": "User prefix affects sanitized download name only"
+        }
+      ]
+    },
+    {
+      "alert": 23,
+      "rule": "py/path-injection",
+      "sink": {
+        "path": "backend/app/services/export_artifacts.py",
+        "line": 173
+      },
+      "disposition": "path flow bounded by canonical UUID and private server-owned scratch",
+      "reason": "CodeQL models the typed browser-harness UUID argument as user input and carries it into open STIX artifact. Current HTTP UUID parsing and production Celery UUID parsing cannot preserve traversal characters. The second path component is a server UUID; root is private and database-bound. File paths are created by tempfile, not from the user download filename. No reachable path injection was found for this reported flow; this assumes the existing entry points and deployment filesystem isolation.",
+      "source_evidence": [
+        {
+          "path": "web/browser/server/fixture_server.py",
+          "line": 157,
+          "reason": "Only SARIF taint source: typed uuid.UUID browser-control route parameter"
+        },
+        {
+          "path": "backend/app/tasks/export_tasks.py",
+          "line": 60,
+          "reason": "Production Celery entry point explicitly parses uuid.UUID"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 116,
+          "reason": "Claim token generated as uuid.uuid4"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 18,
+          "reason": "Database-bound root uses fixed prefix, UID and SHA-256 digest"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 27,
+          "reason": "Root must be owned private directory, not symlink"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 34,
+          "reason": "Claim leaf assembled from canonical UUIDs"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 290,
+          "reason": "Artifact directory is that server-derived scratch"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 322,
+          "reason": "Artifact leaf comes from mkstemp with fixed per-format suffix"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 313,
+          "reason": "User prefix affects sanitized download name only"
+        }
+      ]
+    },
+    {
+      "alert": 24,
+      "rule": "py/path-injection",
+      "sink": {
+        "path": "backend/app/services/export_artifacts.py",
+        "line": 195
+      },
+      "disposition": "path flow bounded by canonical UUID and private server-owned scratch",
+      "reason": "CodeQL models the typed browser-harness UUID argument as user input and carries it into open MISP artifact. Current HTTP UUID parsing and production Celery UUID parsing cannot preserve traversal characters. The second path component is a server UUID; root is private and database-bound. File paths are created by tempfile, not from the user download filename. No reachable path injection was found for this reported flow; this assumes the existing entry points and deployment filesystem isolation.",
+      "source_evidence": [
+        {
+          "path": "web/browser/server/fixture_server.py",
+          "line": 157,
+          "reason": "Only SARIF taint source: typed uuid.UUID browser-control route parameter"
+        },
+        {
+          "path": "backend/app/tasks/export_tasks.py",
+          "line": 60,
+          "reason": "Production Celery entry point explicitly parses uuid.UUID"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 116,
+          "reason": "Claim token generated as uuid.uuid4"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 18,
+          "reason": "Database-bound root uses fixed prefix, UID and SHA-256 digest"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 27,
+          "reason": "Root must be owned private directory, not symlink"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 34,
+          "reason": "Claim leaf assembled from canonical UUIDs"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 290,
+          "reason": "Artifact directory is that server-derived scratch"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 322,
+          "reason": "Artifact leaf comes from mkstemp with fixed per-format suffix"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 313,
+          "reason": "User prefix affects sanitized download name only"
+        }
+      ]
+    },
+    {
+      "alert": 25,
+      "rule": "py/path-injection",
+      "sink": {
+        "path": "backend/app/services/export_artifacts.py",
+        "line": 222
+      },
+      "disposition": "path flow bounded by canonical UUID and private server-owned scratch",
+      "reason": "CodeQL models the typed browser-harness UUID argument as user input and carries it into create bundle temporary directory. Current HTTP UUID parsing and production Celery UUID parsing cannot preserve traversal characters. The second path component is a server UUID; root is private and database-bound. File paths are created by tempfile, not from the user download filename. No reachable path injection was found for this reported flow; this assumes the existing entry points and deployment filesystem isolation.",
+      "source_evidence": [
+        {
+          "path": "web/browser/server/fixture_server.py",
+          "line": 157,
+          "reason": "Only SARIF taint source: typed uuid.UUID browser-control route parameter"
+        },
+        {
+          "path": "backend/app/tasks/export_tasks.py",
+          "line": 60,
+          "reason": "Production Celery entry point explicitly parses uuid.UUID"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 116,
+          "reason": "Claim token generated as uuid.uuid4"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 18,
+          "reason": "Database-bound root uses fixed prefix, UID and SHA-256 digest"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 27,
+          "reason": "Root must be owned private directory, not symlink"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 34,
+          "reason": "Claim leaf assembled from canonical UUIDs"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 290,
+          "reason": "Artifact directory is that server-derived scratch"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 322,
+          "reason": "Artifact leaf comes from mkstemp with fixed per-format suffix"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 313,
+          "reason": "User prefix affects sanitized download name only"
+        }
+      ]
+    },
+    {
+      "alert": 26,
+      "rule": "py/path-injection",
+      "sink": {
+        "path": "backend/app/services/export_artifacts.py",
+        "line": 322
+      },
+      "disposition": "path flow bounded by canonical UUID and private server-owned scratch",
+      "reason": "CodeQL models the typed browser-harness UUID argument as user input and carries it into create artifact with mkstemp. Current HTTP UUID parsing and production Celery UUID parsing cannot preserve traversal characters. The second path component is a server UUID; root is private and database-bound. File paths are created by tempfile, not from the user download filename. No reachable path injection was found for this reported flow; this assumes the existing entry points and deployment filesystem isolation.",
+      "source_evidence": [
+        {
+          "path": "web/browser/server/fixture_server.py",
+          "line": 157,
+          "reason": "Only SARIF taint source: typed uuid.UUID browser-control route parameter"
+        },
+        {
+          "path": "backend/app/tasks/export_tasks.py",
+          "line": 60,
+          "reason": "Production Celery entry point explicitly parses uuid.UUID"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 116,
+          "reason": "Claim token generated as uuid.uuid4"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 18,
+          "reason": "Database-bound root uses fixed prefix, UID and SHA-256 digest"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 27,
+          "reason": "Root must be owned private directory, not symlink"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 34,
+          "reason": "Claim leaf assembled from canonical UUIDs"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 290,
+          "reason": "Artifact directory is that server-derived scratch"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 322,
+          "reason": "Artifact leaf comes from mkstemp with fixed per-format suffix"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 313,
+          "reason": "User prefix affects sanitized download name only"
+        }
+      ]
+    },
+    {
+      "alert": 27,
+      "rule": "py/path-injection",
+      "sink": {
+        "path": "backend/app/services/export_artifacts.py",
+        "line": 328
+      },
+      "disposition": "path flow bounded by canonical UUID and private server-owned scratch",
+      "reason": "CodeQL models the typed browser-harness UUID argument as user input and carries it into unlink failed temporary artifact. Current HTTP UUID parsing and production Celery UUID parsing cannot preserve traversal characters. The second path component is a server UUID; root is private and database-bound. File paths are created by tempfile, not from the user download filename. No reachable path injection was found for this reported flow; this assumes the existing entry points and deployment filesystem isolation.",
+      "source_evidence": [
+        {
+          "path": "web/browser/server/fixture_server.py",
+          "line": 157,
+          "reason": "Only SARIF taint source: typed uuid.UUID browser-control route parameter"
+        },
+        {
+          "path": "backend/app/tasks/export_tasks.py",
+          "line": 60,
+          "reason": "Production Celery entry point explicitly parses uuid.UUID"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 116,
+          "reason": "Claim token generated as uuid.uuid4"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 18,
+          "reason": "Database-bound root uses fixed prefix, UID and SHA-256 digest"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 27,
+          "reason": "Root must be owned private directory, not symlink"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 34,
+          "reason": "Claim leaf assembled from canonical UUIDs"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 290,
+          "reason": "Artifact directory is that server-derived scratch"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 322,
+          "reason": "Artifact leaf comes from mkstemp with fixed per-format suffix"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 313,
+          "reason": "User prefix affects sanitized download name only"
+        }
+      ]
+    },
+    {
+      "alert": 29,
+      "rule": "py/path-injection",
+      "sink": {
+        "path": "backend/app/services/export_job_worker.py",
+        "line": 202
+      },
+      "disposition": "path flow bounded by canonical UUID and private server-owned scratch",
+      "reason": "CodeQL models the typed browser-harness UUID argument as user input and carries it into remove claim scratch recursively. Current HTTP UUID parsing and production Celery UUID parsing cannot preserve traversal characters. The second path component is a server UUID; root is private and database-bound. File paths are created by tempfile, not from the user download filename. No reachable path injection was found for this reported flow; this assumes the existing entry points and deployment filesystem isolation.",
+      "source_evidence": [
+        {
+          "path": "web/browser/server/fixture_server.py",
+          "line": 157,
+          "reason": "Only SARIF taint source: typed uuid.UUID browser-control route parameter"
+        },
+        {
+          "path": "backend/app/tasks/export_tasks.py",
+          "line": 60,
+          "reason": "Production Celery entry point explicitly parses uuid.UUID"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 116,
+          "reason": "Claim token generated as uuid.uuid4"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 18,
+          "reason": "Database-bound root uses fixed prefix, UID and SHA-256 digest"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 27,
+          "reason": "Root must be owned private directory, not symlink"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 34,
+          "reason": "Claim leaf assembled from canonical UUIDs"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 290,
+          "reason": "Artifact directory is that server-derived scratch"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 322,
+          "reason": "Artifact leaf comes from mkstemp with fixed per-format suffix"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 313,
+          "reason": "User prefix affects sanitized download name only"
+        }
+      ]
+    },
+    {
+      "alert": 30,
+      "rule": "py/clear-text-logging-sensitive-data",
+      "sink": {
+        "path": "scripts/export_kubernetes_secret.py",
+        "line": 80
+      },
+      "disposition": "intentional operator-requested secret artifact output",
+      "reason": "This standalone CLI deliberately serializes the selected service environment as a Kubernetes Secret stringData manifest to stdout. It requires an existing env-file, service and name; output is the requested artifact, not application telemetry. Documentation uses umask 077 and private redirected files, and explicitly warns that the output is plaintext secrets. Failure paths redact Compose diagnostics and produce no partial stdout.",
+      "source_evidence": [
+        {
+          "path": "scripts/export_kubernetes_secret.py",
+          "line": 59,
+          "reason": "Explicit operator arguments required"
+        },
+        {
+          "path": "scripts/export_kubernetes_secret.py",
+          "line": 48,
+          "reason": "Kubernetes Secret manifest with stringData"
+        },
+        {
+          "path": "scripts/export_kubernetes_secret.py",
+          "line": 70,
+          "reason": "Redacted failure output"
+        },
+        {
+          "path": "scripts/export_kubernetes_secret.py",
+          "line": 80,
+          "reason": "Requested successful artifact on stdout"
+        },
+        {
+          "path": "docs/reference/configuration.md",
+          "line": 326,
+          "reason": "umask 077 and explicit file redirects"
+        },
+        {
+          "path": "docs/reference/configuration.md",
+          "line": 348,
+          "reason": "Plaintext-secret artifact handling documented"
+        }
+      ]
+    },
+    {
+      "alert": 31,
+      "rule": "py/path-injection",
+      "sink": {
+        "path": "backend/app/services/export_job_scratch.py",
+        "line": 38
+      },
+      "disposition": "path flow bounded by canonical UUID and private server-owned scratch",
+      "reason": "CodeQL models the typed browser-harness UUID argument as user input and carries it into mkdir claim scratch. Current HTTP UUID parsing and production Celery UUID parsing cannot preserve traversal characters. The second path component is a server UUID; root is private and database-bound. File paths are created by tempfile, not from the user download filename. No reachable path injection was found for this reported flow; this assumes the existing entry points and deployment filesystem isolation.",
+      "source_evidence": [
+        {
+          "path": "web/browser/server/fixture_server.py",
+          "line": 157,
+          "reason": "Only SARIF taint source: typed uuid.UUID browser-control route parameter"
+        },
+        {
+          "path": "backend/app/tasks/export_tasks.py",
+          "line": 60,
+          "reason": "Production Celery entry point explicitly parses uuid.UUID"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 116,
+          "reason": "Claim token generated as uuid.uuid4"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 18,
+          "reason": "Database-bound root uses fixed prefix, UID and SHA-256 digest"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 27,
+          "reason": "Root must be owned private directory, not symlink"
+        },
+        {
+          "path": "backend/app/services/export_job_scratch.py",
+          "line": 34,
+          "reason": "Claim leaf assembled from canonical UUIDs"
+        },
+        {
+          "path": "backend/app/services/export_job_worker.py",
+          "line": 290,
+          "reason": "Artifact directory is that server-derived scratch"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 322,
+          "reason": "Artifact leaf comes from mkstemp with fixed per-format suffix"
+        },
+        {
+          "path": "backend/app/services/export_artifacts.py",
+          "line": 313,
+          "reason": "User prefix affects sanitized download name only"
+        }
+      ]
+    },
+    {
+      "alert": 32,
+      "rule": "py/weak-sensitive-data-hashing",
+      "sink": {
+        "path": "backend/app/services/secret_storage.py",
+        "line": 222
+      },
+      "disposition": "intentional keyed high-entropy recovery-code verifier",
+      "reason": "The submitted value is checked only against server-generated recovery codes containing secrets.token_hex(10), providing 80 random bits. HMAC-SHA256 uses the application secret and a credential-specific purpose. Valid six-digit TOTPs are verified separately before this branch. Password KDF cost is not the protection required for these random codes.",
+      "source_evidence": [
+        {
+          "path": "backend/app/services/local_mfa.py",
+          "line": 652,
+          "reason": "Generate 80-bit random recovery codes"
+        },
+        {
+          "path": "backend/app/services/local_mfa.py",
+          "line": 620,
+          "reason": "Only generated codes enrolled"
+        },
+        {
+          "path": "backend/app/services/local_mfa.py",
+          "line": 626,
+          "reason": "Store keyed credential-specific verifier"
+        },
+        {
+          "path": "backend/app/services/local_mfa.py",
+          "line": 204,
+          "reason": "TOTP verification precedes recovery-code branch"
+        },
+        {
+          "path": "backend/app/services/local_mfa.py",
+          "line": 220,
+          "reason": "Row lock and unused-code predicate; code consumed at line 233"
+        },
+        {
+          "path": "backend/app/services/secret_storage.py",
+          "line": 220,
+          "reason": "HMAC with application secret and purpose domain"
+        },
+        {
+          "path": "backend/app/services/mfa_action_verification.py",
+          "line": 38,
+          "reason": "Shared throttle checked before sensitive MFA verification"
+        }
+      ]
+    },
+    {
+      "alert": 33,
+      "rule": "py/incomplete-url-substring-sanitization",
+      "sink": {
+        "path": "backend/tests/integration/test_indicator_publications.py",
+        "line": 61
+      },
+      "disposition": "STIX-content substring assertion fixture",
+      "reason": "This asserts a generated STIX indicator pattern includes the synthetic evil.net indicator. It is not URL validation, a host allowlist, or a sanitization decision.",
+      "source_evidence": [
+        {
+          "path": "backend/tests/integration/test_indicator_publications.py",
+          "line": 59,
+          "reason": "Parse downloaded STIX test artifact"
+        },
+        {
+          "path": "backend/tests/integration/test_indicator_publications.py",
+          "line": 61,
+          "reason": "Assert synthetic indicator appears in pattern"
+        }
+      ]
+    }
+  ]
+}
