@@ -1,0 +1,42 @@
+{
+  "comparisons": {
+    "capacity_candidate_to_review_head": {
+      "all_path_modes_and_git_blobs_equal": true,
+      "changed_runtime_files": 0
+    },
+    "native_image_source_to_review_head": {
+      "all_path_modes_and_git_blobs_equal": true,
+      "changed_runtime_files": 0
+    }
+  },
+  "excluded_from_backend_image_context": [
+    "backend/tests/",
+    "backend/pytest.ini"
+  ],
+  "kind": "tracked_runtime_source_applicability",
+  "limitations": [
+    "Source applicability only; image revision labels continue to name the actual native build source.",
+    "This does not replace native image checks, browser results, quality checks or pending capacity qualification."
+  ],
+  "refs": {
+    "capacity_candidate": "79001439677cae246faef0a398ddea50c47faf80",
+    "native_image_source": "fec81cabf6cdcabca8111ed2c78ac8c4e895c433",
+    "review_head": "1251826fa113aca4e084f0dd7239d056d97be3b2"
+  },
+  "runtime_input_manifest": {
+    "canonical_algorithm": "SHA256 of JSON sorted path to git blob and mode; compact sorted-key encoding",
+    "sha256": "2f34a811b131e2190c432abce5895996419d879e237b26dd831e8963e5b2aad3",
+    "tracked_file_count": 1453
+  },
+  "schema_version": 1,
+  "scope": [
+    "backend",
+    "web",
+    "docker",
+    "docker-compose.yml",
+    "docker-compose.build.yml",
+    "docker-compose.oidc-hosts.yml",
+    "VERSION"
+  ],
+  "uncommitted_runtime_changes": 0
+}

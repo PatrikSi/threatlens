@@ -10,9 +10,9 @@ subsequent observer tooling and shared-start harness correction; its runtime/ima
 inputs still match the qualified native build. Images retain their actual build
 revision. All corrections were committed as `Patrik <patrik@local>`.
 
-**Decision at this checkpoint: native qualification and all fifteen hosted quality
-jobs at `a6c07f7` and `b06b364` pass. Comparative capacity and required quality
-on the final review head remain unresolved.** Reviewed CodeQL dispositions
+**Decision at this checkpoint: native qualification and earlier all-fifteen-job
+quality runs pass. Fresh quality at `1251826` fails ARM64 Beat startup, and the
+uninstrumented corrected-protocol capacity comparison remains failed.** Reviewed CodeQL dispositions
 cleared its failure, leaving a neutral check with a baseline-configuration warning.
 Version 2.1.0 is already aligned across the version file, frontend metadata,
 OpenAPI and deployment defaults. These pre-merge corrections need no further
@@ -149,6 +149,26 @@ simulation, not production fault-domain qualification. Its
 retains log hashes, checkout identity, selected vulnerability-scan scope and the
 separate neutral CodeQL aggregate warning.
 
+Fresh [quality run 37893170768](https://github.com/PatrikSi/threatlens/actions/runs/37893170768)
+at review head `1251826` completes with **fourteen jobs passed and ARM64 failed**.
+All fifteen checkouts match the synthetic merge tree. Backend validation records
+**4,690 passes / five skips**, the same coverage percentages and all 58 floors;
+frontend records **1,374 passes** with a clean audit; browsers record **210 passes /
+six deliberate split skips / zero retries**. Both disposable recovery drills
+pass all five actual cases without skips. The
+[complete source and outcome record](evidence/2026-10-09-final-review/hosted-quality-125.json)
+keeps unit opt-in skips separate from those real drills. ARM64 builds complete
+and every service except Beat becomes healthy. Beat emits its early Celery banner
+but produces no scheduler heartbeat before the unchanged 240-second watchdog
+grace; the original outer startup command exits 124. All eight subsequent ARM
+checks/scans are skipped, and cleanup succeeds. Relevant runtime inputs match
+the prior successful build, which does not dismiss this failure. A single bounded
+ARM startup diagnostic is being prepared to capture import stacks and numeric
+resource counters with the original images, watchdog and resource limits.
+The [runtime source attestation](evidence/2026-10-09-final-review/native-runtime-applicability-125.json)
+also confirms all 1,453 scoped paths, modes and blobs match the qualified native
+runtime; images keep their actual build revision.
+
 ## Security finding review
 
 CodeQL completed with **25 Python and one JavaScript high alerts**. The
@@ -166,6 +186,13 @@ original failure and specific reopening assumptions. No query, severity
 threshold or source exclusion changed. This is not a zero-alert scan claim. Fresh
 native image vulnerability and secret scans retain the established
 HIGH/CRITICAL, ignore-unfixed policy.
+
+The fresh `1251826` analyses retain the same 26 findings and introduce no observer
+flow. Its aggregate is neutral with zero annotations and the same configuration
+warning. The current PR scope has ten open alerts, matching the earlier snapshot;
+the default-main scope has eleven. The extra default-main alert belongs to an
+older configuration whose updated PR flow was already reviewed. These are
+different ref scopes, not an additional disposition or a zero-alert result.
 
 ## Capacity comparison
 
@@ -316,9 +343,22 @@ pass all 24 selected methods; clean operations validation runs 140 cases with
 [real ten-second integration probe](evidence/2026-10-09-final-review/diagnostic-v2-local-validation.json)
 passes with 537 original samples, five governance operations, all five lanes,
 zero capture errors or drops, strict verifier success and no cleanup remnants.
-This validates diagnostic correctness rather than sustained performance. A
-single corrected-protocol 600-second matched diagnostic pair and full quality
-on the frozen final review head are next; acceptance rules remain unchanged.
+This validates diagnostic correctness rather than sustained performance.
+
+The single predeclared [600-second matched diagnostic pair](https://github.com/PatrikSi/threatlens/actions/runs/37893213636)
+at workflow head `1251826` passes the unchanged comparator with no regression
+flags. Its [complete outcome and sampled peak context](evidence/2026-10-09-final-review/hosted-capacity-v2-diagnostic-125.json)
+verifies both frozen source refs, the identical observer, original sampler
+reconciliation, 300 governance operations per ref, zero capture errors/drops and
+two independent cleanups with fifteen probes each and zero remnants. Query-age
+peaks decrease **606.404 → 501.316 ms**; governance p95 is **70.041 → 82.903 ms
+(+18.364%)**, within the 20% threshold. Both maximum snapshots occur during the
+first governance operation. Later graph context shows an exclusive policy waiter
+blocked behind an alias with an observed shared policy fence; background task
+identity is unassigned, and the graph is not an atomic witness of the original
+row. No new causal application defect is proved. Instrumentation perturbs timing,
+so this passing diagnostic does not clear the earlier uninstrumented failure.
+No retries, threshold changes, fence weakening or model promotion occurred.
 
 ## Feature completion and release boundary
 
@@ -338,8 +378,8 @@ outputs and named human review of the twelve prepared cases. Provider-contract
 and configuration tests do not complete that approval; ordinary ingestion and
 classification do not require model promotion.
 
-Comparative capacity and required full quality on the final review head remain
-unresolved release gates. The completed native qualification and `a6c07f7`/`b06b364`
+Uninstrumented comparative capacity and ARM64 startup remain unresolved release
+gates. The completed native qualification and `a6c07f7`/`b06b364`
 hosted backend/coverage, architecture and browser results apply to the unchanged
 runtime/image inputs; they do not qualify the corrected sustained harness.
 The CodeQL neutral baseline-configuration warning and chosen-model
