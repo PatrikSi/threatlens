@@ -161,14 +161,18 @@ def report_schedule_response(schedule: ReportSchedule) -> ReportScheduleResponse
 
 def next_schedule_run(schedule: ReportSchedule, *, after: datetime) -> datetime:
     zone = ZoneInfo(schedule.timezone)
-    local_after = _as_utc(after).astimezone(zone)
+    utc_after = _as_utc(after)
+    local_after = utc_after.astimezone(zone)
     if schedule.cadence == "weekly":
         days = (schedule.day_of_week - local_after.weekday()) % 7
         candidate_date = local_after.date() + timedelta(days=days)
         candidate = datetime.combine(
             candidate_date, time(schedule.hour, schedule.minute), tzinfo=zone
         )
-        if candidate <= local_after:
+        # Same-zone datetime comparisons ignore UTC offsets and fold. Compare
+        # instants so a repeated hour cannot return past work and a DST gap's
+        # roll-forward occurrence remains eligible until it actually happens.
+        if candidate.astimezone(timezone.utc) <= utc_after:
             candidate += timedelta(days=7)
     else:
         year, month = local_after.year, local_after.month
@@ -176,7 +180,7 @@ def next_schedule_run(schedule: ReportSchedule, *, after: datetime) -> datetime:
         candidate = datetime(
             year, month, day, schedule.hour, schedule.minute, tzinfo=zone
         )
-        if candidate <= local_after:
+        if candidate.astimezone(timezone.utc) <= utc_after:
             if month == 12:
                 year, month = year + 1, 1
             else:
