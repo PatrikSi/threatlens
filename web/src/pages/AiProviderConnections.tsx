@@ -43,7 +43,14 @@ export function AiProviderConnections({ controller: c }: { controller: AiProvide
   const editorTitle = useRef<HTMLHeadingElement>(null)
   const addProviderButton = useRef<HTMLButtonElement>(null)
   const focusedDelete = useRef(c.completedDeletes)
-  const focusEditor = () => requestAnimationFrame(() => editorTitle.current?.focus())
+  const focusEditor = () => requestAnimationFrame(() => {
+    const heading = editorTitle.current
+    if (!heading) return
+    // An operator can enter a field before this queued selection focus runs.
+    // Keep that newer focus so typing continues in the chosen control.
+    if (document.activeElement !== heading && heading.parentElement?.contains(document.activeElement)) return
+    heading.focus()
+  })
 
   useEffect(() => {
     if (c.busy || focusedDelete.current === c.completedDeletes) return

@@ -21,11 +21,17 @@ test('real AI provider settings preserve credentials and enforce versioned routi
   await expect(page.getByRole('heading', { name: 'Legacy provider', exact: true })).toBeVisible()
   await legacySettings.click()
   await page.getByRole('button', { name: 'Add provider', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'New provider', exact: true })).toBeFocused()
   const providerName = `Browser provider ${identity.id}`
   await page.getByLabel('Provider name', { exact: true }).fill(providerName)
   await page.getByLabel('Provider base URL', { exact: true }).fill('https://provider.example.invalid/v1')
   await page.getByLabel('Provider model', { exact: true }).fill('fixture-model')
   await page.getByLabel('Provider API key', { exact: true }).fill('isolated-browser-secret')
+  await expect(page.getByLabel('Provider name', { exact: true })).toHaveValue(providerName)
+  await expect(page.getByLabel('Provider base URL', { exact: true })).toHaveValue('https://provider.example.invalid/v1')
+  await expect(page.getByLabel('Provider model', { exact: true })).toHaveValue('fixture-model')
+  await expect(page.getByLabel('Provider API key', { exact: true })).toHaveValue('isolated-browser-secret')
+  await expect(page.getByRole('button', { name: 'Save provider', exact: true })).toBeEnabled()
   const createResponse = page.waitForResponse(
     (response) => response.url().endsWith('/ai/providers') && response.request().method() === 'POST',
   )
