@@ -49,7 +49,7 @@ def test_watchdog_scheduler_writes_heartbeat_after_successful_tick(monkeypatch):
     scheduler._heartbeat_client = client
     scheduler._heartbeat_key = "beat:scheduler"
     scheduler._heartbeat_ttl_seconds = 180
-    monkeypatch.setattr(beat_scheduler.PersistentScheduler, "tick", lambda _self, *_args, **_kwargs: 7.5)
+    monkeypatch.setattr(beat_scheduler.BoundedCanaryScheduler, "tick", lambda _self, *_args, **_kwargs: 7.5)
 
     next_interval = scheduler.tick()
 
