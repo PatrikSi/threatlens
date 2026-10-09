@@ -1,6 +1,8 @@
 """Reviewed export approval, immutable identities and subsequent withdrawals."""
 
+import base64
 from datetime import datetime, timedelta, timezone
+import json
 import uuid
 
 import pytest
@@ -121,6 +123,15 @@ def test_publication_lists_are_paged_and_team_scoped(client, reviewed, auth_head
     assert following.json()["items"][0]["id"] == first["id"]
     assert not following.json()["has_more"]
     assert client.get(path + "?cursor=not-valid", headers=auth_headers["analyst"]).status_code == 400
+    for identity in ({}, [], 123, True, None):
+        malformed = base64.urlsafe_b64encode(json.dumps({
+            "team": reviewed[0]["id"],
+            "at": datetime.now(timezone.utc).isoformat(),
+            "id": identity,
+        }).encode()).decode().rstrip("=")
+        response = client.get(path, params={"cursor": malformed}, headers=auth_headers["analyst"])
+        assert response.status_code == 400, response.text
+        assert response.json()["error"]["code"] == "publication_cursor_invalid"
     # The shared fixture includes the viewer in this team. Revoke that membership.
     db_session.execute(delete(IAMGroupMembership).where(IAMGroupMembership.user_id == seed_users["viewer"].id))
     db_session.commit()
