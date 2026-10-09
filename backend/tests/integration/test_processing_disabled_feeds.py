@@ -177,6 +177,7 @@ def test_valid_deliberate_manual_recovery_can_fetch_a_disabled_feed(
     processing_env, monkeypatch
 ):
     env = processing_env
+    _automatic_obligation(env, monkeypatch)
     _disable(env)
     _accept(env, "article")
     identity, token = _publish(env)[0]
