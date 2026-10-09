@@ -40,10 +40,12 @@ class CapacityDiagnosticTests(unittest.TestCase):
         self.identity.write_text(json.dumps(self.runner.observer_identity(self.observer)))
         self.measurement = self.directory / "measurement.json"
         self.measurement.write_text(json.dumps({"git_revision": REVISION, "run_id": RUN_ID,
+                                               "status": "passed",
                                                "workload_completed": {"governance": 2}}))
         self.output = self.directory / "diagnostics.json"
         self.record = {**self.runner.observer_identity(self.observer),
                        "capacity_run_id": RUN_ID, "application_source_revision": REVISION,
+                       "workload_exit_code": 0,
                        "status": "passed", "errors": [], "dropped_events": {"queries": 0},
                        "coverage": {"governance_operations": 2, "operation_events": 2,
                                     "query_events": 1, "lock_samples": 1, "host_samples": 1, "lane_starts": 5},
@@ -155,6 +157,23 @@ class CapacityDiagnosticTests(unittest.TestCase):
         self.runner.verify_reference(observer=self.observer, identity=self.identity,
             measurement=self.measurement, diagnostic=self.output, source_revision=REVISION)
         self.assertEqual(before, {path: path.read_bytes() for path in before})
+
+    def test_successful_capture_requires_original_workload_exit_zero(self):
+        for value in (1, True, None):
+            record = copy.deepcopy(self.record)
+            if value is None:
+                del record["workload_exit_code"]
+            else:
+                record["workload_exit_code"] = value
+            with self.subTest(workload_exit_code=value), self.assertRaisesRegex(ValueError, "workload"):
+                self.verify(record)
+
+    def test_successful_capture_requires_passed_measurement(self):
+        record = json.loads(self.measurement.read_text())
+        record["status"] = "failed"
+        self.measurement.write_text(json.dumps(record))
+        with self.assertRaisesRegex(ValueError, "Measurement did not pass"):
+            self.verify()
 
     def test_partial_malformed_or_mismatched_capture_fails_closed(self):
         changes = [

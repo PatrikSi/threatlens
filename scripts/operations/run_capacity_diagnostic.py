@@ -42,6 +42,8 @@ def verify_reference(*, observer: Path, identity: Path, measurement: Path,
     observed = read_record(diagnostic, 33_554_432)
     if not isinstance(source_revision, str) or not re.fullmatch(r"[0-9a-f]{40}", source_revision) or measured.get("git_revision") != source_revision:
         raise ValueError("Measurement does not match its frozen reference")
+    if measured.get("status") != "passed":
+        raise ValueError("Measurement did not pass")
     run_id = measured.get("run_id")
     if not isinstance(run_id, str) or not re.fullmatch(r"[0-9a-f]{32}", run_id):
         raise ValueError("Measurement lacks an exact supervisor identity")
@@ -54,6 +56,8 @@ def verify_reference(*, observer: Path, identity: Path, measurement: Path,
         raise ValueError("Diagnostic source or supervisor identity does not match")
     if observed.get("status") != "passed" or observed.get("errors") != []:
         raise ValueError("Diagnostic capture did not pass")
+    if type(observed.get("workload_exit_code")) is not int or observed["workload_exit_code"] != 0:
+        raise ValueError("Original diagnostic workload did not pass")
     dropped = observed.get("dropped_events")
     if not isinstance(dropped, dict) or not dropped or any(type(value) is not int or value != 0 for value in dropped.values()):
         raise ValueError("Diagnostic capture dropped events or lacks its counters")
