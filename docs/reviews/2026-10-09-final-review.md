@@ -12,7 +12,8 @@ revision. All corrections were committed as `Patrik <patrik@local>`.
 
 **Decision at this checkpoint: native qualification and earlier all-fifteen-job
 quality runs pass. Fresh quality at `1251826` fails ARM64 Beat startup, and the
-uninstrumented corrected-protocol capacity comparison remains failed.** Reviewed CodeQL dispositions
+uninstrumented corrected-protocol capacity comparison remains failed. A Beat
+producer change passes focused controls and awaits fresh runtime qualification.** Reviewed CodeQL dispositions
 cleared its failure, leaving a neutral check with a baseline-configuration warning.
 Version 2.1.0 is already aligned across the version file, frontend metadata,
 OpenAPI and deployment defaults. These pre-merge corrections need no further
@@ -194,6 +195,30 @@ failed uninstrumented ARM quality run.
 The [runtime source attestation](evidence/2026-10-09-final-review/native-runtime-applicability-125.json)
 also confirms all 1,453 scoped paths, modes and blobs match the qualified native
 runtime; images keep their actual build revision.
+
+## Beat startup dependency boundary
+
+The captured startup exposes work the scheduler does not need: loading the
+fifteen worker implementation modules before it can publish scheduled task
+names. Beat now selects a separate producer app with an independent copy of
+the worker configuration and no implementation imports. Worker registration
+is unchanged. The producer explicitly preserves ignored-result defaults and
+per-entry overrides, routing, JSON messages, schedule options and the selected
+bounded canary/heartbeat scheduler. Watchdog grace, resource limits and
+publication cadence remain unchanged.
+
+The [regression and parity proof](evidence/2026-10-09-final-review/beat-producer-controls.json)
+records a failing original fresh-process loader guard and **67 passing cases**
+after correction: all ordinary and optional AI schedule messages, explicit
+metadata/ETA/countdown/result overrides, configuration isolation and existing
+watchdog/scheduler controls. No task body, Redis service or provider executes
+in that window. Diagnostic compatibility retains both the frozen original and
+new exact app targets: two controls fail before that update, all thirteen pass
+afterward, and the clean operations suite records **152 passes / one deliberate
+opt-in skip**. Both independent source reviews are clear. This is a supported
+startup dependency improvement, not a proved cause of the earlier unframed
+failure. Fresh native, complete hosted quality and uninstrumented capacity
+qualification are required for this changed runtime before release clearance.
 
 ## Security finding review
 
@@ -420,8 +445,9 @@ and configuration tests do not complete that approval; ordinary ingestion and
 classification do not require model promotion.
 
 Uninstrumented comparative capacity and ARM64 startup remain unresolved release
-gates. The completed native qualification and `a6c07f7`/`b06b364`
-hosted backend/coverage, architecture and browser results apply to the unchanged
-runtime/image inputs; they do not qualify the corrected sustained harness.
+gates. The earlier native qualification and `a6c07f7`/`b06b364`
+hosted backend/coverage, architecture and browser results apply to their recorded
+runtime/image inputs; they do not qualify the new Beat producer or corrected
+sustained harness.
 The CodeQL neutral baseline-configuration warning and chosen-model
 promotion limits remain explicit; no merge, tag or publication has occurred.

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 BEAT_COMMAND_PREFIX = (
     "celery",
     "-A",
-    "app.tasks.celery_app.celery_app",
+    "app.tasks.beat_app.beat_app",
     "beat",
 )
 

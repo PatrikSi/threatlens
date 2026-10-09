@@ -1,0 +1,195 @@
+{
+  "diagnostic_compatibility": {
+    "accepted_exact_targets": [
+      "app.tasks.celery_app.celery_app",
+      "app.tasks.beat_app.beat_app"
+    ],
+    "after": {
+      "elapsed_seconds": 0.008,
+      "exit_code": 0,
+      "failures": 0,
+      "log_sha256": "fc924f6e1fea3cec579bda3420051891bdf01c960fe5ca7e49fdfc8005bd9c0c",
+      "methods": 13
+    },
+    "before": {
+      "exit_code": 1,
+      "failures": 2,
+      "log_sha256": "7d9ab26dc3a427a550b58a5866f7bbd54e8901cd50d46fdd8706ed8f5dc96293",
+      "methods": 13
+    },
+    "clean_operations": {
+      "elapsed_seconds": 0.885,
+      "errors": 0,
+      "failures": 0,
+      "log_sha256": "6666f19995ee9e853a19fb7e87f09b24dc51990d445006e32692448777b19bac",
+      "passed": 152,
+      "run": 153,
+      "skip_scope": "Deliberate source-loss opt-in case",
+      "skipped": 1
+    },
+    "files": {
+      "scripts/operations/diagnose_beat_startup.py": "87401d0a4475ac06d334b6e37ebad1e4f6a92324562b8194fd644a1e61eb5111",
+      "tests/operations/test_beat_startup_diagnostic.py": "6b0115235190fe4b232fa36d349a3877589e5d2a247544b80922afb2a942e20b"
+    },
+    "schema": "beat-diagnostic-target-compatibility-controls-v1",
+    "scope": "Diagnostic target compatibility only; frozen125/e5 originalcapture remains unchanged"
+  },
+  "independent_source_review": {
+    "sha256": "f80f1ebf2a3f66ba6bee9220f5e3545e021ef613d6996cc60f5fe846ba915ea4",
+    "status": "clear_for_new_candidate_qualification"
+  },
+  "owner_controls": {
+    "checks": {
+      "git_diff_check": 0,
+      "scoped_ruff": 0
+    },
+    "contract": {
+      "configuration_copy": "independent deepcopy; imports/include cleared only on beat app",
+      "explicit_ignore_result_false_preserved": true,
+      "ignore_result_default": true,
+      "schedule_entries_ai_disabled": 31,
+      "schedule_entries_ai_enabled": 34,
+      "scheduler": "app.tasks.beat_scheduler:WatchdogPersistentScheduler",
+      "task_bodies_never_executed": true,
+      "watchdog_startup_grace_seconds": 240,
+      "worker_includes": 15,
+      "worker_registration_source_unchanged": true
+    },
+    "environment": {
+      "address_space_limit_bytes": 1073741824,
+      "celery": "5.5.3",
+      "cpu_affinity_count": 1,
+      "cpu_limit_seconds": 40,
+      "interpreter": "Pinned Python 3.12.3 environment",
+      "pytest_confcutdir": "backend/tests/unit",
+      "pytest_plugin_autoload": false,
+      "python": "3.12.3",
+      "services_or_provider_execution": false,
+      "transport": "Kombu memory:// only"
+    },
+    "external_diagnostic_compatibility": "Root owns live-selector compatibility update in scripts/operations/diagnose_beat_startup.py and tests/operations/test_beat_startup_diagnostic.py; frozen125 capture/evidence remain original",
+    "files": [
+      {
+        "bytes": 733,
+        "path": "backend/app/tasks/beat_app.py",
+        "sha256": "ccfb6d45a94a15afab9776b4f7925b98460cba2480d19facafa8580d4c5336ec"
+      },
+      {
+        "bytes": 4886,
+        "path": "backend/app/tasks/beat_watchdog.py",
+        "sha256": "eadebd73cc1288fd3df0b35f1934bf1fcd32e96b6d31b44d29a4b36e6f45a6c6"
+      },
+      {
+        "bytes": 13115,
+        "path": "backend/tests/unit/test_beat_app.py",
+        "sha256": "a32c8c23d21c8c92c653387fd12b4b100f7499bc7e38b3d6b7e7a5ae14718c91"
+      }
+    ],
+    "final_count_breakdown": {
+      "config_result_contract_cases": 2,
+      "existing_controls": 24,
+      "fresh_selected_loader_ai_modes": 2,
+      "new_controls": 43,
+      "real_wire_parity_current_schedule_entries": 31,
+      "real_wire_parity_metadata_eta_countdown_ignore_result_cases": 4,
+      "real_wire_parity_optional_ai_canary_entries": 3,
+      "selected_scheduler_admission_heartbeat_cases": 1
+    },
+    "final_selected_app_checks": {
+      "bytes": 10104,
+      "errors": 0,
+      "failures": 0,
+      "log": {
+        "bytes": 211,
+        "sha256": "052be65c3a65ec4ed6d3671023b5d9db06b547896c8cdb10eb57cfa0313e82c0"
+      },
+      "seconds": 3.587,
+      "sha256": "19ead10bd8ec4d2348343c441c40c91475d82079e909cf618d9db7fdac8ac9bb",
+      "skipped": 0,
+      "tests": 67
+    },
+    "initial_launcher_preflight": {
+      "bytes": 25,
+      "reason": "argv0 python lost pinned venv resolution; no pytest collected; fixed launcher argv0=sys.executable before qualifying regression",
+      "sha256": "51f71afcf7ba2bceae34b504775a0339205d3c0135fce2af454fe62ccd7a3b44"
+    },
+    "intermediate_selected_app_checks": {
+      "bytes": 9816,
+      "errors": 0,
+      "failures": 0,
+      "log": {
+        "bytes": 211,
+        "sha256": "3fafa84cc4e08562b256023a133971b7c14c1767d7cbecca4267444af912ab01"
+      },
+      "seconds": 3.033,
+      "sha256": "af345065268bf42c87543450d3e363c9402388b7939aac878a9cdc4331c71142",
+      "skipped": 0,
+      "tests": 65
+    },
+    "inventory": {
+      "bytes": 18203,
+      "sha256": "3e64317e65da4fd7d97cab4629041d8f49f7452d201a3db81090337bcd2429db"
+    },
+    "limitations": [
+      "No ARM rebuild/startup/full-suite/capacity run by this agent",
+      "The old failed ARM runtime cause remains unassigned",
+      "AST guards deliberately fail if a future scheduled task adds unsupported publication attributes"
+    ],
+    "original_source_regression": {
+      "bytes": 5385,
+      "errors": 0,
+      "failures": 1,
+      "log": {
+        "bytes": 4194,
+        "sha256": "af56805ba6d47f7f4388a8645a6a06f4f2fa0ce13cd5c95ae6470c4b5423ce67"
+      },
+      "seconds": 0.695,
+      "sha256": "56338a0410c6148267d3bceebc325a19fda70d21ef50c57dd92fd901e2dc25eb",
+      "skipped": 0,
+      "tests": 1
+    },
+    "prototype_driver_diagnostic": {
+      "bytes": 25077,
+      "errors": 0,
+      "failures": 8,
+      "log": {
+        "bytes": 20593,
+        "sha256": "0891c9005dfff9c97f104e777778d71b34d35adac6bde63abd87f9fc05a488ed"
+      },
+      "seconds": 0.655,
+      "sha256": "fd734c20cbda479510ec3fe6ad9ef289ca4571a785ac32e383e4ddd8affccf04",
+      "skipped": 0,
+      "tests": 33
+    },
+    "prototype_driver_diagnostic_reason": "8 compatibility task names live in split implementation modules; AST lookup corrected; no app failure asserted",
+    "publication_pre_selector_checks": {
+      "bytes": 6435,
+      "errors": 0,
+      "failures": 0,
+      "log": {
+        "bytes": 195,
+        "sha256": "4a7d45a95c98454d786ce07aa88fbc7b1d77f56a95d764eab8a3475676a2efab"
+      },
+      "seconds": 0.723,
+      "sha256": "30bf76e9b50cd87eea29051f0c66ed87efa615cb997096a8139a3d102d6f6daf",
+      "skipped": 0,
+      "tests": 40
+    },
+    "schema": "beat-lightweight-app-controls-v1",
+    "scope": "scheduler-only app dependency boundary; no claim of root cause for prior unframed ARM failure",
+    "source_parent_head": "2dd89eacd91f120b44445c39f9fe96bae22e0a7c",
+    "worker_source_unchanged": {
+      "bytes": 16407,
+      "path": "backend/app/tasks/celery_app.py",
+      "sha256": "2a8fbe9593bdb722b4fb8fd0dfd7d23f1e7b469a51a9713aed86bae74d9b51e9"
+    }
+  },
+  "owner_proof_sha256": "21491841c3407caa4f97d6148bff03f49c1e497b0aee70068d1eba26dfc0f2e8",
+  "retained_release_gate_status": "held",
+  "schema": "threatlens-beat-producer-controls-public-v1",
+  "scope": "Changed-runtime controls; fresh runtime qualification pending",
+  "second_independent_source_review": {
+    "sha256": "ef7e9088382735a07799d78f41e18855016dfa648f9191536cd2c70f287ad690",
+    "status": "clear_for_new_candidate_qualification"
+  }
+}
