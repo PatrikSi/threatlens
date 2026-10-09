@@ -72,7 +72,10 @@ def test_mcp_startup_does_not_hide_programming_errors(monkeypatch):
 
 @pytest.fixture
 def isolation(monkeypatch, tmp_path):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3] / "scripts"))
     module = _script("verify_runtime_isolation.py")
+    monkeypatch.setenv("DOCKER_HOST", "unix:///var/run/docker.sock")
+    monkeypatch.delenv("DOCKER_CONTEXT", raising=False)
     directory = tmp_path / "owned-stack"
     directory.mkdir()
     result_path = tmp_path / "result.json"
