@@ -404,6 +404,46 @@ describe('InvestigationsPage DOM workflows', () => {
     expect(pageText()).toContain('No analyst notes have been recorded.')
   })
 
+  it.each([
+    { label: 'viewer membership', update: { current_user_role: 'viewer' as const } },
+    { label: 'archival', update: { status: 'archived' as const } },
+    { label: 'loss of owner rights over another analyst note', update: { current_user_role: 'editor' as const }, author: 'other-analyst' },
+  ])('pauses a retained note edit after $label and preserves cancel access', async ({ update, author }) => {
+    const detail = { ...baseDetail, notes: [{ ...baseDetail.notes[0], author_user_id: author ?? 'user-1' }] }
+    await renderDetail(detail, '?tab=notes')
+    act(() => findButton('Edit')?.click())
+    const editor = document.querySelector<HTMLTextAreaElement>('#investigation-note-edit-note-1')!
+    act(() => setTextAreaValue(editor, 'Preserved unsaved analyst note'))
+    act(() => queryClient!.setQueryData(['investigations', 'detail', detail.id], { ...detail, ...update, version: 8 }))
+    await flushRequests()
+
+    expect(editor.value).toBe('Preserved unsaved analyst note')
+    expect(editor.disabled).toBe(true)
+    expect(findButton('Save note')?.disabled).toBe(true)
+    act(() => editor.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await flushRequests()
+    expect(domMocks.apiFetch.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false)
+    expect(pageText()).toContain('Your unsaved note is preserved')
+    expect(findButton('Cancel')?.disabled).toBe(false)
+    act(() => findButton('Cancel')?.click())
+    expect(document.querySelector('#investigation-note-edit-note-1')).toBeNull()
+    expect(pageText()).toContain('Initial working theory')
+  })
+
+  it('dismisses a pending note removal when current write access is revoked', async () => {
+    await renderDetail(baseDetail, '?tab=notes')
+    act(() => findButton('Remove')?.click())
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+    act(() => queryClient!.setQueryData(['investigations', 'detail', baseDetail.id], { ...baseDetail, current_user_role: 'viewer', version: 8 }))
+    await flushRequests()
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+    expect(domMocks.apiFetch.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false)
+    expect(pageText()).toContain('Initial working theory')
+    act(() => queryClient!.setQueryData(['investigations', 'detail', baseDetail.id], baseDetail))
+    await flushRequests()
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+  })
+
   it('keeps a failed destructive action open and shows its actionable error in the dialog', async () => {
     domMocks.apiFetch.mockImplementation((path: string) => {
       if (path.includes(`/investigations/${baseDetail.id}/notes?page=`)) {
