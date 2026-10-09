@@ -7,8 +7,9 @@ running at **http://127.0.0.1:3001**. The frozen application/image revision is
 Compose, license and version Git objects are identical. Images retain their
 actual build revision. All corrections were committed as `Patrik <patrik@local>`.
 
-**Decision at this checkpoint: source fixes and native qualification pass; hosted backend,
-comparative capacity and CodeQL pull-request disposition remain pending.**
+**Decision at this checkpoint: native qualification and all fifteen hosted quality
+jobs pass; comparative capacity still fails.** Reviewed CodeQL dispositions
+cleared its failure, leaving a neutral check with a baseline-configuration warning.
 Version 2.1.0 is already aligned across the version file, frontend metadata,
 OpenAPI and deployment defaults. These pre-merge corrections need no further
 version bump. [Draft PR #31](https://github.com/PatrikSi/threatlens/pull/31)
@@ -110,19 +111,41 @@ established as the cause of that ARM startup stall.
 The full local backend attempt at `c4faef4` exceeded the unchanged 1500-second
 deadline and exited 124, with 1510.254 seconds including termination grace.
 Owned fixtures were removed; no completed JUnit or current full-coverage result
-is claimed for that attempt. Final hosted backend/coverage/contract/audit and
-platform qualification at `a6c07f7` are underway.
+is claimed for that attempt.
+
+The final `a6c07f7` [hosted quality run](https://github.com/PatrikSi/threatlens/actions/runs/37880697918)
+passes all **fifteen workflow jobs**. Backend reports **4,674 passed / five
+skipped**, **87.06%** overall coverage, **87.21%** reporting coverage and all
+**58 critical module floors** passing. Compile, source-size/complexity, Ruff,
+capacity smoke, OpenAPI contract, preview policy, pinned runtime dependency
+validation and Python audit pass. Frontend again passes **1,374 tests**, lint,
+build and audit. All three browser engines pass **210 cases**, with six
+deliberate split skips and no retry markers. Both AMD64 and ARM64 jobs pass
+build, running-stack architecture/version/migration/non-root smoke and the
+selected vulnerability policy. The final ARM readiness result does not establish
+the cause of the earlier stall. MCP, OpenSearch, migration roundtrip and
+disposable recovery/restore checks also pass.
+
+[Hosted qualification evidence](evidence/2026-10-09-final-review/hosted-qualification-a6.json)
+records exact candidate/merge-tree applicability, per-job log hashes and counts.
+Successful analysis workflow jobs remain distinct from the aggregate CodeQL
+pull-request check.
 
 ## Security finding review
 
 CodeQL completed with **25 Python and one JavaScript high alerts**. The
 [per-flow review](2026-10-09-codeql-triage.md) documents the SMTP policy gap
 corrected in this pass and the constrained application/test-fixture findings.
-All 26 alerts remain reported by the latest analyzer, including SMTP. The
-separate pull-request CodeQL check fails on sixteen alerts annotated as new;
-source-justified per-alert disposition is being independently checked. No query,
-severity threshold or source exclusion was changed. This is not a zero-alert
-scan claim. Fresh
+All 26 results remain reported by the latest analyzer, including SMTP. Independent
+source-flow review supports fifteen false-positive dispositions and one test-fixture
+disposition for the sixteen alerts annotated as new. Actual API readbacks verify
+those dispositions; the other ten existing alerts are unchanged. The aggregate
+check changed from failure to **neutral**, retaining a warning about the
+different caller-derived analysis configuration identifiers on main and the PR.
+Both language analyses completed over the full source trees. The
+[audit](evidence/2026-10-09-final-review/codeql-dispositions.json) preserves the
+original failure and specific reopening assumptions. No query, severity
+threshold or source exclusion changed. This is not a zero-alert scan claim. Fresh
 native image vulnerability and secret scans retain the established
 HIGH/CRITICAL, ignore-unfixed policy.
 
@@ -143,11 +166,32 @@ but the original logs do not identify every attention stage/reason, so this
 report does not attribute all extra work or latency to that defect. Baseline
 cleanup lacked independent attestation; contamination was not demonstrated.
 
-A new exact-source comparison at `a6c07f7` is underway after the production
-repair and independent cleanup gate. Duration, offered workloads, limits,
-measurement contract and comparator remain unchanged. This uses a fresh
-GitHub-hosted reference VM; it is not qualification of an operator's intended
-hardware. Earlier failed shared-host and hosted comparisons remain recorded. The [first hosted comparison evidence](evidence/2026-10-09-final-review/hosted-capacity-c4fa.json) preserves exact sources, unchanged budgets, offered/completed work and flagged quantiles.
+The new exact-source comparison at `a6c07f7` also **fails** the unchanged 20%
+threshold: governance p95 **75.556 → 113.892 ms (+50.739%)**, and sampled
+lock-waiting query age peak **148.032 → 189.491 ms (+28.007%)**. Both absolute
+workloads pass, all required samples exist, and both independent cleanup
+attestations pass with zero errors or remnants. Offered workloads remain equal:
+480 new articles and 300 operations per service over 600 seconds per ref.
+The previous queue-wait flags pass in this pair; actual durable processing
+executions fall from 217 to 162, with attention outcomes from 48 to zero.
+
+The exercised governance mutation and conflicting AI/export/lineage policy
+fences are unchanged from baseline. AI intentionally holds a shared policy
+fence through the synthetic 100 ms provider call. Governance median stays
+near 8 ms, but existing aggregate artifacts lack operation timing and waiter/
+blocker identities needed to explain its higher tail. The sampled lock metric
+is query age while waiting, not actual lock-wait duration. Neither finding is
+dismissed as noise; a bounded diagnostic capture is being prepared without
+changing workloads, authorization fences, budgets or comparison thresholds.
+
+Each pair has matching fingerprints internally, but the two hosted pairs used
+different CPU models. Cross-run absolute improvements cannot establish the
+effect of a fix. Both are GitHub-hosted reference comparisons, not qualification
+of an operator's intended hardware. Earlier failures remain recorded. The
+[first comparison](evidence/2026-10-09-final-review/hosted-capacity-c4fa.json) and
+[final planned pair](evidence/2026-10-09-final-review/hosted-capacity-a6.json)
+preserve exact sources, unchanged budgets, offered/completed work and flagged
+measurements.
 
 ## Feature completion and release boundary
 
@@ -167,8 +211,7 @@ outputs and named human review of the twelve prepared cases. Provider-contract
 and configuration tests do not complete that approval; ordinary ingestion and
 classification do not require model promotion.
 
-The final release decision must incorporate the completed native results,
-hosted backend/coverage gates, CodeQL pull-request disposition and the unchanged
-comparative capacity result. Both current-source AMD64 and ARM64 platform jobs
-pass, as do all three hosted browser engines. Pending gates are recorded here until their
-actual results are available.
+Comparative capacity remains the unresolved release gate. The completed native,
+hosted backend/coverage, architecture and browser results apply to the frozen
+candidate. The CodeQL neutral baseline-configuration warning and chosen-model
+promotion limits remain explicit; no merge, tag or publication has occurred.
