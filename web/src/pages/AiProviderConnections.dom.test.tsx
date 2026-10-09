@@ -525,6 +525,53 @@ describe('AI provider lifecycle with a real query cache', () => {
     await settle()
     expect(document.activeElement).toBe(search)
   })
+
+  it.each(['input[aria-label="Provider name"]', 'input[type="checkbox"]'])(
+    'keeps operator focus on %s when queued editor focus runs later',
+    async (selector) => {
+      const frames: FrameRequestCallback[] = []
+      vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+        frames.push(callback)
+        return frames.length
+      })
+      mount(true)
+      await settle()
+      const add = [...host.querySelectorAll('button')].find(
+        (button) => button.textContent?.trim() === 'Add provider',
+      )!
+      act(() => {
+        add.focus()
+        add.click()
+      })
+      const control = host.querySelector<HTMLElement>(
+        `[aria-labelledby="ai-provider-editor-title"] ${selector}`,
+      )!
+      control.focus()
+      expect(frames).toHaveLength(1)
+      act(() => frames[0]!(0))
+      expect(document.activeElement).toBe(control)
+    },
+  )
+
+  it('focuses the editor heading after selection without intervening operator focus', async () => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    mount(true)
+    await settle()
+    const add = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Add provider',
+    )!
+    act(() => {
+      add.focus()
+      add.click()
+    })
+    act(() => frames[0]!(0))
+    expect(document.activeElement).toBe(host.querySelector('#ai-provider-editor-title'))
+  })
+
   it('saves visible compatibility controls and retains omitted temperature after refresh', async () => {
     let submitted: Record<string, unknown> | undefined
     vi.mocked(apiFetch).mockImplementation((path, init) => {
