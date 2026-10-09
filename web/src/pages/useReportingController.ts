@@ -104,7 +104,7 @@ export function useReportingController() {
     staleTime: 60_000,
   })
   const [editorialDirty, setEditorialDirty] = useState(false)
-  const builderDraft = useReportBuilderDraft(templatesQuery.data, canAuthor, editorialDirty)
+  const builderDraft = useReportBuilderDraft(templatesQuery.data, editorialDirty)
   const { selectedTemplateId, setSelectedTemplateId, selectedTemplate, filterDraft, setFilterDraft, prompt,
     setPrompt, sections, setSections, excludedItemIds, setExcludedItemIds, title, setTitle,
     deliverWhenReady, setDeliverWhenReady, deliveryMode, setDeliveryMode } = builderDraft
