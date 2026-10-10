@@ -10,7 +10,7 @@ on:
         description: Frozen full application commit for this qualification
         required: true
         type: string
-        default: e085733b1200b8308f0011cf50d3abe79fa792b4
+        default: c591c3a8e30a6ef1fc38956317f0b0b41a12285b
 
 permissions:
   contents: read
@@ -21,8 +21,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 70
     env:
-      THREATLENS_NATIVE_FROZEN_SOURCE: e085733b1200b8308f0011cf50d3abe79fa792b4
-      THREATLENS_NATIVE_CANDIDATE: ${{ inputs.candidate || 'e085733b1200b8308f0011cf50d3abe79fa792b4' }}
+      THREATLENS_NATIVE_FROZEN_SOURCE: c591c3a8e30a6ef1fc38956317f0b0b41a12285b
+      THREATLENS_NATIVE_CANDIDATE: ${{ inputs.candidate || 'c591c3a8e30a6ef1fc38956317f0b0b41a12285b' }}
       NODE_OPTIONS: --max-old-space-size=640
     steps:
       - name: Checkout qualification helpers and application history
