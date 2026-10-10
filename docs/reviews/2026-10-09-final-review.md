@@ -2,7 +2,7 @@
 
 ThreatLens **2.1.0** is prepared. The synthetic local instance at
 **http://127.0.0.1:3001** uses the earlier `e085733b` images. The current
-application/image candidate `36b2024fc25ddc8c8ce3d04900e27811b4267c42`
+application/image candidate `1d057bc17529af724160c28479ca7d641b725d73`
 contains all review corrections, including reduced envelope reads, the
 concurrent parent-reference guard, synchronous post-login navigation and
 complete administrator credential admission before database access. It also
@@ -11,8 +11,9 @@ forms, conceals supplied settings in validation errors, and preserves the
 bootstrap script's earlier Bash compatibility. The production smoke contract now
 checks the same Unicode-capable email field and required form constraints.
 A fresh production build passes; the original smoke reproduces the hosted
-failure and the corrected smoke passes. Focused checks pass: sixteen
-seed-admission cases, 96 configuration cases, 56 authentication cases, 46
+failure and the corrected smoke passes. The seeder also recovers conflicts
+raised during flush and audit creation, preserving the winning account.
+Focused checks pass: 22 seed-admission/recovery cases, 96 configuration cases, 56 authentication cases, 46
 administrator-user cases and sixteen bootstrap tests. Frontend lint and
 TypeScript pass.
 
@@ -47,8 +48,14 @@ duration or authorization fence was weakened. Hosted quality at `aa92f8e7`
 passes all fifteen jobs. Later quality run
 [38073357452](https://github.com/PatrikSi/threatlens/actions/runs/38073357452)
 fails its production smoke assertion after frontend tests, lint and build pass:
-it still expects the previous email input type. At this checkpoint, thirteen
-other jobs pass and backend validation is still running. The
+it still expects the previous email input type. That run is now terminal:
+**fourteen jobs pass and the frontend job fails**. Backend validation passes
+4,769 cases with five deliberate skips and 87.08% coverage; all 58 module
+floors pass. Its three browser jobs pass 210 cases with six deliberate split
+skips and zero retries. The frontend passes 1,386 tests across 165 files; its
+security audit is skipped after the smoke failure. The
+[terminal quality evidence](evidence/2026-10-09-final-review/quality-7fe8cbad-terminal-failure.json)
+retains actual source checkouts, CodeQL outcomes and this failure. The
 [actual smoke controls](evidence/2026-10-09-final-review/production-smoke-contract-controls.json)
 retain that failure and the corrected production-bundle result. The
 [committed source binding](evidence/2026-10-09-final-review/production-smoke-36b2024f-source-binding.json)
@@ -57,14 +64,18 @@ inputs. The final
 review head requires fresh qualification. The new uninstrumented capacity pair at
 `c591c3a8` **passes**, with verified source, unchanged 600-second duration and
 20% threshold, actual artifacts and independent cleanup. Its measured paths
-remain applicable to `36b2024f` through the
-[explicit measured-path proof](evidence/2026-10-09-final-review/capacity-36b2024f-measured-path-applicability.json):
+remain applicable to `1d057bc1` through the
+[explicit measured-path proof](evidence/2026-10-09-final-review/capacity-1d057bc1-measured-path-applicability.json):
 exactly four backend paths differ, the seed
 script is outside the measured execution, and Settings changes only invalid
 error rendering. All other 1,285 backend objects and five capacity operation
 groups match. Valid Settings outputs and schemas match in three isolated
 controls. The actual measured candidate remains `c591c3a8`; whole-backend
-equality and a new measurement at `36b2024f` are not claimed.
+equality and a new measurement at `1d057bc1` are not claimed. The seed
+transaction intentionally differs: exactly two existing statements move into
+creation recovery. Reversing only that move reproduces the original measured
+transaction and the complete credential-admission reference module. The
+changed seeder is never executed by the sustained measurement.
 
 Version 2.1.0 is already aligned across the version file, frontend metadata,
 OpenAPI and deployment defaults. These pre-merge corrections need no further
@@ -140,11 +151,34 @@ quality references; preparing evidence is not a hosted quality pass.
 | Reserved-domain normalization introduced a Bash 4-only expansion | Use the script's existing printf/tr dependencies for case folding. Bash syntax and all sixteen bootstrap controls pass; Bash 3 runtime testing is unavailable. | `a3e782cb` |
 | Administrator local-user creation had the same Unicode email mismatch | Preserve the review/confirmation flow and submit the accepted identity to the user API. Three real-click regressions fail before; all 46 affected cases pass afterward, including empty-required and credential-retention controls. | `5f370197` |
 | Production smoke expected the old native email input type after Unicode admission was fixed | Verify the intended text/email keyboard contract, associated label, required credentials, three Unicode admissions and two empty-field rejections in the actual production bundle. Original smoke fails; corrected smoke passes. | `36b2024f` |
+| Administrator seeding caught duplicate creation at commit but allowed immediate unique-index flush and audit failures to escape | Move the existing flush/audit into creation recovery, then roll back and reload the locked winner. Four new pure failures reproduce before; all 22 pure cases pass afterward. One PostgreSQL uniqueness-flush case joins the four existing database cases for fresh hosted execution. | `1d057bc1` |
 
 [Structured regression evidence](evidence/2026-10-09-final-review/regression-proof.json)
 records pinned environments, before/after failures, hashes and scope limits.
 [Login navigation controls](evidence/2026-10-09-final-review/login-navigation-controls.json)
 retain the new commit-bound before/after and session-isolation evidence.
+
+The [seed recovery controls](evidence/2026-10-09-final-review/seed-admin-flush-conflict-controls.json)
+prove the minimal error-boundary change and preserve all prior test functions.
+The [final application source binding](evidence/2026-10-09-final-review/final-seed-recovery-source-binding.json)
+retains the earlier tested authentication, administrator, settings and bootstrap
+bytes, plus the corrected production smoke. Five PostgreSQL seed cases,
+including the real unique-index flush case, remain pending in fresh quality.
+
+The native harness now verifies a rendered, enabled Dashboard time-range
+control before declaring login complete. A same-document URL change plus
+[document load state](https://playwright.dev/docs/api/class-page#page-wait-for-load-state)
+does not establish that the lazy Dashboard rendered. The
+[20 controls](evidence/2026-10-09-final-review/native-login-readiness-controls.json)
+and [independent adjudication](evidence/2026-10-09-final-review/native-login-readiness-adjudication.json)
+verify the readiness gap, unchanged error gates and default bounds. Bounded
+passive diagnostics add timestamps, current check, console locations, failed
+requests and static responses. The driver intentionally changes; this does
+not assign the earlier console failure a cause. All original 33 checks and
+resource limits remain intact. The [new source controls](evidence/2026-10-09-final-review/native-ui-1d057bc1-source-controls.json)
+verify fourteen application/image groups and exact frozen helpers. Fresh
+[native qualification 38074993459](https://github.com/PatrikSi/threatlens/actions/runs/38074993459)
+is in progress at this checkpoint and final hosted quality has not yet run.
 
 ## Actual native runtime
 
@@ -1121,9 +1155,9 @@ and configuration tests do not complete that approval; ordinary ingestion and
 classification do not require model promotion.
 
 The remaining current gates at this committed checkpoint are fresh native
-qualification at `36b2024f` and hosted quality on the final review head.
+qualification at `1d057bc1` and hosted quality on the final review head.
 Capacity passes at actual measured candidate `c591c3a8`, with explicit
-measured-path applicability to `36b2024f`. The PR records the actual terminal
+measured-path applicability to `1d057bc1`. The PR records the actual terminal
 results without adding an evidence-only commit that changes the tested head.
 Earlier `e085733b` cookie
 logins, both exact local images and backend/runtime checks pass. Earlier failures

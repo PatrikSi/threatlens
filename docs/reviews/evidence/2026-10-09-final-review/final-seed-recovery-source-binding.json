@@ -1,0 +1,79 @@
+{
+  "application_revision": "1d057bc17529af724160c28479ca7d641b725d73",
+  "capacity_candidate_relabelled": false,
+  "fresh_native_and_quality_required": true,
+  "new_postgresql_unique_flush_case_locally_executed": false,
+  "postgresql_cases_pending_fresh_quality": 5,
+  "prior_credential_application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb",
+  "prior_partial_binding_sha256": "44b2afa47a1b58f46c5fa908250f82c05dc9b3a108a75ff50844c3c8e96d3e88",
+  "prior_smoke_application_revision": "36b2024fc25ddc8c8ce3d04900e27811b4267c42",
+  "pure_seed_controls_passed": 22,
+  "schema": "threatlens-final-seed-recovery-source-binding-v2",
+  "scope": "Previous authentication, administrator form, settings and bootstrap tested sources remain byte-identical. The production smoke contract matches its E correction. New seeder error recovery and five PostgreSQL cases require actual fresh quality. Actual capacity C applicability remains separately proven.",
+  "seed_recovery_controls_sha256": "5ac5b75201a8680517126836d74072b5c401a09268610bd80af0919f9a8e744a",
+  "seed_source_sha256": "eaa21735006f220538667e69b00f7590f7b2493ecb6b3d698c994106ef1d2167",
+  "seed_tests_sha256": "eaf4ed325008c810b1f737f47f644eb584b4868c5a408ea04bf13230c2f29afd",
+  "seed_transaction_ast_identical_claimed": false,
+  "unchanged_regression_source_bindings": [
+    {
+      "identical": true,
+      "identical_object": "a0c04cd538bb8202c5be0ded386005c108093edd",
+      "path": "web/src/pages/LoginPage.tsx",
+      "regression_application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb"
+    },
+    {
+      "identical": true,
+      "identical_object": "bd16a012aa0859e593f174c00df61bf8fb24ed6f",
+      "path": "web/src/pages/LoginPage.dom.test.tsx",
+      "regression_application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb"
+    },
+    {
+      "identical": true,
+      "identical_object": "fc9a74b0757dcf69f754e43fed93dfd846e31919",
+      "path": "web/src/pages/UsersPage.tsx",
+      "regression_application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb"
+    },
+    {
+      "identical": true,
+      "identical_object": "b684471b561edbb5a70b45c703b1691d3a6e76b9",
+      "path": "web/src/pages/UsersPage.dom.test.tsx",
+      "regression_application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb"
+    },
+    {
+      "identical": true,
+      "identical_object": "90a43bbcf49ebed2540f30031480c85c508dbe23",
+      "path": "backend/app/core/config.py",
+      "regression_application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb"
+    },
+    {
+      "identical": true,
+      "identical_object": "ce42c98e258ca1527376db951abff6ffa42a76e1",
+      "path": "backend/tests/unit/test_config.py",
+      "regression_application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb"
+    },
+    {
+      "identical": true,
+      "identical_object": "e63b04bfe40f987bcb800b7fa5c5c2d552eb0792",
+      "path": "bootstrap.sh",
+      "regression_application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb"
+    },
+    {
+      "identical": true,
+      "identical_object": "7a855d63d297e4580187eae27a57d063c531961c",
+      "path": "web/scripts/smoke_production_bundle.mjs",
+      "regression_application_revision": "36b2024fc25ddc8c8ce3d04900e27811b4267c42"
+    },
+    {
+      "identical": true,
+      "identical_object": "77833a03c93048753b7374e1371ee5674c60f6a0",
+      "path": "web/src/pages/LoginNavigation.dom.test.tsx",
+      "regression_application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb"
+    },
+    {
+      "identical": true,
+      "identical_object": "f00a6266d65546e3558ee90236a12f58d523c6d8",
+      "path": "tests/recovery/test_bootstrap.py",
+      "regression_application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb"
+    }
+  ]
+}
