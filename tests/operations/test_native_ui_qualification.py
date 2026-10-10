@@ -106,6 +106,112 @@ def complete_surfaces(value, directory):
     return number
 
 
+class NativeReadinessAdmission(unittest.TestCase):
+    def test_ready_and_only_explicit_startup_unavailable_are_distinguished(self):
+        self.assertIs(QUALIFY.readiness_admission(200, "application/json", b'{"ok":true}'), True)
+        self.assertIs(QUALIFY.readiness_admission(503, "application/json", b'{"ok":false}'), False)
+
+    def test_legitimate_ready_health_fields_remain_accepted(self):
+        body = b'{"ok":true,"checks":{"database":true,"redis":true},"version":"2.1.0"}'
+        self.assertIs(QUALIFY.readiness_admission(200, "application/json", body), True)
+
+    def test_other_statuses_and_noninteger_status_are_rejected(self):
+        for status in [199, 201, 204, 301, 400, 401, 403, 404, 429, 500, 502, 504, True, "200", 200.0]:
+            with self.subTest(status=status), self.assertRaises(ValueError):
+                QUALIFY.readiness_admission(status, "application/json", b'{"ok":true}')
+
+    def test_misleading_status_body_pairs_are_rejected(self):
+        for status, body in [
+            (200, b'{"ok":false}'), (503, b'{"ok":true}'),
+            (200, b'{"ok":1}'), (503, b'{"ok":0}'),
+            (200, b'{"ok":"true"}'), (503, b'{"ok":"false"}'),
+        ]:
+            with self.subTest(status=status, body=body), self.assertRaises(ValueError):
+                QUALIFY.readiness_admission(status, "application/json", body)
+
+    def test_malformed_wrong_content_type_and_oversized_body_are_rejected(self):
+        for content_type, body in [
+            ("text/html", b'{"ok":true}'), ("text/plain", b'{"ok":true}'),
+            ("", b'{"ok":true}'), (None, b'{"ok":true}'),
+            ("application/json", b''), ("application/json", b'not-json'),
+            ("application/json", b'null'), ("application/json", b'[]'),
+            ("application/json", b'true'), ("application/json", b'123'),
+            ("application/json", b'{}'), ("application/json", b'{"ok":null}'),
+            ("application/json", b'{"ok":true}\xff'),
+            ("application/json", b' ' * 2_000_001),
+        ]:
+            with self.subTest(content_type=content_type, body_length=len(body)), self.assertRaises(ValueError):
+                QUALIFY.readiness_admission(200, content_type, body)
+
+    def test_transient_unavailable_uses_only_remaining_original_window(self):
+        now, reads, sleeps, attempts = [60.0], [], [], []
+        responses = [(503, b'{"ok":false}'), (503, b'{"ok":false}'), (200, b'{"ok":true}')]
+
+        def read(timeout):
+            reads.append(timeout)
+            now[0] += 2
+            status, body = responses.pop(0)
+            return status, "application/json", body
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            now[0] += seconds
+
+        QUALIFY.wait_readiness(read, 240, attempts, clock=lambda: now[0], sleep=sleep)
+        self.assertEqual(reads, [15, 15, 15])
+        self.assertEqual(sleeps, [5, 5])
+        self.assertEqual([attempt["http_status"] for attempt in attempts], [503, 503, 200])
+        self.assertEqual([attempt["ok"] for attempt in attempts], [False, False, True])
+        self.assertEqual(now[0], 76)
+
+    def test_expired_original_window_performs_no_request(self):
+        calls, attempts = [], []
+        with self.assertRaises(TimeoutError):
+            QUALIFY.wait_readiness(lambda timeout: calls.append(timeout), 240, attempts,
+                                   clock=lambda: 240, sleep=lambda seconds: calls.append(seconds))
+        self.assertEqual((calls, attempts), ([], []))
+
+    def test_last_read_and_poll_cannot_reset_startup_budget(self):
+        now, reads, sleeps, attempts = [239.0], [], [], []
+
+        def read(timeout):
+            reads.append(timeout)
+            now[0] += 0.25
+            return 503, "application/json", b'{"ok":false}'
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            now[0] += seconds
+
+        with self.assertRaises(TimeoutError):
+            QUALIFY.wait_readiness(read, 240, attempts, clock=lambda: now[0], sleep=sleep)
+        self.assertEqual(reads, [1.0])
+        self.assertEqual(sleeps, [0.75])
+        self.assertEqual(now[0], 240)
+        self.assertEqual([attempt["http_status"] for attempt in attempts], [503])
+
+    def test_ready_response_after_original_deadline_is_not_accepted(self):
+        now, attempts = [239.0], []
+
+        def read(timeout):
+            self.assertEqual(timeout, 1)
+            now[0] += 2
+            return 200, "application/json", b'{"ok":true}'
+
+        with self.assertRaises(TimeoutError):
+            QUALIFY.wait_readiness(read, 240, attempts, clock=lambda: now[0],
+                                   sleep=lambda _seconds: self.fail("Ready response must not poll"))
+        self.assertEqual([attempt["http_status"] for attempt in attempts], [200])
+
+    def test_unsupported_response_retains_status_and_never_polls(self):
+        attempts = []
+        with self.assertRaises(ValueError):
+            QUALIFY.wait_readiness(lambda _timeout: (500, "application/json", b'{"ok":false}'),
+                                   240, attempts, clock=lambda: 10,
+                                   sleep=lambda _seconds: self.fail("Only explicit startup 503 may poll"))
+        self.assertEqual([attempt["http_status"] for attempt in attempts], [500])
+
+
 class NativeHostGuards(unittest.TestCase):
     def test_exact_declared_limits_are_eligible(self):
         self.assertTrue(QUALIFY.eligible_host(host_sample()))

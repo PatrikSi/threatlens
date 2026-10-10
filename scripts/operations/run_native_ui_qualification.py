@@ -18,6 +18,7 @@ import tarfile
 import time
 import uuid
 from urllib.request import ProxyHandler, Request, build_opener
+from urllib.error import HTTPError
 
 from native_ui_config import build_config
 
@@ -45,6 +46,39 @@ CHECKS = ["/settings/access", "article preview and team assessment navigation",
           "provider draft tab retention and discard navigation"]
 BACKGROUND = ["beat", "worker", "worker-ai", "worker-notifications", "worker-exports", "worker-maintenance"]
 CERTIFICATE = ROOT / ".github/native-ui-review-certificate.pem"
+
+
+def readiness_admission(status: int, content_type: str, body: bytes) -> bool:
+    if type(status) is not int or content_type != "application/json" or not isinstance(body, bytes) or not 1 <= len(body) <= 2000000:
+        raise ValueError("Invalid readiness response")
+    value = json.loads(body)
+    if not isinstance(value, dict) or type(value.get("ok")) is not bool:
+        raise ValueError("Invalid readiness body")
+    if status == 200 and value["ok"] is True:
+        return True
+    if status == 503 and value["ok"] is False:
+        return False
+    raise ValueError("Inconsistent readiness status/body")
+
+
+def wait_readiness(read, deadline: float, attempts: list, *, clock=time.monotonic, sleep=time.sleep) -> None:
+    """Await application readiness within the existing background startup budget."""
+    while True:
+        remaining = deadline - clock()
+        if remaining <= 0:
+            raise TimeoutError("Original background startup deadline expired")
+        status, content_type, body = read(min(15, remaining))
+        row = {"http_status": status, "response_bytes": len(body),
+               "response_sha256": hashlib.sha256(body).hexdigest()}
+        attempts.append(row)
+        admitted = readiness_admission(status, content_type, body)
+        row["ok"] = admitted
+        remaining = deadline - clock()
+        if remaining <= 0:
+            raise TimeoutError("Readiness exceeded original startup deadline")
+        if admitted:
+            return
+        sleep(min(5, remaining))
 
 
 def pressure(path: Path) -> dict[str, float]:
@@ -481,20 +515,34 @@ def main() -> None:
         if seed.get("counts") != {"teams": 1, "groups": 1, "memberships": 1, "feeds": 1, "items": 1, "articles": 1, "classifications": 1} or seed.get("attention_queue_rows") != 0:
             raise ValueError("Seed scope invalid")
         record["seed"] = {"source_revision": SOURCE, "synthetic": True, "counts": seed["counts"], "attention_queue_rows": 0}
+        background_started = time.monotonic()
         run("background-start", [*compose, "up", "--no-build", "--detach", "--wait", "--wait-timeout", "240", *BACKGROUND], 300)
         record["runtime_before"] = snapshot()
         opener = build_opener(ProxyHandler({}))
         contract = json.loads((source / "docs/reference/openapi.json").read_text())
         record["http_checks"] = []
-        for path in ["/api/v1/health/ready", "/api/openapi.json"]:
-            with opener.open(Request(base_url + path, headers={"Accept": "application/json"}), timeout=15) as response:
-                body = response.read(2000001)
-                if response.status != 200 or response.headers.get_content_type() != "application/json" or len(body) > 2000000:
-                    raise ValueError("Readiness/contract response invalid")
-                value = json.loads(body)
-            if (not isinstance(value, dict) or value.get("ok") is not True) if path.endswith("ready") else value != contract:
-                raise ValueError("Readiness/contract semantic mismatch")
-            record["http_checks"].append({"path": path, "status": 200, "semantic_check": True})
+        record["readiness_admission"] = {"startup_deadline_seconds": 240, "read_seconds_max": 15,
+                                         "poll_seconds": 5, "attempts": [], "status": "failed"}
+        def read_ready(timeout):
+            request = Request(base_url + "/api/v1/health/ready", headers={"Accept": "application/json"})
+            try:
+                response = opener.open(request, timeout=timeout)
+            except HTTPError as error:
+                response = error
+            with response:
+                if response.geturl() != request.full_url:
+                    raise ValueError("Readiness redirect")
+                return response.code, response.headers.get_content_type(), response.read(2000001)
+        wait_readiness(read_ready, background_started + 240, record["readiness_admission"]["attempts"])
+        record["readiness_admission"]["status"] = "passed"
+        record["http_checks"].append({"path": "/api/v1/health/ready", "status": 200, "semantic_check": True})
+        with opener.open(Request(base_url + "/api/openapi.json", headers={"Accept": "application/json"}), timeout=15) as response:
+            body = response.read(2000001)
+            if response.status != 200 or response.headers.get_content_type() != "application/json" or len(body) > 2000000 or response.geturl() != base_url + "/api/openapi.json":
+                raise ValueError("Contract response invalid")
+            if json.loads(body) != contract:
+                raise ValueError("Contract semantic mismatch")
+        record["http_checks"].append({"path": "/api/openapi.json", "status": 200, "semantic_check": True})
         quiet_window()
         fixture = services()["review-source"]
         networks = fixture["NetworkSettings"]["Networks"]
