@@ -1,0 +1,51 @@
+{
+  "after": {
+    "executed": 7,
+    "failed": 0,
+    "log_sha256": "83a1593c5b5783693fe3006d1f6597bcb4f3a5968f23b59481ee09a0477f910a",
+    "original_exit": 0,
+    "passed": 7,
+    "seed_admin_sha256": "a16a385010bf83296b980d69817f7ddd9088cd92d08fe15c28180d671f2a7c28"
+  },
+  "application_revision": "c591c3a8e30a6ef1fc38956317f0b0b41a12285b",
+  "ast_parse": "passed",
+  "before": {
+    "application_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+    "executed": 7,
+    "failed": 5,
+    "log_sha256": "822a0d3f13f8af6fa014710b4cc57907836804543ac933b555c206faf6382c3e",
+    "original_exit": 1,
+    "passed": 2,
+    "seed_admin_sha256": "b5ac2a1ef8c10c5e4c4156e7914b6b0f9cf74fb9f232bb150748df524878b697",
+    "selected_failure_causes": {
+      "session_opened_before_invalid_identity_validation": 4,
+      "untrimmed_lookup_differed_from_login_normalization": 1
+    }
+  },
+  "commit_author": "Patrik <patrik@local>",
+  "committed": true,
+  "committed_source_and_tests_identical_to_tested_bytes": true,
+  "diff_check": "passed",
+  "documentation_describes_validation_at_seed_time": true,
+  "error_message_credential_redaction_and_suppressed_chaining_asserted": true,
+  "existing_postgresql_cases_not_executed": 4,
+  "existing_session_transaction_creation_conflict_rotation_and_audit_logic_ast_identical": true,
+  "fresh_full_ci_required_for_existing_postgresql_cases": true,
+  "full_database_suite_not_executed": true,
+  "login_request_schema_identical_to_previous_application_revision": true,
+  "per_command_deadline_seconds": 60,
+  "pinned_python": "3.12.3",
+  "production_scope": [
+    "backend/app/scripts/seed_admin.py"
+  ],
+  "reviewed_documentation": [
+    "README.md",
+    "docs/reference/configuration.md"
+  ],
+  "ruff_check": "passed",
+  "schema": "threatlens.seed_admin_login_email_committed_controls.v1",
+  "scope": "Actual selected no-database tests for rejecting invalid administrator identities before opening sessions and matching normalized login identity without changing existing-user policy. No browser, Docker, database fixtures or external network requests were used.",
+  "settings_and_seed_policy_flags_unchanged": true,
+  "settings_source_identical_to_previous_application_revision": true,
+  "unchanged_new_test_sha256": "bdcd21e7db043a7f600cd1cbafe9bf6e0be7fdfb960d73d07399ceabeb80c077"
+}
