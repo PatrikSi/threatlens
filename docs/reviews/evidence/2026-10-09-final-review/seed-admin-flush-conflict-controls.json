@@ -1,0 +1,102 @@
+{
+  "after": {
+    "elapsed_wall_seconds": 7.438,
+    "existing_credential_admission_cases": 16,
+    "failed": 0,
+    "log_sha256": "af309cab4be0dcb33d94f75fe118d69ec492ba40f221870ddfce995939c19ae7",
+    "new_conflict_cases": 6,
+    "original_exit": 0,
+    "passed": 22,
+    "postgresql_cases_deselected": 5,
+    "pytest_elapsed_seconds": 0.12,
+    "selected_pure_cases": 22
+  },
+  "after_application_commit_pending": false,
+  "after_application_revision": "1d057bc17529af724160c28479ca7d641b725d73",
+  "application_revision_before_fix": "36b2024fc25ddc8c8ce3d04900e27811b4267c42",
+  "before": {
+    "elapsed_wall_seconds": 7.767,
+    "existing_commit_conflict_paths_passed": 2,
+    "failed": 4,
+    "failure_phases": [
+      "flush winner recovery",
+      "audit winner recovery",
+      "flush missing-winner rollback",
+      "audit missing-winner rollback"
+    ],
+    "log_sha256": "ab809099e48ab1b4e30d4f4344ed9949cf28f8c8e481d433b15f3fbc05d0c405",
+    "original_exit": 1,
+    "passed": 2,
+    "pytest_count_basis": "Retained six-case progress line FF.FF. and four named failure reports; repository double-quiet configuration suppresses the numeric summary.",
+    "selected_pure_cases": 6
+  },
+  "checks": {
+    "agent_commit_performed": false,
+    "browser_calls": 0,
+    "database_calls": 0,
+    "docker_calls": 0,
+    "full_suite_run": false,
+    "network_calls": 0,
+    "per_pytest_timeout_seconds": 60,
+    "python": "pinned Python 3.12",
+    "release_clearance": false,
+    "ruff_original_exit": 0,
+    "scoped_git_diff_check_original_exit": 0
+  },
+  "limitations": [
+    "Pure mocks prove rollback/reload/control-flow and credential retention, not an actual PostgreSQL failure.",
+    "The added PostgreSQL case recreates a stale absence observation against an already committed winner and then relies on a real unique-index flush error; it does not claim simultaneous connections.",
+    "Five PostgreSQL cases, including the new uniqueness-flush regression, were explicitly deselected locally and require actual isolated or hosted execution.",
+    "The sixteen original credential-admission controls pass unchanged; earlier source proofs remain bound to their original revisions."
+  ],
+  "postgresql_regression": {
+    "actual_database_outcome_claimed": false,
+    "duplicate_insert_uses_actual_postgresql_unique_index": true,
+    "existing_fixture_savepoint_is_used": true,
+    "expected_no_create_or_update_audit_persisted": true,
+    "expected_one_winner_unchanged_credentials_and_unrevoked_api_token": true,
+    "expected_sqlstate": "23505",
+    "first_absence_lookup_hooked": true,
+    "integrity_error_is_not_injected": true,
+    "locally_executed": false,
+    "pending_fresh_hosted_or_owned_disposable_execution": true,
+    "simultaneous_two_connection_race_claimed": false,
+    "test_file": "backend/tests/unit/test_seed_admin.py",
+    "test_name": "test_seed_admin_handles_real_unique_flush_conflict_without_changing_winner",
+    "winner_committed_before_duplicate_attempt": true
+  },
+  "production_change": {
+    "all_prior_test_functions_ast_identical": true,
+    "complete_module_ast_identical_after_reversing_that_move": true,
+    "database_schema_and_unique_index_unchanged": true,
+    "existing_post_reload_rotation_and_update_policy_unchanged": true,
+    "login_request_admission_and_sanitized_messages_unchanged": true,
+    "only_move_existing_flush_and_create_audit_into_existing_integrity_error_try": true,
+    "prior_test_function_count": 10,
+    "settings_config_unchanged_by_this_seed_only_fix": true
+  },
+  "pure_regression_scope": {
+    "credential_revocation_not_invoked": true,
+    "failure_entry_points": [
+      "user flush",
+      "audit flush",
+      "commit"
+    ],
+    "missing_winner_reraise_cases": 3,
+    "no_create_audit_called_when_first_user_flush_conflicts": true,
+    "only_discarded_new_candidate_password_is_hashed": true,
+    "original_commit_conflict_behavior_retained": true,
+    "original_integrity_exception_preserved_without_winner": true,
+    "reload_uses_populate_existing": true,
+    "rollback_before_locked_reload": true,
+    "session_always_closed": true,
+    "winner_password_hash_role_activation_login_policy_and_token_version_unchanged": true,
+    "winner_reloaded_cases": 3
+  },
+  "schema": "threatlens-seed-admin-immediate-unique-conflict-controls-v1",
+  "source_sha256": {
+    "after_seed_admin": "eaa21735006f220538667e69b00f7590f7b2493ecb6b3d698c994106ef1d2167",
+    "after_tests": "eaf4ed325008c810b1f737f47f644eb584b4868c5a408ea04bf13230c2f29afd",
+    "before_seed_admin": "438f343dd0ff49947a6cf7295dbee4d20d8385ccb54e698d74fd1ec0508cd208"
+  }
+}

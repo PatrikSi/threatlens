@@ -158,7 +158,8 @@ def _derive_development_secret(
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=".env", env_file_encoding="utf-8", extra="ignore",
+        hide_input_in_errors=True,
     )
 
     _jwt_secret_was_derived: bool = PrivateAttr(default=False)
@@ -185,6 +186,14 @@ class Settings(BaseSettings):
     public_app_url: str | None = None
     expose_api_docs_in_production: bool = False
     expose_openapi_schema_in_production: bool = True
+    mcp_enabled: bool = False
+    mcp_oauth_enabled: bool = False
+    mcp_allowed_origins: Annotated[list[str], NoDecode] = []
+    mcp_request_max_bytes: int = Field(default=16_384, ge=1024, le=65_536)
+    mcp_response_max_bytes: int = Field(default=65_536, ge=16_384, le=65_536)
+    mcp_request_timeout_seconds: float = Field(default=15, ge=1, le=30)
+    mcp_rate_limit_per_minute: int = Field(default=60, ge=1, le=10_000)
+    mcp_max_concurrent_requests: int = Field(default=4, ge=1, le=64)
 
     auth_cookie_name: str = "threatlens_session"
     auth_cookie_domain: str | None = None
@@ -317,6 +326,8 @@ class Settings(BaseSettings):
     export_max_uncompressed_bytes: int = 250_000_000
     export_lock_ttl_seconds: int = 900
     export_transfer_timeout_seconds: int = 300
+    export_download_preparation_timeout_seconds: int = 30
+    export_download_scratch_headroom_bytes: int = 67_108_864
     export_job_timeout_seconds: int = 3600
     export_job_lease_seconds: int = 120
     export_job_retention_seconds: int = 86_400
@@ -383,6 +394,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "cors_origins",
+        "mcp_allowed_origins",
         "trusted_proxy_cidrs",
         "trusted_proxy_hosts",
         "allowed_hosts",
@@ -397,6 +409,27 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [entry.strip() for entry in value.split(",") if entry.strip()]
         return value
+
+    @field_validator("mcp_allowed_origins")
+    @classmethod
+    def _validate_mcp_origins(cls, value: list[str]) -> list[str]:
+        for origin in value:
+            if _is_unsafe_credentialed_cors_origin(origin):
+                raise ValueError("mcp_allowed_origins must contain explicit HTTP(S) origins")
+            parts = urlsplit(origin)
+            if parts.username or parts.password or parts.path or any(char.isspace() for char in origin):
+                raise ValueError("mcp_allowed_origins must not contain credentials, paths or whitespace")
+            try:
+                _port = parts.port
+            except ValueError as exc:
+                raise ValueError("mcp_allowed_origins contains an invalid port") from exc
+        return list(dict.fromkeys(value))
+
+    @model_validator(mode="after")
+    def _validate_mcp_database_capacity(self):
+        if self.mcp_enabled and self.database_pool_size + self.database_max_overflow < 2:
+            raise ValueError("MCP requires at least two database connections for a fenced read and its audit record")
+        return self
 
     @field_validator(
         "auth_oidc_admin_mfa_acr_values",
@@ -621,6 +654,8 @@ class Settings(BaseSettings):
         "export_max_uncompressed_bytes",
         "export_lock_ttl_seconds",
         "export_transfer_timeout_seconds",
+        "export_download_preparation_timeout_seconds",
+        "export_download_scratch_headroom_bytes",
         "export_job_timeout_seconds",
         "export_job_lease_seconds",
         "export_job_retention_seconds",

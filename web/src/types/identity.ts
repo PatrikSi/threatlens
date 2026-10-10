@@ -61,6 +61,8 @@ export interface PasswordChangeResponse extends CredentialRevocationCounts {
 export interface AppFeatures {
   ai_enabled: boolean
   ai_configured: boolean
+  ai_structured_extraction_enabled?: boolean
+  ai_hunt_suggestions_enabled?: boolean
   ai_summary_enabled: boolean
   ai_relevance_enabled: boolean
   ai_daily_brief_enabled: boolean

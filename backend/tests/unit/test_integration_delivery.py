@@ -235,9 +235,7 @@ def test_terminal_generic_webhook_projection_is_recoverable_after_commit_gap(
     assert old_worker_result.failed == 1
     assert legacy.delivery_state == "failed"
     assert legacy.attempt_count == 0
-    assert "Older worker cannot read connector schema version 2" in (
-        legacy.error or ""
-    )
+    assert "Older worker cannot read connector schema version 2" in (legacy.error or "")
     assert legacy.id in list_recoverable_webhook_delivery_ids(
         db_session,
         now=now + timedelta(seconds=1),
@@ -547,7 +545,9 @@ def test_stale_smtp_attempt_is_classified_before_disabled_integration(
     assert delivery.state == "dead_letter"
     assert delivery.last_error_code == expected_reason
     assert attempt.status == "interrupted"
-    assert attempt.response_json["external_side_effect_possible"] is (marker is not False)
+    assert attempt.response_json["external_side_effect_possible"] is (
+        marker is not False
+    )
 
 
 def test_stale_smtp_attempt_before_external_side_effect_is_reclaimed(
@@ -809,9 +809,7 @@ def test_webhook_replay_preserves_encrypted_request_snapshot_for_processing(
                 value="Bearer replay-secret",
             )
         ],
-        query_params=[
-            NotificationWebhookField(key="token", value="query-secret")
-        ],
+        query_params=[NotificationWebhookField(key="token", value="query-secret")],
         body='{"message":"encrypted replay"}',
         headers_dict={"Authorization": "Bearer replay-secret"},
         query_param_pairs=[("token", "query-secret")],
@@ -1012,3 +1010,96 @@ def _persist_generic_delivery(
     db_session.add(delivery)
     db_session.flush()
     return delivery
+
+
+@pytest.mark.parametrize("marker", [True, None, False])
+def test_tracked_automation_crash_recovers_only_known_presend_attempts(
+    db_session, monkeypatch, marker
+):
+    webhook, legacy = _persist_legacy_delivery(db_session)
+    generic = ensure_webhook_delivery(
+        db_session, webhook=webhook, legacy_delivery=legacy
+    )
+    generic.payload_json = {"execution": {"id": str(uuid.uuid4())}}
+    generic.event_type = "hunt.approved"
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.integration_delivery.settings.notification_delivery_sending_stale_after_seconds",
+        30,
+    )
+    started = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+    claim = claim_integration_delivery(db_session, delivery_id=generic.id, now=started)
+    assert claim.status == "claimed"
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == generic.id)
+    )
+    attempt.response_json = (
+        {} if marker is None else {"external_side_effect_possible": marker}
+    )
+    db_session.commit()
+    recovered = claim_integration_delivery(
+        db_session, delivery_id=generic.id, now=started + timedelta(minutes=20)
+    )
+    assert recovered.status == ("claimed" if marker is False else "terminal")
+    if marker is not False:
+        assert recovered.reason == "unknown_delivery_outcome"
+        assert db_session.get(IntegrationDelivery, generic.id).attempt_count == 1
+
+
+@pytest.mark.parametrize("marker", [True, None, False])
+def test_tracked_automation_processing_error_keeps_presend_retry_budget(
+    db_session, marker
+):
+    from app.services.integration_delivery import (
+        record_integration_delivery_unknown_outcome,
+    )
+
+    webhook, legacy = _persist_legacy_delivery(db_session)
+    generic = ensure_webhook_delivery(
+        db_session, webhook=webhook, legacy_delivery=legacy
+    )
+    generic.payload_json = {"execution": {"id": str(uuid.uuid4())}}
+    db_session.commit()
+    claimed = claim_integration_delivery(db_session, delivery_id=generic.id)
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == generic.id)
+    )
+    attempt.response_json = (
+        {} if marker is None else {"external_side_effect_possible": marker}
+    )
+    db_session.commit()
+    result = record_integration_delivery_unknown_outcome(
+        db_session,
+        delivery_id=generic.id,
+        expected_attempt_number=claimed.attempt_number,
+        error_code="worker_error",
+        error_message="Worker exited",
+    )
+    assert result.recorded
+    assert result.state == ("retry_wait" if marker is False else "dead_letter")
+
+
+@pytest.mark.parametrize(
+    "status_code,marker,ambiguous",
+    [(None, True, True), (None, False, False), (503, True, False)],
+)
+def test_action_retry_distinguishes_transport_ambiguity_from_known_response(
+    db_session, status_code, marker, ambiguous
+):
+    from app.services.automation_executions import ambiguous_action_retry
+
+    webhook, legacy = _persist_legacy_delivery(db_session)
+    generic = ensure_webhook_delivery(
+        db_session, webhook=webhook, legacy_delivery=legacy
+    )
+    generic.payload_json = {"execution": {"id": str(uuid.uuid4())}}
+    db_session.commit()
+    claim_integration_delivery(db_session, delivery_id=generic.id)
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == generic.id)
+    )
+    attempt.response_json = {"external_side_effect_possible": marker}
+    legacy.event_type_snapshot = "hunt.approved"
+    legacy.status_code = status_code
+    db_session.flush()
+    assert ambiguous_action_retry(db_session, legacy) is ambiguous

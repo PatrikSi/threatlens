@@ -326,6 +326,26 @@ def update_user_preferences(
             },
         )
 
+    # Privacy consent is independent of layout policy. A privacy-only update
+    # must not rewrite hidden/unknown navigation preferences or inherited views.
+    preview_only = (
+        "article_preview_external_resources" in payload.model_fields_set
+        and not payload.model_fields_set.intersection(
+            {"modules", "landing_module_id", "dashboard_panel_ids"}
+        )
+    )
+    if preview_only:
+        if row is None:
+            row = WorkspaceUserPreference(user_id=user.id, revision=1)
+        else:
+            row.revision += 1
+        row.article_preview_external_resources = payload.article_preview_external_resources
+        row.updated_by_user_id = actor_user_id
+        db.add(row)
+        db.flush()
+        db.refresh(row)
+        return user_preference_response(user.id, role, row)
+
     supplied_ids = {module.module_id for module in payload.modules}
     unknown_ids = sorted(supplied_ids - WORKSPACE_MODULE_BY_ID.keys())
     if unknown_ids:
@@ -401,6 +421,8 @@ def update_user_preferences(
         row.dashboard_panel_ids_json = stored_panels
         row.revision += 1
         row.updated_by_user_id = actor_user_id
+    if "article_preview_external_resources" in payload.model_fields_set:
+        row.article_preview_external_resources = payload.article_preview_external_resources
     db.add(row)
     db.flush()
     db.refresh(row)
@@ -435,8 +457,17 @@ def reset_user_preferences(
             },
         )
     if row is not None:
-        db.delete(row)
+        # Reset only navigation overrides. Preserve the privacy choice and the
+        # monotonic revision: deleting the row would make an old revision-zero
+        # draft valid again after another client changed these preferences.
+        row.modules_json = {}
+        row.landing_module_id = None
+        row.dashboard_panel_ids_json = None
+        row.revision += 1
+        row.updated_by_user_id = user.id
         db.flush()
+        db.refresh(row)
+        return user_preference_response(user.id, role, row)
     return user_preference_response(user.id, role, None)
 
 
@@ -674,6 +705,7 @@ def user_preference_response(
         landing_module_id=row.landing_module_id,
         modules=modules,
         dashboard_panel_ids=panels,
+        article_preview_external_resources=row.article_preview_external_resources,
         revision=row.revision,
         updated_by_user_id=row.updated_by_user_id,
         created_at=row.created_at,

@@ -1,4 +1,6 @@
 import { ReportEditorialPanel } from './ReportEditorialPanel'
+import { useState } from 'react'
+import { ReportSourceEvidenceDialog } from './ReportSourceEvidenceDialog'
 import type { ReportDetail } from '../types/api'
 import { Status } from './ReportLibrary'
 import { formatReportDate } from './reportingPageModel'
@@ -39,7 +41,7 @@ export function ReportDetailView({
         canManage={canManage}
       />
 
-      <ReportEditorialPanel key={report.id} report={report} canManage={canManage} canReview={controller.canAuthor} onDirtyChange={controller.setEditorialDirty} discard={controller.builderDraft.confirmDiscard} onRefresh={() => { void controller.reportDetailQuery.refetch() }} />
+      <ReportEditorialPanel key={`editorial:${report.id}`} report={report} canManage={canManage} canReview={controller.canAuthor} onDirtyChange={controller.setEditorialDirty} discard={controller.builderDraft.confirmDiscard} onRefresh={() => { void controller.reportDetailQuery.refetch() }} />
       {running && (
         <GenerationStatus
           status={report.status}
@@ -58,7 +60,7 @@ export function ReportDetailView({
       ))}
 
       <ReportStats report={report} />
-      <ReportContent report={report} />
+      <ReportContent key={`content:${report.id}`} report={report} onRefresh={() => { void controller.reportDetailQuery.refetch() }} />
     </div>
   )
 }
@@ -314,12 +316,16 @@ function ReportStats({ report }: { report: ReportDetail }) {
 }
 
 
-function ReportContent({ report }: { report: ReportDetail }) {
+function ReportContent({ report, onRefresh }: { report: ReportDetail; onRefresh: () => void }) {
+  const [evidenceKey, setEvidenceKey] = useState<string | null>(null)
   const includedSources = report.sources.filter((source) => source.included)
   const citationTargets = new Map(includedSources.map((source) => [source.citation_key, `report-${report.id}-source-${source.citation_key}`]))
 
   return (
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+      {evidenceKey && includedSources.some((source) => source.citation_key === evidenceKey) && <ReportSourceEvidenceDialog
+        key={`${report.id}-${report.editorial_version}-${evidenceKey}`} reportId={report.id} citationKey={evidenceKey}
+        editorialVersion={report.editorial_version ?? 1} onClose={() => setEvidenceKey(null)} onRefresh={onRefresh} />}
       <article className="min-w-0 rounded-lg border border-slate/20 bg-white/90 px-3 py-4 dark:border-cyan-900/40 dark:bg-[#041612]/90 sm:px-5">
         {report.sections.map((section) => (
           <section
@@ -341,19 +347,19 @@ function ReportContent({ report }: { report: ReportDetail }) {
         <header className="border-b border-slate/15 px-3 py-2.5 dark:border-white/10">
           <h2 className="font-display text-base">Source evidence</h2>
           <p className="text-xs text-slate dark:text-slate-400">
-            Immutable snapshot used for this report.
+            Read the retained passage used for this report or open the current publisher page.
           </p>
         </header>
         <div className="max-h-[70vh] divide-y divide-slate/15 overflow-y-auto dark:divide-white/10">
           {includedSources.map((source) => (
+            <div key={source.citation_key} className="px-3 py-2.5 text-sm">
             <a
-              key={source.citation_key}
               id={citationTargets.get(source.citation_key)}
               href={sanitizeHref(source.url) ?? undefined}
               tabIndex={0}
               target="_blank"
               rel="noreferrer"
-              className="block px-3 py-2.5 text-sm hover:bg-slate/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] dark:hover:bg-white/[0.03]"
+              className="block hover:bg-slate/5 focus-visible:outline focus-visible:outline-2 dark:hover:bg-white/[0.03]"
             >
               <span className="text-xs font-bold text-cyan-800 dark:text-cyan-200">
                 [{source.citation_key}]
@@ -364,7 +370,11 @@ function ReportContent({ report }: { report: ReportDetail }) {
               <span className="mt-0.5 block text-xs text-slate dark:text-slate-400">
                 {source.feed_name} · {source.classification ?? 'Unclassified'}
               </span>
+              <span className="mt-1 block text-xs underline">Open current publisher page ↗</span>
             </a>
+            <button type="button" className="mt-2 rounded border border-slate/30 px-2 py-1 text-xs font-semibold"
+              onClick={() => setEvidenceKey(source.citation_key)}>Read retained evidence [{source.citation_key}]</button>
+            </div>
           ))}
         </div>
       </aside>

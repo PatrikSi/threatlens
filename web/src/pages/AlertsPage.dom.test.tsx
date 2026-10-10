@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
+import { TestDataRouter } from '../../tests/helpers/TestDataRouter'
 
-import { MemoryRouter } from 'react-router-dom'
 import { act } from 'react'
 import { createRoot, Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -274,14 +274,14 @@ function renderPage(initialEntry = '/alerts') {
   document.body.appendChild(container)
   root = createRoot(container)
   act(() => {
-    root?.render(<MemoryRouter initialEntries={[initialEntry]}><AlertsPage /></MemoryRouter>)
+    root?.render(<TestDataRouter initialEntries={[initialEntry]}><AlertsPage /></TestDataRouter>)
   })
   return container
 }
 
 function rerenderPage() {
   act(() => {
-    root?.render(<MemoryRouter><AlertsPage /></MemoryRouter>)
+    root?.render(<TestDataRouter><AlertsPage /></TestDataRouter>)
   })
 }
 

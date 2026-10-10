@@ -1,0 +1,122 @@
+{
+  "backend_image_id": "sha256:30fac76ff3470d9445f11cb5ee5b6a86e760eb8035069c1eff2b1b8fd3c47d1a",
+  "backend_image_probe": {
+    "cleanup": {
+      "errors": [],
+      "remaining_owned_container_count": 0
+    },
+    "container_state": {
+      "cpu_nanos": 500000000,
+      "exit_code": 0,
+      "memory": 268435456,
+      "memory_swap": 268435456,
+      "network_mode": "none",
+      "oom_killed": false,
+      "pids_limit": 64,
+      "read_only": true,
+      "running": false
+    },
+    "elapsed_seconds": 3.016,
+    "limits": {
+      "cpu_nanos": 500000000,
+      "memory_bytes": 268435456,
+      "pids_limit": 64,
+      "probe_deadline_seconds": 90
+    },
+    "probe": {
+      "beat": {
+        "ignore_result": true,
+        "init_loader_passed": true,
+        "registered_periodic_implementation_count": 0,
+        "schedule_entry_count": 31,
+        "schedule_equal_to_worker": true,
+        "selected_app": "app.tasks.beat_app.beat_app",
+        "worker_finalized": false,
+        "worker_implementation_import_count": 0,
+        "worker_include_count": 15
+      },
+      "network_io": false,
+      "nonroot": true,
+      "openssl": "OpenSSL 3.0.20 7 Apr 2026",
+      "python": "3.12.13",
+      "scheduler_tick_or_publication": false,
+      "smtp": {
+        "check_hostname": true,
+        "minimum_version": "TLSv1_2",
+        "network_io": false,
+        "verify_mode": "CERT_REQUIRED"
+      }
+    },
+    "status": "passed",
+    "workload_exit_code": 0
+  },
+  "dependency_legal_and_nonroot": {
+    "cleanup": {
+      "errors": [],
+      "fallback_removals": 0,
+      "remaining_owned_container_count": 0,
+      "requested_owned_container_count": 4
+    },
+    "commands": [
+      {
+        "deadline_seconds": 180,
+        "elapsed_seconds": 1.772,
+        "exit_code": 0,
+        "log_sha256": "4a699055e538cfe1afe0106a67e71c402292c48c0c4a95f7b691dc0bba379b82",
+        "name": "dependency-legal-inventory"
+      },
+      {
+        "cases": [
+          "legacy-writable-root",
+          "read-only-with-tmpfs"
+        ],
+        "deadline_seconds": 240,
+        "elapsed_seconds": 2.11,
+        "exit_code": 0,
+        "log_sha256": "8f18300c2502b7cd125c190a250c0e70a7fd620f9e62e494fe5ba995fc4adb5b",
+        "name": "nonroot-web-startup"
+      }
+    ],
+    "docker_excluded_test_only_differences": [
+      "backend/tests/unit/test_beat_app.py"
+    ],
+    "helper_sha256": {
+      "verify_image_dependency_artifacts.py": "c840834f66129cbc8d58317b1b85097efe4f676a05b9dfafc4977419d74347ab",
+      "verify_web_image_startup.py": "2d2c79a63f7270f5ea5c2c9522b294c2d0045c2c8a5fc29edead59b355611c2e"
+    }
+  },
+  "driver_sha256": {
+    "http_backend_review.py": "5b786ae4935a2a24e38010eb0f83de75e3676e1c21daf5c4f82a9ca27a41b3de",
+    "run_backend_image_probes.py": "55fac79db1e9e5843518fc592515fc280ee243c0c507e0a88ce9be9bf868b8e8",
+    "run_image_helpers.py": "2178d3c6443b6b4a900e6dba4fe980716f80be7bc6d37475be0446c22eaa5c9f"
+  },
+  "evidence": {
+    "backend-image-probe-execution.log": "ca13a23dee5ee017bd743db4298c9beaac0adaef5ea84b872bb20d32660427f2",
+    "backend-image-probes-result.json": "e41939ef7abfba5ff719f0bc654f6f9f0d856e3dd78c075a16ee947b8cafa6a3",
+    "http-backend-review.json": "4bdeacea8355408be1b1f056de60a02a35bdad3ec8f15c4490ee035b7eb56129",
+    "http-review-execution.log": "862501da2f400e4b96faf4b92213217d87874cd27f85e6208ba5a5af80e9a983",
+    "image-helper-execution.log": "03b1f4b00dd306d0bed11aa8e17a60c74a17697a2db0f7abe7c07f6a4ba8fd59",
+    "image-helpers-result.json": "a0bd6c84678aec6f4990faefe2f45e26932febd47e9f01615d98258c22a51cc7"
+  },
+  "http": {
+    "elapsed_seconds": 2.655,
+    "owned_compensation_checks": 3,
+    "owned_compensation_errors": 0,
+    "passed": 44,
+    "total": 44
+  },
+  "image_source_revision": "6141a7192e3d6970be9e67230da14b64da1c8894",
+  "limits": "HTTP loopback/noProxy15s request cap; exact immutable-image helper180s/240s outer bounds; backend probe90s,.5CPU256MiB,noSwap64PIDs/networknone/read-only/nonroot",
+  "readiness_limitations": [
+    "Retains the original6141 hosted backend failure and failed capacity comparison; these focused/native results do not clear either hosted gate.",
+    "No SMTP handshake, external provider execution, scheduler publication or model semantic qualification was performed."
+  ],
+  "scope": "Fresh actual6141 native images; one execution per driver; no external provider calls",
+  "web_image_id": "sha256:509c66d0360ab6d6a3220473fe4ee67fb39498289c4b69c26f49d75fc12d1368",
+  "schema_version": 1,
+  "kind": "actual_native_6141_http_helpers_and_beat_tls_proof",
+  "status": "passed",
+  "release_clearance": false,
+  "source_proof_sha256": "9821c44258fec5741f4ed2e511b798ca925492f50e4c67e50e88e96e46794071",
+  "helper_applicability_controls_sha256": "5f1f0a82e74dda068946da1fdf61a1bc7a323d2e2106f14c51b4c08c6eca4093"
+}

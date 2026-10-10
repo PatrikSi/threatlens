@@ -10,6 +10,15 @@ from app.main import (
 
 PERMISSION_FREE_OPERATIONS = frozenset(
     {
+        ('POST', '/v1/mcp/oauth/token'),
+        ('POST', '/v1/notifications/automation/receivers/executions/{execution_id}/callbacks'),
+        ('GET', '/v1/notifications/automation/receivers/updates'),
+        ('POST', '/v1/notifications/automation/receivers/updates/{update_id}/ack'),
+        ('GET', '/v1/publication-distribution/status'),
+        ('GET', '/v1/publication-distribution/changes'),
+        ('POST', '/v1/publication-distribution/acknowledgements'),
+        ('POST', '/v1/publication-distribution/reset'),
+
         ("GET", "/v1/auth/registration-settings"),
         ("POST", "/v1/auth/register"),
         ("POST", "/v1/auth/login"),
@@ -46,6 +55,19 @@ PERMISSION_FREE_OPERATIONS = frozenset(
 
 ADMIN_ONLY_OPERATIONS = frozenset(
     {
+        ('GET', '/v1/ai/quota-groups/{group_id}/utilization'),
+        ('GET', '/v1/ai/team-governance/{team_id}'),
+        ('PUT', '/v1/ai/team-governance/{team_id}'),
+        ('POST', '/v1/ai/articles/{item_id}/continue'),
+        ('GET', '/v1/ai/providers/{provider_id}/qualifications'),
+        ('POST', '/v1/ai/providers/{provider_id}/qualifications'),
+        ('GET', '/v1/mcp/oauth/clients'),
+        ('POST', '/v1/mcp/oauth/clients'),
+        ('DELETE', '/v1/mcp/oauth/clients/{client_id}'),
+
+        ("GET", "/v1/ai/quota-groups"),
+        ("POST", "/v1/ai/quota-groups"),
+        ("PUT", "/v1/ai/quota-groups/{group_id}"),
         ("GET", "/v1/auth/oidc/provider"),
         ("PUT", "/v1/auth/oidc/provider"),
         ("POST", "/v1/auth/oidc/provider/test"),
@@ -107,6 +129,8 @@ ADMIN_ONLY_OPERATIONS = frozenset(
 
 OPERATOR_ONLY_OPERATIONS = frozenset(
     {
+        ("POST", "/v1/notifications/credential-profiles"),
+        ("PATCH", "/v1/notifications/credential-profiles/{profile_id}"),
         ("POST", "/v1/notifications/webhooks"),
         ("PATCH", "/v1/notifications/webhooks/{webhook_id}"),
         ("DELETE", "/v1/notifications/webhooks/{webhook_id}"),

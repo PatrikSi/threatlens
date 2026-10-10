@@ -515,10 +515,19 @@ jobs:
           before starting this Compose version. See docs/pages/database-privileges.md in
           this release. Preserve existing database credentials and volumes.
 
-          Pinned Compose install (after configuration and any required cutover):
+          Review the [version-specific upgrade requirements](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/docs/releases/${app_version}.md)
+          and verify a pre-upgrade backup before applying migrations. Stop every application
+          writer before running the dedicated migration service; mixed old/new API and worker
+          processes are unsupported. Use the same environment and Compose selection for every command.
 
-              THREATLENS_IMAGE_TAG=${app_version} docker compose pull
-              THREATLENS_IMAGE_TAG=${app_version} docker compose up -d
+          Pinned Compose upgrade (after configuration and any required cutover):
+
+              export THREATLENS_IMAGE_TAG=${app_version}
+              docker compose pull
+              docker compose stop --timeout 300 api beat worker worker-ai worker-exports worker-maintenance worker-notifications
+              docker compose run --rm migrate
+              docker compose up -d --wait
+              docker compose ps
           EOF
 
       - name: Publish GitHub release

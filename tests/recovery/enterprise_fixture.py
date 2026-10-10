@@ -8,6 +8,7 @@ import uuid
 from sqlalchemy import func, select
 
 from app.db.session import SessionLocal
+from app.models.ai_settings import AISettings
 from app.models.alert_interest import AlertInterest
 from app.models.audit_log import AuditLog
 from app.models.iam import IAMGroup, IAMGroupMembership
@@ -18,6 +19,7 @@ from app.models.report_section import ReportSection
 from app.models.report_source_item import ReportSourceItem
 from app.models.saved_view import SavedView
 from app.models.team import Team
+from app.models.team_ai_context import TeamAIContext
 from app.models.user import User
 from app.models.workspace import WorkspaceRolePolicy
 from app.schemas.report_editorial import ReportEditorialTransition
@@ -79,6 +81,17 @@ def seed() -> None:
                     escalation_after_minutes=30,
                 ),
             ]
+        )
+        db.add(
+            TeamAIContext(
+                team_id=identity(2),
+                technology_stack=["Synthetic Linux fleet", "Synthetic Kubernetes cluster"],
+                priorities=["Recovery validation"],
+                available_telemetry=["Synthetic process events", "Synthetic audit logs"],
+                relevance_criteria="Prioritize the synthetic recovery environment.",
+                version=7,
+                updated_by_user_id=owner.id,
+            )
         )
         policy = db.get(WorkspaceRolePolicy, "analyst")
         policy.landing_mode = "enforced"
@@ -152,6 +165,18 @@ def verify() -> None:
     with SessionLocal() as db:
         team = db.get(Team, identity(2))
         assert team.membership_group_id == identity(1)
+        context = db.get(TeamAIContext, team.id)
+        assert context.technology_stack == ["Synthetic Linux fleet", "Synthetic Kubernetes cluster"]
+        assert context.priorities == ["Recovery validation"]
+        assert context.available_telemetry == ["Synthetic process events", "Synthetic audit logs"]
+        assert context.relevance_criteria == "Prioritize the synthetic recovery environment."
+        assert context.version == 7
+        assert context.updated_by_user_id == db.scalar(
+            select(User.id).where(User.email == "recovery-e2e@invalid.example")
+        )
+        ai_settings = db.scalar(select(AISettings))
+        assert ai_settings.structured_extraction_enabled is False
+        assert ai_settings.hunt_suggestions_enabled is False
         assert db.get(SavedView, identity(3)).team_id == team.id
         assert db.get(Investigation, identity(4)).team_id == team.id
         rule = db.get(AlertInterest, identity(5))

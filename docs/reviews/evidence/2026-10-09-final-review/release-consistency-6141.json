@@ -1,0 +1,46 @@
+{
+  "candidate_revision": "6141a7192e3d6970be9e67230da14b64da1c8894",
+  "contract_anchor_and_file_hash_are_distinct": true,
+  "matched_baseline_runtime_harness_git_objects": {
+    "backend/tests/capacity/sustained.py": {
+      "6141a7192e3d6970be9e67230da14b64da1c8894": "ea813300de160f805cebc2f782e13b5d871a7359",
+      "b73a3363fc0cb7354e36d3f92b2394448a459d02": "ea813300de160f805cebc2f782e13b5d871a7359"
+    },
+    "backend/tests/capacity/test_concurrent_workload.py": {
+      "6141a7192e3d6970be9e67230da14b64da1c8894": "32e9e8210660fd3a7c6b102ef92d4a60561d9882",
+      "b73a3363fc0cb7354e36d3f92b2394448a459d02": "32e9e8210660fd3a7c6b102ef92d4a60561d9882"
+    },
+    "backend/tests/capacity/workload_support.py": {
+      "6141a7192e3d6970be9e67230da14b64da1c8894": "ec7d64b800d1d9dac2287c37dc1e0fa062192569",
+      "b73a3363fc0cb7354e36d3f92b2394448a459d02": "ec7d64b800d1d9dac2287c37dc1e0fa062192569"
+    }
+  },
+  "matched_harness_blobs_equal": true,
+  "openapi_file_sha256": "0e61be87290ac88864058898142e6b85c0729be56b5c10078255890e1633ef01",
+  "prepared_version_aligned": true,
+  "publication_or_merge_performed_by_reviewer": false,
+  "readiness_claim": false,
+  "release_notes_contract_anchor_matches": true,
+  "release_notes_version_matches": true,
+  "schema_version": 1,
+  "source_sha256": {
+    "VERSION": "c89b87c262e9d5ffd20e73aac74a1772adcc9f5a21682cc33adcf5086e5fef5c",
+    "backend/app/version.py": "2423fa89c5f141592d4dfa54006751bd3bc08816711b29ef377d85e7e7a9bf13",
+    "backend/requirements-lock.txt": "c42689b53244004ad12e17ba4f0ea5f12b8e30d16ee56565b93ca0d2d0ab1ef1",
+    "backend/requirements.txt": "9f623337c1b124a6ea4e5cf140c1de676d53e63814c34843070a3a8757fcf0bc",
+    "docs/reference/openapi.json": "0e61be87290ac88864058898142e6b85c0729be56b5c10078255890e1633ef01",
+    "docs/releases/2.1.0.md": "e886464a3c8f183469987e9935ad634b6653b8c664597c41e9826af18c961b34",
+    "web/package-lock.json": "ff0c8a90497ff530bc41335654a59f644226e0782773f1454ab0a42afda8e64b",
+    "web/package.json": "bd0803202af4a09cfad0f838e8885b8e22958acfd3d80d5eee0a295f93f0aa39"
+  },
+  "upgrade_bounded_stop_all_writers_then_dedicated_migration_then_up_wait": true,
+  "version_values": {
+    "backend_fallback": "2.1.0",
+    "openapi_info": "2.1.0",
+    "version_file": "2.1.0",
+    "web_lock_package_root": "2.1.0",
+    "web_lock_top": "2.1.0",
+    "web_package": "2.1.0"
+  },
+  "versioned_openapi_contract_anchor": "a608ae21656a8d50f83919e01a16751720c1199a7f4cd552465770bd3df16aaa"
+}

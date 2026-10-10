@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { MemoryRouter } from 'react-router-dom'
+import { TestDataRouter, testRouter } from '../../tests/helpers/TestDataRouter'
 
 import { act } from 'react'
 import { createRoot, Root } from 'react-dom/client'
@@ -514,7 +514,7 @@ function renderPage() {
   document.body.appendChild(container)
   root = createRoot(container)
   act(() => {
-    root?.render(<MemoryRouter><AiSettingsPage /></MemoryRouter>)
+    root?.render(<TestDataRouter><AiSettingsPage /></TestDataRouter>)
   })
   return container
 }
@@ -662,7 +662,7 @@ describe('AiSettingsPage DOM workflows', () => {
       report_reserved_output_tokens: 32768,
       report_context_window_tokens: 262144,
     }
-    act(() => root!.render(<MemoryRouter><AiSettingsPage /></MemoryRouter>))
+    act(() => root!.render(<TestDataRouter><AiSettingsPage /></TestDataRouter>))
     expect(summary.textContent).toContain('32,768 tokens')
     expect(summary.textContent).toContain('262,144 tokens')
     expect(summary.querySelector('[role="status"]')).toBeNull()
@@ -674,10 +674,13 @@ describe('AiSettingsPage DOM workflows', () => {
       act(() => getButton('Configuration')?.click())
       const link = view.querySelector<HTMLAnchorElement>('a[href="#ai-report-budget-controls"]')!
       const controls = view.querySelector<HTMLElement>('#ai-report-budget-controls')!
+      const section = controls.closest('details')!
+      expect(section.open).toBe(false)
       expect(link.textContent).toBe('Review report budget controls')
       expect(controls.getAttribute('aria-label')).toBe('Report context guardrails')
       link.focus()
       act(() => link.click())
+      expect(section.open).toBe(true)
       expect(document.activeElement).toBe(controls)
       expect(controls.querySelector('input[aria-label="Initial report completion tokens"]')).not.toBeNull()
       act(() => getButton('Jobs')?.click())
@@ -720,7 +723,7 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(fields.every((field) => field.matches(':disabled'))).toBe(true)
     expect(pageText()).toContain('Saving AI settings. Editing resumes')
     aiSettingsPageDomMocks.savePending = false
-    act(() => root?.render(<MemoryRouter><AiSettingsPage /></MemoryRouter>))
+    act(() => root?.render(<TestDataRouter><AiSettingsPage /></TestDataRouter>))
     expect(view.querySelector('fieldset input')?.matches(':disabled')).toBe(false)
     const endpoint = view.querySelector<HTMLInputElement>('input[aria-label="Base URL"]')!
     expect(endpoint.getAttribute('aria-describedby')).toBe('legacy-provider-endpoint-help')
@@ -729,7 +732,7 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(view.querySelector('#legacy-provider-endpoint-help')?.textContent).toContain('AI_API_KEY_BASE_URL')
   })
 
-  it('keeps select navigation through large viewports and switches to sidebar tabs at extra large', () => {
+  it('keeps compact select navigation and full-width desktop tabs without a second sidebar', () => {
     const view = renderPage()
     const mobileSection = view.querySelector<HTMLSelectElement>('#mobile-ai-settings-section')
     const desktopTabs = view.querySelector<HTMLElement>('[aria-label="AI automation sections"]')
@@ -746,17 +749,51 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(mobileSection?.closest('label')?.className).toContain('xl:hidden')
     expect(mobileSection?.closest('label')?.className).not.toContain('lg:hidden')
     expect(mobileSection?.previousElementSibling?.className).toContain('sr-only')
-    expect(compactNavigation?.className).toContain('md:grid-cols-[minmax(180px,0.75fr)_minmax(0,1.25fr)]')
-    expect(compactNavigation?.className).toContain('xl:block')
+    expect(compactNavigation?.className).toContain('min-w-0')
     expect(desktopTabs?.className).toContain('hidden')
     expect(desktopTabs?.className).toContain('xl:grid')
     expect(desktopTabs?.className).not.toContain('lg:grid')
     expect(view.firstElementChild?.className).toContain('space-y-3')
     expect(navigation?.className).toContain('p-3')
-    expect(workspace?.className).toContain('gap-3')
-    expect(workspace?.className).toContain('xl:grid-cols-[280px_minmax(0,1fr)]')
-    expect(workspace?.className).not.toContain('lg:grid-cols-[280px_minmax(0,1fr)]')
+    expect(workspace?.className).toContain('space-y-3')
+    expect(workspace?.className).not.toContain('grid-cols-')
     expect(view.textContent).not.toContain('Review status, work with queued jobs, or change provider and feature settings.')
+  })
+
+  it('retains mounted shared drafts while configuration sections collapse', () => {
+    const view = renderPage()
+    act(() => getButton('Configuration')?.click())
+    const legacy = view.querySelector<HTMLDetailsElement>('#ai-legacy-settings')!
+    const context = view.querySelector<HTMLDetailsElement>('#ai-context-settings')!
+    const endpoint = legacy.querySelector<HTMLInputElement>('input[aria-label="Base URL"]')!
+    act(() => legacy.querySelector('summary')!.click())
+    act(() => setInputValue(endpoint, 'https://draft.example.test/v1'))
+    act(() => legacy.querySelector('summary')!.click())
+    act(() => context.querySelector('summary')!.click())
+    expect(legacy.open).toBe(false)
+    expect(context.open).toBe(true)
+    expect(endpoint.isConnected).toBe(true)
+    expect(endpoint.value).toBe('https://draft.example.test/v1')
+    act(() => legacy.querySelector('summary')!.click())
+    expect(legacy.querySelector('input[aria-label="Base URL"]')).toBe(endpoint)
+    expect(view.textContent).toContain('Unsaved shared settings')
+  })
+
+  it('reveals and focuses invalid fields in collapsed settings without discarding their values', () => {
+    const view = renderPage()
+    act(() => getButton('Configuration')?.click())
+    const section = view.querySelector<HTMLDetailsElement>('#ai-report-settings')!
+    const output = section.querySelector<HTMLInputElement>('input[aria-label="Initial report completion tokens"]')!
+    act(() => section.querySelector('summary')!.click())
+    act(() => setInputValue(output, '12'))
+    act(() => section.querySelector('summary')!.click())
+    expect(section.open).toBe(false)
+    expect(getButton('Save changes')?.disabled).toBe(true)
+    const review = Array.from(view.querySelectorAll('button')).find((button) => /^Review \d+ field/.test(button.textContent ?? ''))!
+    act(() => review.click())
+    expect(section.open).toBe(true)
+    expect(document.activeElement).toBe(output)
+    expect(output.value).toBe('12')
   })
 
   it('blocks queued AI work when the saved endpoint is not configured', () => {
@@ -986,26 +1023,21 @@ describe('AiSettingsPage DOM workflows', () => {
       setInputValue(startTimeInput!, '2026-04-21T08:30')
     })
 
-    expect(routerMocks.useBlocker).toHaveBeenLastCalledWith(true)
+    act(() => { void testRouter().navigate('/test-away') })
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+    act(() => getButton('Cancel')!.click())
 
     act(() => {
       queueButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     expect(aiSettingsPageDomMocks.reprocessMutate).toHaveBeenCalledTimes(1)
-    expect(routerMocks.useBlocker).toHaveBeenLastCalledWith(false)
+    act(() => { void testRouter().navigate('/test-away') })
+    expect(testRouter().state.location.pathname).toBe('/test-away')
     expect(view.textContent).not.toContain('Discard unsaved changes?')
   })
 
   it('warns on blocked navigation when a reprocess scope is in progress', () => {
-    const proceed = vi.fn()
-    const reset = vi.fn()
-    routerMocks.useBlocker.mockReturnValue({
-      state: 'blocked' as const,
-      proceed,
-      reset,
-    })
-
     renderPage()
 
     act(() => {
@@ -1015,10 +1047,12 @@ describe('AiSettingsPage DOM workflows', () => {
     const startTimeInput = getLabeledInput('Start time') as HTMLInputElement | null
     expect(startTimeInput).not.toBeNull()
 
+
     act(() => {
       setInputValue(startTimeInput!, '2026-04-21T08:30')
     })
 
+    act(() => { void testRouter().navigate('/test-away') })
     expect(pageText()).toContain('Discard unsaved changes?')
     expect(pageText()).toContain('You have a reprocess scope in progress. Leave without queueing or clearing it?')
 
@@ -1026,8 +1060,7 @@ describe('AiSettingsPage DOM workflows', () => {
       getButton('Discard changes')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(proceed).toHaveBeenCalledTimes(1)
-    expect(reset).not.toHaveBeenCalled()
+    expect(testRouter().state.location.pathname).toBe('/test-away')
   })
 
   it('confirms before clearing a built reprocess scope', () => {

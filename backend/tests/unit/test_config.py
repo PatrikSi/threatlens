@@ -1,4 +1,7 @@
+import traceback
+
 import pytest
+from pydantic import ValidationError
 
 from app.core.config import Settings
 
@@ -22,6 +25,39 @@ def production_settings_kwargs(**overrides):
     }
     kwargs.update(overrides)
     return kwargs
+
+
+@pytest.mark.parametrize("rendering", ["str", "repr", "traceback"])
+@pytest.mark.parametrize("visible_secret", [
+    "ai_api_key", "admin_password", "jwt_secret", "app_data_encryption_key",
+])
+def test_settings_validation_error_rendering_hides_supplied_secrets(rendering, visible_secret):
+    message = (
+        "admin_password must not use a default or placeholder value "
+        "when seed_admin_on_startup is enabled"
+    )
+    supplied = {
+        "ai_api_key": "ai42",
+        "admin_password": "replace-with-adm42",
+        "jwt_secret": "jwt42",
+        "app_data_encryption_key": "enc42",
+        "seed_admin_on_startup": True,
+    }
+    # Pydantic truncates long input dictionaries in rendered errors. Move each
+    # short secret to the visible edge so truncation cannot mask disclosure.
+    supplied[visible_secret] = supplied.pop(visible_secret)
+    with pytest.raises(ValidationError, match=message) as error:
+        Settings(_env_file=None, _env_prefix="THREATLENS_ERROR_TEST_", **supplied)
+
+    if rendering == "traceback":
+        rendered = "".join(traceback.format_exception(error.value))
+    else:
+        rendered = {"str": str, "repr": repr}[rendering](error.value)
+
+    assert message in rendered
+    assert not any(marker in rendered for marker in ("ai42", "adm42", "jwt42", "enc42")), (
+        "Validation error rendered a supplied secret"
+    )
 
 
 def test_cors_origins_parses_csv():
@@ -333,6 +369,8 @@ def test_logging_settings_normalize_supported_values():
         "export_pdf_max_items",
         "export_preview_limit",
         "export_max_uncompressed_bytes",
+        "export_download_preparation_timeout_seconds",
+        "export_download_scratch_headroom_bytes",
         "export_lock_ttl_seconds",
     ],
 )

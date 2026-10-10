@@ -1,0 +1,120 @@
+{
+  "application_source_revision": "a6c07f7f2718cd4f9a6caab823b481fc2ac7525e",
+  "budget_violations": {},
+  "cleanup_error_count": 0,
+  "cleanup_remaining_count": 0,
+  "cleanup_status": "passed",
+  "coverage": {
+    "governance_operations": 5,
+    "host_samples": 13,
+    "lane_starts": 5,
+    "lock_samples": 111,
+    "operation_events": 17,
+    "query_events": 366
+  },
+  "diagnostic_errors": [],
+  "diagnostic_sha256": "1104e78b1bc376f37c0dd41624ea8728a5425c3f022576ef02b54ecd7e3a9940",
+  "diagnostic_status": "passed",
+  "dropped_events": {
+    "host": 0,
+    "lanes": 0,
+    "locks": 0,
+    "operations": 0,
+    "queries": 0,
+    "transactions": 0
+  },
+  "duration_seconds": 10,
+  "elapsed_seconds": 29.9,
+  "exit_code": 0,
+  "frozen_application_sources_unchanged": true,
+  "independent_source_review_sha256": "e831664ccaba817bb216ac2d6c42b559523d451b0b9a78d084c4ae70ccdde586",
+  "independent_verifier_exit_code": 0,
+  "isolated_controls": {
+    "observer": {
+      "elapsed_seconds": 0.13,
+      "log_sha256": "14ce6f3e0f0c8063bf4ee47a818cd266ef1bcafbd086e0e43d61df88e4609a66",
+      "passed": 20
+    },
+    "wrapper_and_cleanup": {
+      "elapsed_seconds": 0.51,
+      "passed": 23
+    }
+  },
+  "kind": "short-local-observer-integration-validation",
+  "limitations": [
+    "Ten-second local probe validates real injection, capture and cleanup; it is not a sustained or comparative release qualification.",
+    "Observer overhead and decimated waiter observations perturb timing. Both references must use the same observer identity.",
+    "Queries and parameter values are not serialized; numeric per-run connection aliases are used.",
+    "Query age while Lock-waiting is not exact lock-wait duration; transaction-end requests do not prove exact release times."
+  ],
+  "limits": {
+    "cpu_count": 1,
+    "max_rss_mib": 1024,
+    "original_postgres_cpus": 0.5,
+    "original_postgres_memory_mib": 512,
+    "original_redis_cpus": 0.5,
+    "original_redis_memory_mib": 128,
+    "original_workload_wall_timeout_seconds": 250
+  },
+  "log_sha256": "2106f7d4c60edad548e80a537563e71718a2c3be01121654370606cd61e1de42",
+  "measurement_status": "passed",
+  "observer_lock_sql": {
+    "count": 111,
+    "max_ms": 3.483,
+    "total_ms": 48.935
+  },
+  "observer_overhead": {
+    "pool_return": {
+      "count": 250,
+      "max_ms": 0.045,
+      "total_ms": 1.347
+    },
+    "query_after": {
+      "count": 5923,
+      "max_ms": 0.528,
+      "total_ms": 6.16
+    },
+    "query_before": {
+      "count": 5923,
+      "max_ms": 4.313,
+      "total_ms": 78.166
+    },
+    "sampler": {
+      "count": 507,
+      "max_ms": 3.493,
+      "total_ms": 56.102
+    },
+    "transaction_begin": {
+      "count": 756,
+      "max_ms": 0.029,
+      "total_ms": 5.044
+    },
+    "transaction_commit": {
+      "count": 722,
+      "max_ms": 0.105,
+      "total_ms": 3.717
+    },
+    "transaction_rollback": {
+      "count": 34,
+      "max_ms": 0.007,
+      "total_ms": 0.153
+    }
+  },
+  "observer_source_sha256": {
+    "capacity_diagnostics.py": "2827b87b6c7391c78e60c548b18ee16d550289d3a3cc6ed17c5b280e21ef0017",
+    "capacity_diagnostics_plugin.py": "bc4273c9a6bdbd31a324ddf95fa574e676abf02d6f76a6b22b9d493546de8eec",
+    "run_capacity_diagnostic.py": "1f78dc509a7bcaf9d1fde62f79ee4242dc5dba0b4b967b4fc6f62765683f903e"
+  },
+  "release_capacity_qualification": false,
+  "sampler": {
+    "gap_max_ns": 396270543,
+    "gap_mean_ns": 25893284,
+    "observations": 507
+  },
+  "source_dirty": false,
+  "workload_completed": {
+    "ai": 5,
+    "exports": 5,
+    "governance": 5
+  }
+}

@@ -117,6 +117,10 @@ def emit_integration_event(
         payload=payload,
         requested_schema_version=schema_version,
     )
+    from app.services.webhook_event_metadata import add_routing_metadata
+    add_routing_metadata(db, event_type=event_type, payload=resolved_payload)
+    from app.services.webhook_article_text import add_article_reference
+    add_article_reference(db, payload=resolved_payload)
     emitted_at = datetime.now(timezone.utc)
     event = IntegrationEvent(
         event_type=event_type,
@@ -666,6 +670,10 @@ def hydrate_integration_event_payload_resources(
     item_id = _payload_uuid(payload, "item_id", event_type=event_type, required=False)
     feed_id = _payload_uuid(payload, "feed_id", event_type=event_type, required=False)
     item = db.get(Item, item_id) if item_id is not None else None
+    if item is not None:
+        # Old envelopes never captured article identity. Newly selected fields
+        # cannot silently turn their current body into historical evidence.
+        item.article_text_reference = payload.get("article_text_reference")
     if item_id is not None and item is None:
         raise IntegrationEventContextError(f"Item {item_id} no longer exists")
     resolved_feed_id = feed_id or getattr(item, "feed_id", None)
@@ -970,6 +978,8 @@ def _namespace_from_item_snapshot(value: object) -> SimpleNamespace:
             snapshot.get("first_seen_at"), label="item.first_seen_at"
         ),
         status=str(snapshot.get("status") or "new"),
+        article_text_reference=snapshot.get("article_text_reference"),
+        ai_relevance=snapshot.get("ai_relevance"),
     )
 
 

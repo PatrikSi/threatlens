@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { TestDataRouter, testRouter } from '../../tests/helpers/TestDataRouter'
 
 import { act } from 'react'
 import { createRoot, Root } from 'react-dom/client'
@@ -212,6 +213,7 @@ vi.mock('@tanstack/react-query', () => ({
   },
   useMutation: (options: {
     mutationKey?: unknown
+    mutationFn?: (variables: never) => unknown
     gcTime?: number
     onMutate?: (variables: never) => void
     onSuccess?: (data: never, variables: never) => void
@@ -262,7 +264,13 @@ vi.mock('@tanstack/react-query', () => ({
           const record = createRecord(payload)
           options.onMutate?.(payload as never)
           usersPageDomMocks.mutate(payload)
-          finish(record, payload, {})
+          void Promise.resolve(options.mutationFn?.(payload as never)).then(
+            (data) => finish(record, payload, data),
+            (error) => {
+              usersPageDomMocks.nextMutationErrors[mutationKey] = error
+              finish(record, payload, undefined)
+            },
+          )
         },
         reset,
         isPending: false,
@@ -377,7 +385,7 @@ function renderPage() {
   document.body.appendChild(container)
   root = createRoot(container)
   act(() => {
-    root?.render(<UsersPage />)
+    root?.render(<TestDataRouter><UsersPage /></TestDataRouter>)
   })
   return container
 }
@@ -398,7 +406,7 @@ function flushPromises() {
 
 function rerenderPage() {
   act(() => {
-    root?.render(<UsersPage />)
+    root?.render(<TestDataRouter><UsersPage /></TestDataRouter>)
   })
 }
 
@@ -998,6 +1006,89 @@ describe('UsersPage DOM workflows', () => {
       expect(credentialMutationVariables(['users', 'create'])).toHaveLength(0)
     })
     expect(passwordInput?.value).toBe('')
+  })
+
+  it.each([
+    { category: 'Unicode local part', email: 'revi\u00e9w@example.com' },
+    { category: 'Unicode domain', email: 'review@\u00e9xample.com' },
+    { category: 'Unicode astral local part', email: '\u{1f512}@example.com' },
+  ])('reviews and posts a local user with a $category email', async ({ email }) => {
+    const view = renderPage()
+    const createToggle = Array.from(view.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent?.trim() === 'Add local user')!
+    act(() => createToggle.click())
+    const form = view.querySelector<HTMLFormElement>('#create-user-form')!
+    const emailInput = form.querySelector<HTMLInputElement>('#create-user-email')!
+    const passwordInput = form.querySelector<HTMLInputElement>('#create-user-password')!
+    const reviewButton = form.querySelector<HTMLButtonElement>('button')!
+    let submitEvents = 0
+    form.addEventListener('submit', () => submitEvents++)
+    act(() => {
+      setInputValue(emailInput, email)
+      setInputValue(passwordInput, 'initial-password')
+    })
+
+    const constraintAdmitted = form.checkValidity()
+    act(() => reviewButton.click())
+    const requestsBeforeConfirmation = usersPageDomMocks.apiFetch.mock.calls
+      .filter(([path, options]) => path === '/users' && options?.method === 'POST')
+    expect({ constraintAdmitted, submitEvents, requestsBeforeConfirmation: requestsBeforeConfirmation.length })
+      .toEqual({ constraintAdmitted: true, submitEvents: 1, requestsBeforeConfirmation: 0 })
+    expect(pageText()).toContain('Create local user account?')
+    expect(pageText()).toContain(email)
+    expect(usersPageDomMocks.mutate).not.toHaveBeenCalled()
+
+    const confirmButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent?.trim() === 'Create local user')!
+    await act(async () => {
+      confirmButton.click()
+      await flushPromises()
+    })
+    expect(usersPageDomMocks.apiFetch).toHaveBeenCalledWith('/users', {
+      method: 'POST',
+      body: JSON.stringify({
+        email,
+        password: 'initial-password',
+        role: 'viewer',
+        is_active: true,
+        is_approved: true,
+      }),
+    })
+    expect(usersPageDomMocks.apiFetch.mock.calls
+      .filter(([path, options]) => path === '/users' && options?.method === 'POST'))
+      .toHaveLength(1)
+    await vi.waitFor(() => {
+      expect(credentialMutationVariables(['users', 'create'])).toHaveLength(0)
+    })
+    expect(emailInput.value).toBe('')
+    expect(passwordInput.value).toBe('')
+  })
+
+  it.each([
+    { field: 'email', email: '', password: 'initial-password' },
+    { field: 'password', email: 'new-user@example.com', password: '' },
+  ])('blocks local-user review and API submission with an empty required $field', ({ email, password }) => {
+    const view = renderPage()
+    const createToggle = Array.from(view.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent?.trim() === 'Add local user')!
+    act(() => createToggle.click())
+    const form = view.querySelector<HTMLFormElement>('#create-user-form')!
+    const reviewButton = form.querySelector<HTMLButtonElement>('button')!
+    let submitEvents = 0
+    form.addEventListener('submit', () => submitEvents++)
+    act(() => {
+      setInputValue(form.querySelector<HTMLInputElement>('#create-user-email')!, email)
+      setInputValue(form.querySelector<HTMLInputElement>('#create-user-password')!, password)
+      reviewButton.click()
+    })
+
+    expect(form.checkValidity()).toBe(false)
+    expect(submitEvents).toBe(0)
+    expect(pageText()).not.toContain('Create local user account?')
+    expect(usersPageDomMocks.mutate).not.toHaveBeenCalled()
+    expect(usersPageDomMocks.apiFetch.mock.calls
+      .filter(([path, options]) => path === '/users' && options?.method === 'POST'))
+      .toHaveLength(0)
   })
 
   it('uses zero-retention mutation caches for every administrator credential workflow', () => {
@@ -1642,8 +1733,7 @@ describe('UsersPage DOM workflows', () => {
       setSelectValue(roleSelect!, 'admin')
     })
 
-    routerMocks.blocker.state = 'blocked'
-    rerenderPage()
+    act(() => { void testRouter().navigate('/test-away') })
 
     expect(pageText()).toContain('Discard unsaved changes?')
     expect(pageText()).toContain('Discard unsaved user changes?')
@@ -1657,10 +1747,9 @@ describe('UsersPage DOM workflows', () => {
       cancelButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(routerMocks.blocker.reset).toHaveBeenCalledTimes(1)
+    expect(testRouter().state.location.pathname).not.toBe('/test-away')
 
-    routerMocks.blocker.state = 'blocked'
-    rerenderPage()
+    act(() => { void testRouter().navigate('/test-away') })
 
     const discardButton = Array.from(document.querySelectorAll('button')).find(
       (button) => button.textContent?.includes('Discard changes'),
@@ -1671,7 +1760,7 @@ describe('UsersPage DOM workflows', () => {
       discardButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(routerMocks.blocker.proceed).toHaveBeenCalledTimes(1)
+    expect(testRouter().state.location.pathname).toBe('/test-away')
   })
 
   it('treats a dirty create-user form as unsaved work before navigation', () => {
@@ -1685,8 +1774,7 @@ describe('UsersPage DOM workflows', () => {
       setInputValue(emailInput!, 'new-analyst@example.com')
     })
 
-    routerMocks.blocker.state = 'blocked'
-    rerenderPage()
+    act(() => { void testRouter().navigate('/test-away') })
 
     expect(pageText()).toContain('Discard unsaved changes?')
     expect(pageText()).toContain('Discard unsaved user changes?')
@@ -1723,8 +1811,7 @@ describe('UsersPage DOM workflows', () => {
         ?.value,
     ).toBe('temporary-password')
 
-    routerMocks.blocker.state = 'blocked'
-    rerenderPage()
+    act(() => { void testRouter().navigate('/test-away') })
 
     expect(pageText()).toContain('Discard unsaved user changes?')
   })

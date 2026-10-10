@@ -29,6 +29,7 @@ async function providerRoutes(page: Page) {
     item_enrichment_provider_id: null,
     daily_brief_provider_id: null,
     report_provider_id: null,
+    team_assessment_provider_id: null,
   }
   const writes: string[] = []
   await page.route('**/api/v1/ai/**', async (route) => {
@@ -37,6 +38,7 @@ async function providerRoutes(page: Page) {
     const method = route.request().method()
     if (method !== 'GET') writes.push(path)
     if (path === '/ai/settings') return route.fulfill({ json: savedSettings })
+    if (path === '/ai/quota-groups') return route.fulfill({ json: { items: [], total: 0, limit: 100, offset: 0 } })
     if (path === '/ai/ops/overview')
       return route.fulfill({ status: 503, json: { detail: 'Overview unavailable in this fixture' } })
     if (path === '/ai/ops/live')
@@ -112,7 +114,7 @@ test('adds, tests, assigns and deletes an AI provider using accessible keyboard 
   const state = await providerRoutes(page)
   await page.goto('/settings/ai')
   await page.getByRole('tab', { name: 'Configuration', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Legacy provider', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Provider connections', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Add provider', exact: true }).focus()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('heading', { name: 'New provider', exact: true })).toBeFocused()
@@ -175,3 +177,47 @@ test('keeps provider drafts across AI tabs and confirms navigation before discar
   await expect(page.getByLabel('Provider name', { exact: true })).toHaveValue('Unsaved local model')
   expect(state.writes).toEqual([])
 })
+
+for (const width of [390, 1440]) {
+  test(`organizes AI configuration and reveals retained drafts and validation at ${width}px`, async ({ page, api }, info) => {
+    api.identity = {
+      ...api.identity, role: 'admin',
+      features: { ...api.identity.features, ai_enabled: true, ai_configured: true },
+    }
+    const state = await providerRoutes(page)
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto('/settings/ai')
+    if (width < 1280) await page.getByRole('combobox', { name: 'Section', exact: true }).selectOption('configuration')
+    else await page.getByRole('tab', { name: 'Configuration', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Saved report budgets' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Legacy provider', exact: true })).toBeHidden()
+    await page.screenshot({ path: info.outputPath(`ai-configuration-collapsed-${width}.png`), fullPage: true })
+    const legacy = page.locator('#ai-legacy-settings')
+    await legacy.locator(':scope > summary').focus()
+    await page.keyboard.press('Enter')
+    const model = page.getByLabel('Model', { exact: true })
+    await model.fill('retained-draft-model')
+    await legacy.locator(':scope > summary').click()
+    await expect(model).toBeHidden()
+    await page.getByRole('link', { name: 'Review report budget controls' }).click()
+    await expect(page.getByRole('region', { name: 'Report context guardrails', exact: true })).toBeFocused()
+    const output = page.getByLabel('Initial report completion tokens', { exact: true })
+    await output.fill('12')
+    await page.locator('#ai-report-settings > summary').click()
+    await expect(output).toBeHidden()
+    await page.getByRole('button', { name: /^Review \d+ field/ }).click()
+    await expect(output).toBeFocused()
+    await expect(output).toHaveValue('12')
+    await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
+    await output.fill('1200')
+    await legacy.locator(':scope > summary').click()
+    await expect(model).toHaveValue('retained-draft-model')
+    await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled()
+    await expect(page.getByText('Unsaved shared settings', { exact: true })).toBeVisible()
+    const audit = await new AxeBuilder({ page }).analyze()
+    expect(audit.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }))).toEqual([])
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await page.screenshot({ path: info.outputPath(`ai-configuration-${width}.png`), fullPage: true })
+    expect(state.writes).toEqual([])
+  })
+}

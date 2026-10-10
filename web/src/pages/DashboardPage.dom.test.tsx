@@ -1444,6 +1444,36 @@ describe('DashboardPage DOM workflows', () => {
     expect(pageText()).not.toContain('#priority')
   })
 
+  it('lets keyboard users focus named RSS summary and full-article text readers', () => {
+    dashboardPageDomMocks.itemsData = [{
+      id: 'item-1', feed_id: 'feed-1', feed_name: 'Vendor Advisories',
+      title: 'Critical vendor bulletin', url: 'https://example.com/items/1',
+      canonical_url: null, summary: 'Plain summary without links.',
+      published_at: '2026-04-21T11:00:00Z', first_seen_at: '2026-04-21T11:00:00Z',
+      status: 'content_fetched', is_read: true, is_starred: false, tags: [],
+      ai_relevance_label: null,
+    }]
+    dashboardPageDomMocks.itemDetailById = {
+      'item-1': {
+        ...dashboardPageDomMocks.itemsData[0],
+        state: { is_read: true, is_starred: false, note: '', updated_at: '2026-04-21T11:00:00Z' },
+        article: { text: 'Plain article text without links.'.repeat(100), extraction_method: 'html', error: null },
+        classification: null, ai_insight: null,
+      },
+    }
+
+    const view = renderPage()
+    act(() => view.querySelector<HTMLButtonElement>('[aria-controls="rss-item-detail-item-1"]')?.click())
+
+    for (const name of ['RSS summary text', 'Full article text']) {
+      const reader = view.querySelector<HTMLElement>(`[role="region"][aria-label="${name} for Critical vendor bulletin"]`)
+      expect(reader).not.toBeNull()
+      expect(reader?.tabIndex).toBe(0)
+      act(() => reader?.focus())
+      expect(document.activeElement).toBe(reader)
+    }
+  })
+
   it('auto-marks unread items as read on expansion and tracks dirty note drafts', () => {
     Object.defineProperty(window, 'innerWidth', {
       configurable: true,
@@ -1494,16 +1524,17 @@ describe('DashboardPage DOM workflows', () => {
       itemToggleButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const itemDetail = view.querySelector<HTMLElement>('#rss-item-detail-item-1')
-    expect(itemDetail?.className).toContain('fixed')
-    expect(itemDetail?.textContent).toContain('Back')
+    const itemDetail = document.querySelector<HTMLElement>('#rss-item-detail-item-1')
+    const inspector = itemDetail?.closest('[role="dialog"]')
+    expect(inspector?.getAttribute('aria-modal')).toBe('true')
+    expect(inspector?.querySelector('[aria-label="Back to articles"]')).not.toBeNull()
 
     expect(dashboardPageDomMocks.readMutate).toHaveBeenCalledWith({
       itemId: 'item-1',
       isRead: true,
     })
 
-    const notesTextarea = view.querySelector<HTMLTextAreaElement>('[aria-label="Analyst notes for Critical vendor bulletin"]')
+    const notesTextarea = itemDetail?.querySelector<HTMLTextAreaElement>('[aria-label="Analyst notes for Critical vendor bulletin"]')
     expect(notesTextarea).not.toBeNull()
 
     act(() => {

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 import secrets
 import subprocess
@@ -16,20 +15,42 @@ import urllib.error
 import urllib.request
 import uuid
 
+from operations.qualification_runtime import require_local_docker
+
+
+def wait_for_initial_readiness(ready, *, seconds: int = 120) -> float:
+    """Allow worker startup and transient transport errors within one budget."""
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            return ready()
+        except (urllib.error.HTTPError, urllib.error.URLError,
+                TimeoutError, ConnectionResetError) as exc:
+            if isinstance(exc, urllib.error.HTTPError):
+                retryable = exc.code == 503
+            elif isinstance(exc, urllib.error.URLError):
+                retryable = isinstance(exc.reason, (TimeoutError, ConnectionResetError))
+            else:
+                retryable = True
+            if not retryable or time.monotonic() >= deadline:
+                raise
+            time.sleep(2)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
+    env = require_local_docker()
     directory = Path(tempfile.mkdtemp(prefix="threatlens-runtime-isolation-"))
     project = f"threatlens-isolation-{uuid.uuid4().hex[:12]}"
     pressure = f"{project}-memory-probe"
-    env = {key: value for key, value in os.environ.items()
-           if key in {"PATH", "HOME", "LANG", "XDG_RUNTIME_DIR"} or key.startswith("DOCKER_")}
     result = {"status": "failed", "project": project, "logs": str(directory)}
     compose: list[str] = []
     stress = None
+    pressure_requested = False
+    failure: BaseException | None = None
 
     def run(command: list[str], *, name: str, timeout: int = 240, check: bool = True):
         with (directory / f"{name}.log").open("w") as log:
@@ -67,6 +88,9 @@ def main() -> int:
         for name, image in (("backend", backend_image), ("web", web_image)):
             run(["docker", "build", "-f", f"docker/{name}.Dockerfile", "-t", image,
                  "--build-arg", f"VCS_REF={revision}", name], name=f"build-{name}", timeout=900)
+            image_id = output(["docker", "image", "inspect", "--format", "{{.Id}}", image])
+            assert image_id.startswith("sha256:") and len(image_id) == 71
+            result.setdefault("images", {})[name] = {"tag": image, "id": image_id}
         backend_services = ("api", "migrate", "worker", "worker-exports", "worker-ai",
                             "worker-maintenance", "worker-notifications", "beat")
         override = directory / "isolation.override.yml"
@@ -101,15 +125,7 @@ def main() -> int:
 
         # Compose health checks establish process liveness. Readiness also needs
         # the first scheduled Beat/worker round trip, which may occur a minute later.
-        startup_deadline = time.monotonic() + 120
-        while True:
-            try:
-                result["initial_readiness_ms"] = round(ready(), 2)
-                break
-            except urllib.error.HTTPError as exc:
-                if exc.code != 503 or time.monotonic() >= startup_deadline:
-                    raise
-                time.sleep(2)
+        result["initial_readiness_ms"] = round(wait_for_initial_readiness(ready), 2)
         probe = (
             "import os,tempfile; from pathlib import Path; "
             "p=Path('/app/forbidden-write'); "
@@ -132,6 +148,7 @@ def main() -> int:
         stress.wait(timeout=10)
         result["export_cpu_pressure_readiness"] = {"requests": len(latencies), "max_ms": round(max(latencies), 2)}
         # Exercise OOM isolation in a separate owned container, never on the host.
+        pressure_requested = True
         run(["docker", "create", "--name", pressure, "--label", f"threatlens.isolation={project}",
              "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
              "--memory", "128m", "--memory-swap", "128m", "--pids-limit", "32", "--cpus", "0.25",
@@ -147,20 +164,56 @@ def main() -> int:
         result["restart_recovered"] = True
         result["status"] = "passed"
         return 0
-    except Exception as exc:
+    except BaseException as exc:
+        failure = exc
         result["error_type"] = type(exc).__name__
         raise
     finally:
-        if stress is not None and stress.poll() is None:
-            stress.terminate()
-            stress.wait(timeout=10)
+        cleanup_errors = []
+        diagnostic_errors = []
+
+        def attempt(step, action, *, diagnostic=False):
+            errors = diagnostic_errors if diagnostic else cleanup_errors
+            try:
+                completed = action()
+                if completed is not None and completed.returncode:
+                    errors.append({"step": step, "error_type": "CommandFailed",
+                                   "returncode": completed.returncode})
+            except Exception as exc:
+                errors.append({"step": step, "error_type": type(exc).__name__})
+
+        if stress is not None:
+            def stop_stress():
+                if stress.poll() is None:
+                    stress.terminate()
+                    stress.wait(timeout=10)
+            attempt("stress-cleanup", stop_stress)
         if compose:
-            run([*compose, "logs", "--no-color", "--tail", "80"], name="service-logs", check=False)
-            run([*compose, "down", "--volumes", "--remove-orphans"], name="cleanup", check=False)
-        run(["docker", "rm", "-f", pressure], name="pressure-cleanup", check=False)
+            attempt("service-logs", lambda: run(
+                [*compose, "logs", "--no-color", "--tail", "80"], name="service-logs", check=False,
+            ), diagnostic=True)
+            attempt("cleanup", lambda: run(
+                [*compose, "down", "--volumes", "--remove-orphans"], name="cleanup", check=False,
+            ))
+        if pressure_requested:
+            attempt("pressure-cleanup", lambda: run(
+                ["docker", "rm", "-f", pressure], name="pressure-cleanup", check=False,
+            ))
+        if diagnostic_errors:
+            result["diagnostic_errors"] = diagnostic_errors
+        if cleanup_errors:
+            result["cleanup_errors"] = cleanup_errors
+            result["status"] = "failed"
+            result.setdefault("error_type", "RuntimeError")
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps(result, indent=2))
+        if cleanup_errors:
+            message = f"Owned qualification resource cleanup failed: {cleanup_errors}"
+            if failure is not None:
+                failure.add_note(message)
+            else:
+                raise RuntimeError(message)
 
 
 if __name__ == "__main__":

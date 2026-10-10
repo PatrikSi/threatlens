@@ -16,13 +16,22 @@ test('real AI provider settings preserve credentials and enforce versioned routi
   await signIn(page, identity)
   await page.goto('/settings/ai')
   await page.getByRole('tab', { name: 'Configuration', exact: true }).click()
+  const legacySettings = page.locator('#ai-legacy-settings > summary')
+  await legacySettings.click()
   await expect(page.getByRole('heading', { name: 'Legacy provider', exact: true })).toBeVisible()
+  await legacySettings.click()
   await page.getByRole('button', { name: 'Add provider', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'New provider', exact: true })).toBeFocused()
   const providerName = `Browser provider ${identity.id}`
   await page.getByLabel('Provider name', { exact: true }).fill(providerName)
   await page.getByLabel('Provider base URL', { exact: true }).fill('https://provider.example.invalid/v1')
   await page.getByLabel('Provider model', { exact: true }).fill('fixture-model')
   await page.getByLabel('Provider API key', { exact: true }).fill('isolated-browser-secret')
+  await expect(page.getByLabel('Provider name', { exact: true })).toHaveValue(providerName)
+  await expect(page.getByLabel('Provider base URL', { exact: true })).toHaveValue('https://provider.example.invalid/v1')
+  await expect(page.getByLabel('Provider model', { exact: true })).toHaveValue('fixture-model')
+  await expect(page.getByLabel('Provider API key', { exact: true })).toHaveValue('isolated-browser-secret')
+  await expect(page.getByRole('button', { name: 'Save provider', exact: true })).toBeEnabled()
   const createResponse = page.waitForResponse(
     (response) => response.url().endsWith('/ai/providers') && response.request().method() === 'POST',
   )
@@ -69,20 +78,29 @@ test('real AI provider settings preserve credentials and enforce versioned routi
 
   await page.getByRole('button', { name: 'Assign selected provider to default provider', exact: true }).click()
   await page.getByRole('button', { name: 'Assign selected provider to reports', exact: true }).click()
-  expect(await saveAssignments()).toMatchObject({ default_provider_id: provider.id, report_provider_id: provider.id })
+  await page.getByRole('button', { name: 'Assign selected provider to team assessments and hunt suggestions', exact: true }).click()
+  expect(await saveAssignments()).toMatchObject({
+    default_provider_id: provider.id, report_provider_id: provider.id, team_assessment_provider_id: provider.id,
+  })
   const routing = await (await page.request.get('/api/v1/ai/provider-routing')).json()
   expect(routing).toMatchObject({
     default_provider_id: provider.id,
     report_provider_id: provider.id,
     item_enrichment_provider_id: null,
+    team_assessment_provider_id: provider.id,
   })
   const effective = await (await page.request.get('/api/v1/ai/settings')).json()
-  expect(effective.effective_feature_configured).toEqual({ item_enrichment: true, daily_brief: true, report: true })
+  expect(effective.effective_feature_configured).toEqual({
+    item_enrichment: true, team_assessment: true, daily_brief: true, report: true,
+  })
   await expect(page.getByRole('button', { name: 'Delete provider', exact: true })).toBeDisabled()
 
   await page.getByRole('button', { name: 'Use legacy settings for default provider', exact: true }).click()
   await page.getByRole('button', { name: 'Use default provider for reports', exact: true }).click()
-  expect(await saveAssignments()).toMatchObject({ default_provider_id: null, report_provider_id: null })
+  await page.getByRole('button', { name: 'Use article provider for team assessments and hunt suggestions', exact: true }).click()
+  expect(await saveAssignments()).toMatchObject({
+    default_provider_id: null, report_provider_id: null, team_assessment_provider_id: null,
+  })
   await page.getByRole('button', { name: 'Delete provider', exact: true }).click()
   const deletion = page.getByRole('alertdialog', { name: 'Delete provider?', exact: true })
   const deleteResponse = page.waitForResponse(

@@ -56,6 +56,19 @@ afterEach(() => {
 })
 
 describe('StatsPage filters', () => {
+  it('makes the all-feeds scope explicit and restores it from a selected subset', () => {
+    const view = renderPage()
+    const all = [...view.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Use all accessible feeds')!
+    expect(all.disabled).toBe(true)
+    const one = [...view.querySelectorAll('label')].find((label) => label.textContent?.includes('Feed One'))!.querySelector('input')!
+    act(() => one.click())
+    expect(all.disabled).toBe(false)
+    expect(view.textContent).toContain('1 selected')
+    act(() => all.click())
+    expect(all.disabled).toBe(true)
+    expect(view.textContent).toContain('All feeds selected')
+  })
+
   it('keeps the mobile feed filter collapsed until requested', () => {
     const view = renderPage()
     const toggle = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Feed filter'))
@@ -72,7 +85,7 @@ describe('StatsPage filters', () => {
     expect(filters?.className).toContain('block')
   })
 
-  it('labels the time window and removes deleted feeds from the selection', () => {
+  it('labels the time window and preserves deleted feeds without broadening the selection', () => {
     const view = renderPage()
     const feedTwoCheckbox = Array.from(view.querySelectorAll('label'))
       .find((label) => label.textContent?.includes('Feed Two'))
@@ -91,6 +104,7 @@ describe('StatsPage filters', () => {
       root?.render(<MemoryRouter><StatsPage /></MemoryRouter>)
     })
 
-    expect(view.textContent).toContain('All feeds selected')
+    expect(view.textContent).toContain('1 selected')
+    expect(view.textContent).toContain('1 selected feeds are unavailable')
   })
 })

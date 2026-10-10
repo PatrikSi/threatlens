@@ -18,6 +18,7 @@ from app.schemas.notification import (
     NotificationEventType,
     NotificationTemplateVariable,
     NotificationWebhookTestResponse,
+    NotificationWebhookWrite,
 )
 from app.services import notification_webhook_http
 from app.services.integration_compat import WebhookConfigurationCompatibilityError
@@ -401,6 +402,7 @@ def reserve_webhook_failed_notification_deliveries(
     source_webhook: NotificationWebhook | None = None,
     user: User | None = None,
     feed: Feed | None = None,
+    webhooks: list[NotificationWebhook] | None = None,
 ) -> NotificationDeliveryReservationBatch:
     if (
         failed_delivery.success
@@ -447,11 +449,15 @@ def reserve_webhook_failed_notification_deliveries(
         attempted_at=failed_delivery.attempted_at,
     )
 
-    matched_webhooks = get_matching_notification_webhooks(
-        db,
-        event_type="webhook_failed",
-        feed_id=failed_delivery.feed_id,
-        user_id=failed_delivery.user_id,
+    matched_webhooks = (
+        webhooks
+        if webhooks is not None
+        else get_matching_notification_webhooks(
+            db,
+            event_type="webhook_failed",
+            feed_id=failed_delivery.feed_id,
+            user_id=failed_delivery.user_id,
+        )
     )
     reserved_delivery_ids: list[uuid.UUID] = []
     skipped = 0
@@ -518,12 +524,18 @@ def reserve_notification_webhook_delivery(
     not_before: datetime | None = None,
 ) -> NotificationWebhookDelivery:
     payload = notification_webhook_write_from_model(webhook)
+    render_payload = payload
+    if payload.payload_mode == "automation_v1":
+        # Typed events supply their body after routing. Only their configured
+        # destination, query and headers need template rendering here.
+        render_payload = payload.model_copy(update={"body_mode": "none", "body_fields": [], "body_template": None})
     delivery_id = uuid.uuid4()
     queued_at = datetime.now(timezone.utc)
 
     try:
+        from app.services.webhook_article_text import article_text_for_item
         rendered = render_notification_request(
-            payload,
+            render_payload,
             user=user,
             feed=feed,
             item=item,
@@ -534,9 +546,10 @@ def reserve_notification_webhook_delivery(
             alert_context=alert_context,
             failed_webhook_context=failed_webhook_context,
             digest_context=digest_context,
+            article_text=article_text_for_item(db, item=item, payload=render_payload),
         )
     except (TemplateRenderError, ValueError) as exc:
-        return _create_pending_notification_webhook_delivery_from_render_failure(
+        failed = _create_pending_notification_webhook_delivery_from_render_failure(
             db,
             delivery_id=delivery_id,
             webhook=webhook,
@@ -564,8 +577,10 @@ def reserve_notification_webhook_delivery(
             not_before=not_before,
             error=f"{RENDER_FAILURE_ERROR_PREFIX}{exc}",
         )
+        _retain_snapshot_context_marker(db, delivery=failed, payload=payload)
+        return failed
 
-    return _create_pending_notification_webhook_delivery(
+    delivery = _create_pending_notification_webhook_delivery(
         db,
         delivery_id=delivery_id,
         webhook=webhook,
@@ -583,6 +598,17 @@ def reserve_notification_webhook_delivery(
         attempted_at=queued_at,
         not_before=not_before,
     )
+    _retain_snapshot_context_marker(db, delivery=delivery, payload=payload)
+    return delivery
+
+
+def _retain_snapshot_context_marker(db: Session, *, delivery: NotificationWebhookDelivery, payload: NotificationWebhookWrite) -> None:
+    from app.models.integration import IntegrationDelivery
+    from app.services.webhook_article_text import ARTICLE_TEXT_SNAPSHOT_KEY, uses_snapshot_context
+    if uses_snapshot_context(payload) and delivery.integration_delivery_id:
+        generic = db.get(IntegrationDelivery, delivery.integration_delivery_id)
+        if generic is not None:
+            generic.payload_json = {**generic.payload_json, ARTICLE_TEXT_SNAPSHOT_KEY: True}
 
 
 def reserve_notification_webhook_delivery_from_saved_request(
@@ -600,6 +626,8 @@ def reserve_notification_webhook_delivery_from_saved_request(
     )
     if rerendered is not None:
         return rerendered
+    from app.services.webhook_request_state import require_rendered_request
+    require_rendered_request(db, delivery=delivery)
     return _create_pending_notification_webhook_delivery(
         db,
         delivery_id=uuid.uuid4(),
@@ -625,6 +653,10 @@ def _reserve_notification_webhook_delivery_from_current_context(
     delivery: NotificationWebhookDelivery,
     not_before: datetime | None = None,
 ) -> NotificationWebhookDelivery | None:
+    from app.services.webhook_automation import preserve_saved_automation_request
+
+    if preserve_saved_automation_request(db, webhook=webhook, delivery=delivery):
+        return None
     user = db.scalar(select(User).where(User.id == webhook.user_id))
     if user is None or not user.is_active or not user.is_approved:
         return None
@@ -749,7 +781,13 @@ def process_notification_webhook_delivery(
             error=exc,
             commit_outcome=commit_outcome,
         )
-    if _delivery_has_presend_render_failure(delivery):
+    from app.services.webhook_request_state import (
+        RENDER_FAILURE_RETRY_MESSAGE,
+        request_failed_rendering,
+    )
+    if request_failed_rendering(db, delivery=delivery):
+        if not _delivery_has_presend_render_failure(delivery):
+            delivery.error = f"{RENDER_FAILURE_ERROR_PREFIX}{RENDER_FAILURE_RETRY_MESSAGE}"
         current_result = _delivery_result_from_model(delivery)
         result = NotificationWebhookTestResponse(
             success=False,
@@ -776,12 +814,44 @@ def process_notification_webhook_delivery(
             claimed=recorded,
         )
     rendered = _rendered_request_from_delivery(delivery)
+    from app.models.integration import IntegrationDelivery
+    from app.services.webhook_credentials import credential_request_callback
+
+    generic = db.get(IntegrationDelivery, generic_delivery_id)
+    prepare_profile = credential_request_callback(
+        db,
+        webhook_id=delivery.webhook_id,
+        user_id=delivery.user_id,
+        event_id=str(
+            generic.event_id
+            if generic and generic.event_id
+            else delivery.source_delivery_id or delivery.id
+        ),
+        attempt_id=f"{generic_delivery_id}:{claimed_attempt_number}",
+    )
+
+    def prepare_credentials(request) -> None:
+        prepare_profile(request)
+        # DNS, request construction and credential locks may consume time after
+        # lease renewal. Recheck clock-based authority immediately before I/O,
+        # even when this subscription does not use a credential profile.
+        _lock_notification_webhook_external_io_eligibility(
+            db,
+            delivery=delivery,
+            expected_attempt_number=claimed_attempt_number,
+        )
+
     try:
-        with notification_webhook_http.notification_delivery_external_io_marker(
-            lambda: mark_notification_webhook_external_io_started(
-                delivery_id=generic_delivery_id,
-                expected_attempt_number=claimed_attempt_number,
-            )
+        with (
+            notification_webhook_http.notification_request_credentials(
+                prepare_credentials
+            ),
+            notification_webhook_http.notification_delivery_external_io_marker(
+                lambda: mark_notification_webhook_external_io_started(
+                    delivery_id=generic_delivery_id,
+                    expected_attempt_number=claimed_attempt_number,
+                )
+            ),
         ):
             result = notification_webhook_http.send_rendered_notification_request(
                 rendered
@@ -968,6 +1038,11 @@ def reserve_retryable_notification_webhook_delivery(
     webhook: NotificationWebhook,
     delivery: NotificationWebhookDelivery,
 ) -> NotificationWebhookRetryReservation | None:
+    # A transport failure can hide receiver acceptance. Known rejections and
+    # pre-send failures retain the normal retry budget.
+    from app.services.automation_executions import ambiguous_action_retry
+    if ambiguous_action_retry(db, delivery):
+        return None
     if delivery.success or not _is_retryable_notification_delivery(delivery):
         return None
 

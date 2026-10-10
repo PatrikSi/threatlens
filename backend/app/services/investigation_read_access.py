@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 
 from sqlalchemy import and_, case, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from app.models.investigation import Investigation, InvestigationMember
 from app.models.user import User
@@ -39,6 +39,7 @@ def load_composed_investigation_read_access(
     investigation_id: uuid.UUID,
     user: User,
     data_access: DataAccessContext,
+    defer_description: bool = False,
 ) -> InvestigationReadAccess:
     """Load visible data, fencing private reads in canonical lock order.
 
@@ -56,6 +57,7 @@ def load_composed_investigation_read_access(
         investigation_id=investigation_id,
         user_id=user.id,
         data_access=data_access,
+        defer_description=defer_description,
     )
     if initial.investigation is None:
         return initial
@@ -84,7 +86,7 @@ def load_composed_investigation_read_access(
         db, initial.investigation.team_id, user.id
     ):
         return InvestigationReadAccess(investigation=None)
-    locked_investigation = db.scalar(
+    locked_query = (
         select(Investigation)
         .where(
             Investigation.id == investigation_id,
@@ -94,6 +96,9 @@ def load_composed_investigation_read_access(
         .with_for_update(read=True, of=Investigation)
         .execution_options(populate_existing=True)
     )
+    if defer_description:
+        locked_query = locked_query.options(defer(Investigation.description, raiseload=True))
+    locked_investigation = db.scalar(locked_query)
     if locked_investigation is None:
         return InvestigationReadAccess(investigation=None)
 
@@ -105,6 +110,7 @@ def load_composed_investigation_read_access(
         user_id=user.id,
         data_access=data_access,
         populate_existing=True,
+        defer_description=defer_description,
     )
 
 
@@ -171,6 +177,7 @@ def _load_visible_investigation(
     user_id: uuid.UUID,
     data_access: DataAccessContext,
     populate_existing: bool = False,
+    defer_description: bool = False,
 ) -> InvestigationReadAccess:
     query = (
         select(
@@ -192,6 +199,8 @@ def _load_visible_investigation(
     )
     if populate_existing:
         query = query.execution_options(populate_existing=True)
+    if defer_description:
+        query = query.options(defer(Investigation.description, raiseload=True))
     row = db.execute(query).first()
     if row is None:
         return InvestigationReadAccess(investigation=None)

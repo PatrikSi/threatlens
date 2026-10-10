@@ -67,6 +67,10 @@ class WebhookIntegrationConnector:
         "webhook_failed",
         "daily_digest",
         "report_ready",
+        "intel.extraction.ready",
+        "intel.indicators.changed",
+        "hunt.approved",
+        "article.ai.ready",
     )
     definition = IntegrationConnectorDefinition(
         integration_type="webhook",
@@ -197,6 +201,12 @@ class WebhookIntegrationConnector:
         *,
         event: IntegrationEvent,
     ) -> NotificationDeliveryReservationBatch:
+        from app.services.webhook_automation import AUTOMATION_EVENTS, event_matches_webhook, reserve_automation_deliveries
+
+        if event.event_type in AUTOMATION_EVENTS or event.event_type == "article.ai.ready":
+            webhooks = self._matching_webhooks(db, event_type=event.event_type,
+                feed_id=_payload_uuid(event, "feed_id"), owner_user_id=None)
+            return reserve_automation_deliveries(db, event=event, webhooks=webhooks)
         resources = None
         if event.event_type in {"rss_item_new", "alert_match", "feed_failing"}:
             from app.services.integration_events import (
@@ -220,6 +230,7 @@ class WebhookIntegrationConnector:
             feed_id=feed_id,
             owner_user_id=owner_user_id,
         )
+        webhooks = [webhook for webhook in webhooks if event_matches_webhook(db, event=event, webhook=webhook)]
 
         if event.event_type in {"rss_item_new", "alert_match"}:
             item = resources.item if resources is not None else None
@@ -267,7 +278,7 @@ class WebhookIntegrationConnector:
                     f"Webhook delivery {source_delivery_id} no longer exists"
                 )
             return reserve_webhook_failed_notification_deliveries(
-                db, failed_delivery=source_delivery
+                db, failed_delivery=source_delivery, webhooks=webhooks
             )
 
         if event.event_type == "daily_digest":
@@ -580,10 +591,32 @@ class WebhookIntegrationConnector:
             generic.idempotency_key = (
                 f"event:{event.id}:subscription:{generic.subscription_id}:live"
             )
+            from app.services.webhook_request_state import REQUEST_RENDERED_KEY
+            render_failed = (generic.payload_json or {}).get(REQUEST_RENDERED_KEY) is False
             generic.payload_json = delivery_payload_for_owner(
                 event,
                 owner_user_id=legacy_delivery.user_id,
             )
+            if render_failed:
+                generic.payload_json[REQUEST_RENDERED_KEY] = False
+            from app.services.webhook_automation import PAYLOAD_MODE_SNAPSHOT_KEY, store_automation_snapshot
+            payload_mode = webhook.payload_mode or "template"
+            if payload_mode == "automation_v1":
+                from app.services.automation_executions import register_execution
+                execution = register_execution(db, event=event, webhook=webhook)
+                if execution is not None:
+                    generic.payload_json["execution"] = {"id": str(execution.id), "webhook_id": str(webhook.id), "callback_path": f"/v1/notifications/automation/executions/{execution.id}/callbacks"}
+                from app.services.webhook_article_text import automation_payload_with_article_text
+                generic.payload_json = automation_payload_with_article_text(
+                    db, event=event, payload=generic.payload_json,
+                    include=bool(webhook.include_article_text),
+                )
+                store_automation_snapshot(legacy_delivery, event, payload=generic.payload_json)
+            generic.payload_json[PAYLOAD_MODE_SNAPSHOT_KEY] = payload_mode
+            from app.services.webhook_article_text import ARTICLE_TEXT_SNAPSHOT_KEY, uses_snapshot_context
+            from app.services.notification_webhook_storage import notification_webhook_write_from_model
+            if uses_snapshot_context(notification_webhook_write_from_model(webhook)):
+                generic.payload_json[ARTICLE_TEXT_SNAPSHOT_KEY] = True
             generic.payload_json["legacy_webhook_delivery_id"] = str(legacy_delivery.id)
             db.add(generic)
             generic_ids.append(generic.id)

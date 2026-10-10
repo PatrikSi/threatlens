@@ -4,8 +4,10 @@ from typing import Literal
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from app.schemas.webhook_automation import WebhookConditionGroup
 
-NotificationEventType = Literal["rss_item_new", "alert_match", "feed_failing", "webhook_failed", "daily_digest", "report_ready"]
+NotificationEventType = Literal["rss_item_new", "alert_match", "feed_failing", "webhook_failed", "daily_digest", "report_ready", "intel.extraction.ready", "intel.indicators.changed", "hunt.approved", "article.ai.ready"]
+LegacyNotificationEventType = Literal["rss_item_new", "alert_match", "feed_failing", "webhook_failed", "daily_digest", "report_ready"]
 NotificationMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 NotificationFeedScope = Literal["all", "selected"]
 NotificationBodyMode = Literal["none", "json", "form", "raw"]
@@ -26,6 +28,10 @@ class NotificationTemplateVariable(BaseModel):
 
 
 class NotificationWebhookWrite(BaseModel):
+    include_article_text: bool = False
+    payload_mode: Literal["template", "automation_v1"] = "template"
+    conditions: WebhookConditionGroup | None = None
+    credential_profile_id: uuid.UUID | None = None
     name: str = Field(min_length=1, max_length=255)
     enabled: bool = True
     event_type: NotificationEventType = "rss_item_new"
@@ -42,6 +48,10 @@ class NotificationWebhookWrite(BaseModel):
 
     @model_validator(mode="after")
     def validate_configuration(self):
+        if self.event_type in {"intel.extraction.ready", "intel.indicators.changed", "hunt.approved"} and self.payload_mode != "automation_v1":
+            raise ValueError("Intelligence and hunt events require automation_v1 payloads")
+        if self.payload_mode == "automation_v1" and self.method != "POST":
+            raise ValueError("Automation payloads require POST")
         self._extract_query_params_from_url_template()
 
         deduped_feed_ids: list[uuid.UUID] = []
@@ -93,10 +103,16 @@ class NotificationWebhookWrite(BaseModel):
 
 
 class NotificationWebhookResponse(BaseModel):
+    include_article_text: bool = False
+    team_id: uuid.UUID | None = None
+    ownership_revision: int = 1
     model_config = ConfigDict(from_attributes=True)
+    payload_mode: Literal["template", "automation_v1"] = "template"
+    conditions: WebhookConditionGroup | None = None
+    credential_profile_id: uuid.UUID | None = None
 
     id: uuid.UUID
-    user_id: uuid.UUID
+    user_id: uuid.UUID | None
     name: str
     enabled: bool
     event_type: NotificationEventType

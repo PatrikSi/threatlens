@@ -1,0 +1,1205 @@
+{
+  "application_revision": "a6c07f7f2718cd4f9a6caab823b481fc2ac7525e",
+  "capacity": {
+    "artifact_zip_sha256": "fc69f3a206ec7e5110c689fb4b6db391252a18f7910655eddbef2899a53a2bf0",
+    "baseline_revision": "35ac120b28820b6e5b1222a50b5f70f7a6b85c3b",
+    "candidate_revision": "a6c07f7f2718cd4f9a6caab823b481fc2ac7525e",
+    "comparison": {
+      "baseline_revision": "35ac120b28820b6e5b1222a50b5f70f7a6b85c3b",
+      "candidate_revision": "a6c07f7f2718cd4f9a6caab823b481fc2ac7525e",
+      "compatible": true,
+      "conclusive": true,
+      "insufficient_required_samples": [],
+      "metrics": [
+        {
+          "baseline_p95_ms": 288.761,
+          "candidate_p95_ms": 277.191,
+          "change_percent": -4.007,
+          "name": "ai_connection",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 288.761,
+          "candidate_p95_ms": 277.191,
+          "change_percent": -4.007,
+          "name": "ai_connection:succeeded",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "minimum_samples": 20,
+          "name": "async_export",
+          "status": "insufficient_samples"
+        },
+        {
+          "minimum_samples": 20,
+          "name": "async_export:policy_conflict",
+          "status": "insufficient_samples"
+        },
+        {
+          "minimum_samples": 20,
+          "name": "async_export:succeeded",
+          "status": "insufficient_samples"
+        },
+        {
+          "baseline_p95_ms": 100.803,
+          "candidate_p95_ms": 100.669,
+          "change_percent": -0.133,
+          "name": "deadline:dns",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 101.881,
+          "candidate_p95_ms": 101.277,
+          "change_percent": -0.593,
+          "name": "deadline:headers",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 479.668,
+          "candidate_p95_ms": 479.62,
+          "change_percent": -0.01,
+          "name": "export",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "minimum_samples": 20,
+          "name": "export:policy_conflict",
+          "status": "insufficient_samples"
+        },
+        {
+          "baseline_p95_ms": 237.608,
+          "candidate_p95_ms": 231.847,
+          "change_percent": -2.425,
+          "name": "export:succeeded",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 75.556,
+          "candidate_p95_ms": 113.892,
+          "change_percent": 50.739,
+          "name": "governance",
+          "regressed": true,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 1962.945,
+          "candidate_p95_ms": 1598.815,
+          "change_percent": -18.55,
+          "name": "queue_wait:classify_item",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 360.491,
+          "candidate_p95_ms": 178.597,
+          "change_percent": -50.457,
+          "name": "queue_wait:dispatch_processing_work",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 2336.89,
+          "candidate_p95_ms": 1574.101,
+          "change_percent": -32.641,
+          "name": "queue_wait:execute_processing_work",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 2827.541,
+          "candidate_p95_ms": 2825.369,
+          "change_percent": -0.077,
+          "name": "queue_wait:extract_item_iocs",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 1569.506,
+          "candidate_p95_ms": 1549.984,
+          "change_percent": -1.244,
+          "name": "queue_wait:fetch_article",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 214.8,
+          "candidate_p95_ms": 207.177,
+          "change_percent": -3.549,
+          "name": "queue_wait:fetch_feed",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 2615.326,
+          "candidate_p95_ms": 2611.615,
+          "change_percent": -0.142,
+          "name": "queue_wait:process_alert_evaluation",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 1352.505,
+          "candidate_p95_ms": 1355.792,
+          "change_percent": 0.243,
+          "name": "queue_wait:route_integration_event",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 142.609,
+          "candidate_p95_ms": 147.513,
+          "change_percent": 3.439,
+          "name": "task:classify_item",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 178.299,
+          "candidate_p95_ms": 164.695,
+          "change_percent": -7.63,
+          "name": "task:dispatch_processing_work",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 109.891,
+          "candidate_p95_ms": 120.941,
+          "change_percent": 10.055,
+          "name": "task:execute_processing_work",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 189.55,
+          "candidate_p95_ms": 186.78,
+          "change_percent": -1.461,
+          "name": "task:extract_item_iocs",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 85.123,
+          "candidate_p95_ms": 84.681,
+          "change_percent": -0.519,
+          "name": "task:fetch_article",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 660.333,
+          "candidate_p95_ms": 509.537,
+          "change_percent": -22.836,
+          "name": "task:fetch_feed",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 28.8,
+          "candidate_p95_ms": 29.013,
+          "change_percent": 0.74,
+          "name": "task:process_alert_evaluation",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "baseline_p95_ms": 36.447,
+          "candidate_p95_ms": 33.804,
+          "change_percent": -7.252,
+          "name": "task:route_integration_event",
+          "regressed": false,
+          "status": "compared"
+        },
+        {
+          "absolute_change": 3174400,
+          "baseline": 71241728,
+          "candidate": 74416128,
+          "change_percent": 4.456,
+          "name": "memory.process_rss_increase_bytes",
+          "regressed": false,
+          "status": "single_run_observation"
+        },
+        {
+          "absolute_change": 1937408,
+          "baseline": 369995776,
+          "candidate": 371933184,
+          "change_percent": 0.524,
+          "name": "memory.process_rss_peak_bytes",
+          "regressed": false,
+          "status": "single_run_observation"
+        },
+        {
+          "absolute_change": 1769472,
+          "baseline": 397328384,
+          "candidate": 399097856,
+          "change_percent": 0.445,
+          "name": "watchdog.owned_process_tree_rss_peak_bytes",
+          "regressed": false,
+          "status": "single_run_observation"
+        },
+        {
+          "absolute_change": -1.407,
+          "baseline": 19.011,
+          "candidate": 17.604,
+          "change_percent": -7.401,
+          "name": "queue.recovery_ms",
+          "regressed": false,
+          "status": "single_run_observation"
+        },
+        {
+          "absolute_change": -8,
+          "baseline": 27,
+          "candidate": 19,
+          "change_percent": -29.63,
+          "name": "queue.depth_peak",
+          "regressed": false,
+          "status": "single_run_observation"
+        },
+        {
+          "absolute_change": 17.791000000000167,
+          "baseline": 3216.12,
+          "candidate": 3233.911,
+          "change_percent": 0.553,
+          "name": "queue.oldest_pending_age_peak_ms",
+          "regressed": false,
+          "status": "single_run_observation"
+        },
+        {
+          "absolute_change": 41.459,
+          "baseline": 148.032,
+          "candidate": 189.491,
+          "change_percent": 28.007,
+          "name": "database.sampled_lock_waiting_query_age_peak_ms",
+          "regressed": true,
+          "status": "single_run_observation"
+        }
+      ],
+      "outcomes": {
+        "baseline": {
+          "ai_succeeded": 301,
+          "deadline_dns_observed": 6,
+          "deadline_headers_observed": 6,
+          "exports_policy_conflict": 10,
+          "exports_succeeded": 291,
+          "governance_succeeded": 300,
+          "ingestion_recovered": 1,
+          "processing_repair_dispatches": 120
+        },
+        "candidate": {
+          "ai_succeeded": 301,
+          "deadline_dns_observed": 6,
+          "deadline_headers_observed": 6,
+          "exports_policy_conflict": 7,
+          "exports_succeeded": 294,
+          "governance_succeeded": 300,
+          "ingestion_recovered": 1,
+          "processing_repair_dispatches": 120
+        }
+      },
+      "regression_threshold_percent": 20,
+      "regressions": [
+        "governance",
+        "database.sampled_lock_waiting_query_age_peak_ms"
+      ]
+    },
+    "comparison_fingerprints_equal": true,
+    "duration_seconds_per_ref": 600,
+    "hosted_job": {
+      "checkout_matches_expected_revision": true,
+      "conclusion": "failure",
+      "expected_checkout_revision": "a6c07f7f2718cd4f9a6caab823b481fc2ac7525e",
+      "job_id": 113659659337,
+      "log_bytes": 109363,
+      "log_sha256": "a5dffbd059fdf342ef3d62c00ada0da09615d05d31e367dc69e62aadb7b8deeb",
+      "prepare_worktree_revisions_verified_from_log": true
+    },
+    "independent_cleanup": {
+      "baseline": {
+        "docker_endpoint": "established_local_unix",
+        "error_count": 0,
+        "errors": [],
+        "identity_matches_measurement": true,
+        "kind": "independent_capacity_cleanup",
+        "probe_count": 16,
+        "remaining_container_count": 0,
+        "schema_version": 1,
+        "status": "passed"
+      },
+      "candidate": {
+        "docker_endpoint": "established_local_unix",
+        "error_count": 0,
+        "errors": [],
+        "identity_matches_measurement": true,
+        "kind": "independent_capacity_cleanup",
+        "probe_count": 16,
+        "remaining_container_count": 0,
+        "schema_version": 1,
+        "status": "passed"
+      }
+    },
+    "regression_threshold_percent": 20,
+    "run_id": 37880757288,
+    "run_url": "https://github.com/PatrikSi/threatlens/actions/runs/37880757288",
+    "workflow_conclusion": "failure"
+  },
+  "codeql_dispositions": {
+    "dismissed_count": 16,
+    "false_positive_count": 15,
+    "other_existing_alerts_unchanged": 10,
+    "test_fixture_count": 1
+  },
+  "evidence_sha256": {
+    "hosted-capacity-evidence-a6.json": "91420cde739010989abb005dc759bad1a1b8f0c97dc913ee0a69f5fc548644aa",
+    "hosted-codeql-aggregate-check-a6.json": "576563083935d15db9c20a03fcb10d68f0d05f7c7d34c463848d012b6d3b6142",
+    "hosted-codeql-evidence-a6.json": "0e0ef5e051d5142f9051357585bba5df1c000b79e1d292b50dd56479c75bc97f",
+    "hosted-job-evidence-a6.json": "a48d218c4bf2ded149e38799e7d750cdd5cfc311ceb9ad35b9642012a9747927"
+  },
+  "historical_failures_retained": {
+    "intermediate_quality": 37878002388,
+    "original_capacity": 37876316405,
+    "original_quality": 37876307234
+  },
+  "jobs": [
+    {
+      "browser_retry_markers": 0,
+      "built_image_ids": {},
+      "checkout_matches_expected_revision": true,
+      "conclusion": "success",
+      "expected_checkout_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+      "frontend_test_files_passed": 164,
+      "frontend_test_files_total": 164,
+      "frontend_tests_passed": 1374,
+      "frontend_tests_total": 1374,
+      "image_scan_summaries": [],
+      "job_id": 113659478824,
+      "log_bytes": 101547,
+      "log_sha256": "7b8c571ae49a2a6cf06a4f36f5c8708d46f0cfdefa442d61f1e65c235c9e9e6b",
+      "name": "Frontend tests and build",
+      "npm_audit_vulnerability_counts": {
+        "critical": 0,
+        "high": 0,
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "total": 0
+      },
+      "npm_security_audit_pass_marker": true,
+      "numeric_test_summaries": [],
+      "successful_verification_steps": [
+        "Run frontend tests",
+        "Lint frontend",
+        "Build frontend",
+        "Smoke test production frontend",
+        "Audit frontend dependencies"
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "built_image_ids": {},
+      "checkout_matches_expected_revision": true,
+      "conclusion": "success",
+      "expected_checkout_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+      "image_scan_summaries": [],
+      "job_id": 113659478920,
+      "log_bytes": 189233,
+      "log_sha256": "81c338745e6911300ccd7e4ba1ea804109ca8372a75729a98b1cc46c86fc4417",
+      "name": "Browser workflows (webkit)",
+      "npm_security_audit_pass_marker": false,
+      "numeric_test_summaries": [
+        {
+          "count": 49,
+          "duration": 1.8,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_interactions"
+        },
+        {
+          "count": 2,
+          "duration": null,
+          "duration_unit": null,
+          "outcome": "skipped",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 19,
+          "duration": 1.7,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 2,
+          "duration": 49.2,
+          "duration_unit": "s",
+          "outcome": "passed",
+          "stage": "browser_real_server_ai_statistics"
+        }
+      ],
+      "successful_verification_steps": [
+        "Run isolated interaction workflows",
+        "Run real-server auth and accessibility workflows",
+        "Run real-server AI provider and statistics workflows",
+        "Retain browser evidence"
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "built_image_ids": {},
+      "checkout_matches_expected_revision": true,
+      "conclusion": "success",
+      "expected_checkout_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+      "image_scan_summaries": [],
+      "job_id": 113659478954,
+      "log_bytes": 428799,
+      "log_sha256": "080fdd6fb6af65eae407b8c890df8055808623130e801239d7358758a3f7a65d",
+      "name": "CodeQL (python)",
+      "npm_security_audit_pass_marker": false,
+      "numeric_test_summaries": [],
+      "successful_verification_steps": [
+        "Analyze source"
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "built_image_ids": {},
+      "checkout_matches_expected_revision": true,
+      "conclusion": "success",
+      "expected_checkout_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+      "image_scan_summaries": [],
+      "job_id": 113659478960,
+      "log_bytes": 153992,
+      "log_sha256": "6a35824194800370c265b5bc17ea16b65d01297e73d5adfeb16cb6c0eba1810b",
+      "name": "PostgreSQL migration round trip",
+      "npm_security_audit_pass_marker": false,
+      "numeric_test_summaries": [],
+      "successful_verification_steps": [
+        "Verify a single migration head",
+        "Exercise populated upgrade and downgrade path"
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "built_image_ids": {},
+      "checkout_matches_expected_revision": true,
+      "conclusion": "success",
+      "expected_checkout_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+      "image_scan_summaries": [],
+      "job_id": 113659478961,
+      "log_bytes": 20356,
+      "log_sha256": "402b7d68353f414a8b7554de87152ab6aa440dba18db7841eccd359ebe9ca9a5",
+      "name": "Repository diff hygiene",
+      "npm_security_audit_pass_marker": false,
+      "numeric_test_summaries": [],
+      "successful_verification_steps": [
+        "Reject whitespace errors in the aggregate change"
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "built_image_ids": {},
+      "checkout_matches_expected_revision": true,
+      "conclusion": "success",
+      "expected_checkout_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+      "image_scan_summaries": [],
+      "job_id": 113659478998,
+      "log_bytes": 109645,
+      "log_sha256": "8404058996947a5e255935e5878520c3f0c1fd789e5282a61acde3c9e5aa4e72",
+      "name": "Browser workflows (firefox)",
+      "npm_security_audit_pass_marker": false,
+      "numeric_test_summaries": [
+        {
+          "count": 49,
+          "duration": 1.8,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_interactions"
+        },
+        {
+          "count": 2,
+          "duration": null,
+          "duration_unit": null,
+          "outcome": "skipped",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 19,
+          "duration": 1.8,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 2,
+          "duration": 53.0,
+          "duration_unit": "s",
+          "outcome": "passed",
+          "stage": "browser_real_server_ai_statistics"
+        }
+      ],
+      "successful_verification_steps": [
+        "Run isolated interaction workflows",
+        "Run real-server auth and accessibility workflows",
+        "Run real-server AI provider and statistics workflows",
+        "Retain browser evidence"
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "built_image_ids": {},
+      "checkout_matches_expected_revision": true,
+      "conclusion": "success",
+      "expected_checkout_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+      "image_scan_summaries": [],
+      "job_id": 113659479015,
+      "log_bytes": 104616,
+      "log_sha256": "54e46914411cda37580c11578d348de742bc302bd47a16a91fadd2c404a61058",
+      "name": "OpenSearch connector vendor contract",
+      "npm_security_audit_pass_marker": false,
+      "numeric_test_summaries": [],
+      "successful_verification_steps": [
+        "Qualify durable launch, polling and ambiguous response recovery",
+        "Capture disposable service diagnostics",
+        "Retain connector qualification evidence"
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "built_image_ids": {},
+      "checkout_matches_expected_revision": true,
+      "conclusion": "success",
+      "critical_module_coverage_precision": "terminal rounded percentages; precise coverage.json gate outcome is recorded in job steps",
+      "critical_module_expected_count": 58,
+      "critical_module_reported_coverage": [
+        {
+          "minimum_percent": 90.0,
+          "path": "app/api/mcp_context.py",
+          "reported_coverage_percent": 96.0
+        },
+        {
+          "minimum_percent": 95.0,
+          "path": "app/api/routes/ai_providers.py",
+          "reported_coverage_percent": 98.0
+        },
+        {
+          "minimum_percent": 85.0,
+          "path": "app/api/routes/export_jobs.py",
+          "reported_coverage_percent": 92.0
+        },
+        {
+          "minimum_percent": 80.0,
+          "path": "app/api/routes/mcp.py",
+          "reported_coverage_percent": 94.0
+        },
+        {
+          "minimum_percent": 90.0,
+          "path": "app/db/budgets.py",
+          "reported_coverage_percent": 96.0
+        },
+        {
+          "minimum_percent": 92.0,
+          "path": "app/services/ai_provider_selection.py",
+          "reported_coverage_percent": 96.0
+        },
+        {
+          "minimum_percent": 90.0,
+          "path": "app/services/ai_providers.py",
+          "reported_coverage_percent": 94.0
+        },
+        {
+          "minimum_percent": 85.0,
+          "path": "app/services/ai_request_runtime.py",
+          "reported_coverage_percent": 87.0
+        },
+        {
+          "minimum_percent": 88.0,
+          "path": "app/services/bounded_regex.py",
+          "reported_coverage_percent": 90.0
+        },
+        {
+          "minimum_percent": 88.0,
+          "path": "app/services/data_access_retention.py",
+          "reported_coverage_percent": 90.0
+        },
+        {
+          "minimum_percent": 95.0,
+          "path": "app/services/export_download_budget.py",
+          "reported_coverage_percent": 100.0
+        },
+        {
+          "minimum_percent": 85.0,
+          "path": "app/services/export_download_capacity.py",
+          "reported_coverage_percent": 89.0
+        },
+        {
+          "minimum_percent": 95.0,
+          "path": "app/services/export_download_scratch.py",
+          "reported_coverage_percent": 100.0
+        },
+        {
+          "minimum_percent": 80.0,
+          "path": "app/services/export_job_access.py",
+          "reported_coverage_percent": 90.0
+        },
+        {
+          "minimum_percent": 85.0,
+          "path": "app/services/export_job_download.py",
+          "reported_coverage_percent": 88.0
+        },
+        {
+          "minimum_percent": 90.0,
+          "path": "app/services/export_job_status.py",
+          "reported_coverage_percent": 92.0
+        },
+        {
+          "minimum_percent": 88.0,
+          "path": "app/services/export_job_worker.py",
+          "reported_coverage_percent": 90.0
+        },
+        {
+          "minimum_percent": 95.0,
+          "path": "app/services/export_jobs.py",
+          "reported_coverage_percent": 97.0
+        },
+        {
+          "minimum_percent": 95.0,
+          "path": "app/services/export_principals.py",
+          "reported_coverage_percent": 100.0
+        },
+        {
+          "minimum_percent": 95.0,
+          "path": "app/services/export_transport.py",
+          "reported_coverage_percent": 96.0
+        },
+        {
+          "minimum_percent": 92.0,
+          "path": "app/services/feed_fetch_ownership.py",
+          "reported_coverage_percent": 100.0
+        },
+        {
+          "minimum_percent": 95.0,
+          "path": "app/services/indicator_lineage.py",
+          "reported_coverage_percent": 100.0
+        },
+        {
+          "minimum_percent": 95.0,
+          "path": "app/services/lifecycle_dependencies.py",
+          "reported_coverage_percent": 98.0
+        },
+        {
+          "minimum_percent": 62.0,
+          "path": "app/services/lifecycle_execution.py",
+          "reported_coverage_percent": 72.0
+        },
+        {
+          "minimum_percent": 88.0,
+          "path": "app/services/lifecycle_permission_pruning.py",
+          "reported_coverage_percent": 90.0
+        },
+        {
+          "minimum_percent": 92.0,
+          "path": "app/services/lifecycle_pruning.py",
+          "reported_coverage_percent": 95.0
+        },
+        {
+          "minimum_percent": 90.0,
+          "path": "app/services/lifecycle_scanning.py",
+          "reported_coverage_percent": 97.0
+        },
+        {
+          "minimum_percent": 84.0,
+          "path": "app/services/lifecycle_targets.py",
+          "reported_coverage_percent": 85.0
+        },
+        {
+          "minimum_percent": 90.0,
+          "path": "app/services/mcp_access.py",
+          "reported_coverage_percent": 90.0
+        },
+        {
+          "minimum_percent": 90.0,
+          "path": "app/services/mcp_dispatch.py",
+          "reported_coverage_percent": 96.0
+        },
+        {
+          "minimum_percent": 95.0,
+          "path": "app/services/mcp_protocol.py",
+          "reported_coverage_percent": 97.0
+        },
+        {
+          "minimum_percent": 90.0,
+          "path": "app/services/mcp_read_contracts.py",
+          "reported_coverage_percent": 97.0
+        },
+        {
+          "minimum_percent": 85.0,
+          "path": "app/services/mcp_read_service.py",
+          "reported_coverage_percent": 96.0
+        },
+        {
+          "minimum_percent": 95.0,
+          "path": "app/services/mcp_runtime.py",
+          "reported_coverage_percent": 100.0
+        },
+        {
+          "minimum_percent": 90.0,
+          "path": "app/services/mcp_transport.py",
+          "reported_coverage_percent": 93.0
+        },
+        {
+          "minimum_percent": 95.0,
+          "path": "app/services/processing_access.py",
+          "reported_coverage_percent": 100.0
+        },
+        {
+          "minimum_percent": 88.0,
+          "path": "app/services/processing_dispatch.py",
+          "reported_coverage_percent": 90.0
+        },
+        {
+          "minimum_percent": 68.0,
+          "path": "app/services/processing_queries.py",
+          "reported_coverage_percent": 69.0
+        },
+        {
+          "minimum_percent": 78.0,
+          "path": "app/services/processing_recovery.py",
+          "reported_coverage_percent": 79.0
+        },
+        {
+          "minimum_percent": 85.0,
+          "path": "app/services/processing_worker.py",
+          "reported_coverage_percent": 87.0
+        },
+        {
+          "minimum_percent": 85.0,
+          "path": "app/services/report_dispatch.py",
+          "reported_coverage_percent": 91.0
+        },
+        {
+          "minimum_percent": 90.0,
+          "path": "app/services/report_evidence_reads.py",
+          "reported_coverage_percent": 100.0
+        },
+        {
+          "minimum_percent": 88.0,
+          "path": "app/services/report_execution.py",
+          "reported_coverage_percent": 91.0
+        },
+        {
+          "minimum_percent": 89.0,
+          "path": "app/services/report_idempotency.py",
+          "reported_coverage_percent": 90.0
+        },
+        {
+          "minimum_percent": 90.0,
+          "path": "app/services/report_library.py",
+          "reported_coverage_percent": 94.0
+        },
+        {
+          "minimum_percent": 85.0,
+          "path": "app/services/report_quality_reads.py",
+          "reported_coverage_percent": 86.0
+        },
+        {
+          "minimum_percent": 68.0,
+          "path": "app/services/report_schedules.py",
+          "reported_coverage_percent": 88.0
+        },
+        {
+          "minimum_percent": 95.0,
+          "path": "app/services/tagging_recovery.py",
+          "reported_coverage_percent": 98.0
+        },
+        {
+          "minimum_percent": 90.0,
+          "path": "app/services/team_hunt_snapshot.py",
+          "reported_coverage_percent": 92.0
+        },
+        {
+          "minimum_percent": 90.0,
+          "path": "app/services/webhook_conditions.py",
+          "reported_coverage_percent": 96.0
+        },
+        {
+          "minimum_percent": 90.0,
+          "path": "app/services/webhook_request_authority.py",
+          "reported_coverage_percent": 95.0
+        },
+        {
+          "minimum_percent": 90.0,
+          "path": "app/tasks/export_tasks.py",
+          "reported_coverage_percent": 98.0
+        },
+        {
+          "minimum_percent": 62.0,
+          "path": "app/tasks/feed_fetch_tasks.py",
+          "reported_coverage_percent": 74.0
+        },
+        {
+          "minimum_percent": 68.0,
+          "path": "app/tasks/feed_task_coordination.py",
+          "reported_coverage_percent": 71.0
+        },
+        {
+          "minimum_percent": 95.0,
+          "path": "app/tasks/lifecycle_tasks.py",
+          "reported_coverage_percent": 100.0
+        },
+        {
+          "minimum_percent": 95.0,
+          "path": "app/tasks/processing_tasks.py",
+          "reported_coverage_percent": 100.0
+        },
+        {
+          "minimum_percent": 66.0,
+          "path": "app/tasks/report_schedule_tasks.py",
+          "reported_coverage_percent": 100.0
+        },
+        {
+          "minimum_percent": 66.0,
+          "path": "app/tasks/report_tasks.py",
+          "reported_coverage_percent": 73.0
+        }
+      ],
+      "expected_checkout_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+      "image_scan_summaries": [],
+      "job_id": 113659479061,
+      "log_bytes": 239927,
+      "log_sha256": "907542452eddf0756a2481e8455e357f009103ba42960b0c23f10dbee5096888",
+      "name": "Backend tests and contract",
+      "npm_security_audit_pass_marker": false,
+      "numeric_test_summaries": [
+        {
+          "counts": {
+            "passed": 4674,
+            "skipped": 5
+          },
+          "duration_seconds": 1036.21,
+          "stage": "pytest"
+        }
+      ],
+      "overall_coverage_percent": 87.06,
+      "reporting_coverage_percent": 87.21,
+      "successful_verification_steps": [
+        "Compile backend",
+        "Enforce source size and backend complexity",
+        "Run backend tests",
+        "Run isolated concurrent capacity smoke",
+        "Upload capacity smoke measurements",
+        "Enforce critical backend coverage floors",
+        "Verify generated API contract",
+        "Verify browser preview fixture matches backend policy",
+        "Verify runtime lockfile",
+        "Audit Python runtime dependencies"
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "built_image_ids": {},
+      "checkout_matches_expected_revision": true,
+      "conclusion": "success",
+      "expected_checkout_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+      "image_scan_summaries": [],
+      "job_id": 113659479098,
+      "log_bytes": 449519,
+      "log_sha256": "afced2e6f220ccc28170dd24790764ec94bf21e84623adc5308dab894d6fe91d",
+      "name": "CodeQL (javascript-typescript)",
+      "npm_security_audit_pass_marker": false,
+      "numeric_test_summaries": [],
+      "successful_verification_steps": [
+        "Analyze source"
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "built_image_ids": {},
+      "checkout_matches_expected_revision": true,
+      "conclusion": "success",
+      "expected_checkout_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+      "image_scan_summaries": [],
+      "job_id": 113659479113,
+      "log_bytes": 96317,
+      "log_sha256": "9c5295330641773931ef5bbfb842d84f4cba7aead8912566bf4e599392cbe14d",
+      "name": "Browser workflows (chromium)",
+      "npm_security_audit_pass_marker": false,
+      "numeric_test_summaries": [
+        {
+          "count": 49,
+          "duration": 1.4,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_interactions"
+        },
+        {
+          "count": 2,
+          "duration": null,
+          "duration_unit": null,
+          "outcome": "skipped",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 19,
+          "duration": 1.7,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 2,
+          "duration": 51.9,
+          "duration_unit": "s",
+          "outcome": "passed",
+          "stage": "browser_real_server_ai_statistics"
+        }
+      ],
+      "successful_verification_steps": [
+        "Run isolated interaction workflows",
+        "Run real-server auth and accessibility workflows",
+        "Run real-server AI provider and statistics workflows",
+        "Retain browser evidence"
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "built_image_ids": {},
+      "checkout_matches_expected_revision": true,
+      "conclusion": "success",
+      "expected_checkout_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+      "image_scan_summaries": [],
+      "job_id": 113659479132,
+      "log_bytes": 76549,
+      "log_sha256": "9fb06886505a68428b7065764fe8a0cf9afe404e28eed420dc14ea82098d9cf6",
+      "name": "MCP protocol and pinned SDK interoperability",
+      "npm_security_audit_pass_marker": false,
+      "numeric_test_summaries": [],
+      "successful_verification_steps": [
+        "Check both MCP protocol versions through the official SDK",
+        "Check official SDK against the authenticated HTTP route"
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "built_image_ids": {},
+      "checkout_matches_expected_revision": true,
+      "conclusion": "success",
+      "expected_checkout_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+      "image_scan_summaries": [],
+      "job_id": 113659479142,
+      "log_bytes": 69496,
+      "log_sha256": "810c52be66ab24b66a905c387e5c001212ffee51afdd974276fb28bf30794965",
+      "name": "Recovery tooling tests",
+      "npm_security_audit_pass_marker": false,
+      "numeric_test_summaries": [
+        {
+          "duration_seconds": 159.25,
+          "stage": "unittest",
+          "tests_run": 125
+        },
+        {
+          "duration_seconds": 0.343,
+          "stage": "unittest",
+          "tests_run": 82
+        }
+      ],
+      "successful_verification_steps": [
+        "Validate recovery shell",
+        "Run non-destructive recovery tests",
+        "Test independent fleet monitoring and recovery evidence",
+        "Evaluate monitoring alerts with pinned Prometheus tooling"
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "built_image_ids": {
+        "threatlens-backend:dev": "sha256:0f71f57a0716e406359fcc5e4f8ae1b27a739b87c62dfef8ec667aecd1e293d1",
+        "threatlens-web:dev": "sha256:ec6a2c4784421a479b142a0d8e4568dfb62e63475a511738924d07a7ad009cd3"
+      },
+      "checkout_matches_expected_revision": true,
+      "conclusion": "success",
+      "expected_checkout_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+      "image_scan_summaries": [
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-backend:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 95,
+          "target_type_counts": {
+            "debian": 1,
+            "python-pkg": 94
+          }
+        },
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-web:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 1,
+          "target_type_counts": {
+            "alpine": 1
+          }
+        }
+      ],
+      "job_id": 113659479169,
+      "log_bytes": 267962,
+      "log_sha256": "bd8488e579a29935973f3638b7ca03178ad10307024e4c89a96cfae1338cf130",
+      "name": "Container smoke and image scan (arm64)",
+      "npm_security_audit_pass_marker": false,
+      "numeric_test_summaries": [],
+      "successful_verification_steps": [
+        "Generate isolated Compose environment",
+        "Validate Compose configuration",
+        "Prepare restrictive frontend build context",
+        "Build and start stack",
+        "Verify running stack",
+        "Verify legacy and hardened web image startup",
+        "Verify access logs omit sensitive query values",
+        "Verify bootstrap administrator login",
+        "Verify bounded editorial uploads through the proxy",
+        "Scan backend image",
+        "Scan web image"
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "built_image_ids": {
+        "threatlens-backend:dev": "sha256:46a8528a18cb2e424b3a24bd0fc4cf080d1c8d0b67bd8fb36d200cce307f5e7c",
+        "threatlens-web:dev": "sha256:bb4cc3ba16ce6b1f0d0e93ae93cfaff5cd936a751ac8bbce4462ac6e45b59012"
+      },
+      "checkout_matches_expected_revision": true,
+      "conclusion": "success",
+      "expected_checkout_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+      "image_scan_summaries": [
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-backend:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 95,
+          "target_type_counts": {
+            "debian": 1,
+            "python-pkg": 94
+          }
+        },
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-web:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 1,
+          "target_type_counts": {
+            "alpine": 1
+          }
+        }
+      ],
+      "job_id": 113659479195,
+      "log_bytes": 253302,
+      "log_sha256": "5c91024748d2df9f34724422f92c6434c52e2e7bf5612edea2e57459db11a375",
+      "name": "Container smoke and image scan (amd64)",
+      "npm_security_audit_pass_marker": false,
+      "numeric_test_summaries": [],
+      "successful_verification_steps": [
+        "Generate isolated Compose environment",
+        "Validate Compose configuration",
+        "Prepare restrictive frontend build context",
+        "Build and start stack",
+        "Verify running stack",
+        "Verify legacy and hardened web image startup",
+        "Verify access logs omit sensitive query values",
+        "Verify bootstrap administrator login",
+        "Verify checked-in dependency and legal artifacts",
+        "Verify bounded editorial uploads through the proxy",
+        "Scan backend image",
+        "Scan web image"
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "built_image_ids": {},
+      "checkout_matches_expected_revision": true,
+      "conclusion": "success",
+      "expected_checkout_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+      "image_scan_summaries": [],
+      "job_id": 113660185781,
+      "log_bytes": 80745,
+      "log_sha256": "c562522ea4d3dbf1cca6022c1cde864ed56a30647b77a922b27bd25ce373a7b4",
+      "name": "Disposable PostgreSQL recovery drill",
+      "npm_security_audit_pass_marker": false,
+      "numeric_test_summaries": [
+        {
+          "duration_seconds": 134.512,
+          "stage": "unittest",
+          "tests_run": 4
+        },
+        {
+          "duration_seconds": 50.936,
+          "stage": "unittest",
+          "tests_run": 1
+        }
+      ],
+      "successful_verification_steps": [
+        "Build the recovery backend image",
+        "Exercise backup, verification, drill, restore, and reconciliation",
+        "Reconstruct after losing disposable source storage",
+        "Upload source-loss reconstruction evidence"
+      ]
+    }
+  ],
+  "kind": "exact_application_source_hosted_gate_checkpoint",
+  "observed_at_utc": "2026-10-09T04:10:51.347994+00:00",
+  "outstanding_failed_gates": [
+    "relative capacity comparison"
+  ],
+  "quality_workflow": {
+    "conclusion": "success",
+    "passed_job_count": 15,
+    "run_id": 37880697918,
+    "url": "https://github.com/PatrikSi/threatlens/actions/runs/37880697918"
+  },
+  "release_clearance": false,
+  "schema_version": 1,
+  "security_aggregate_check": {
+    "conclusion": "neutral",
+    "id": 113659780795,
+    "metadata_sha256": "e04042f11707813f3a4b078b55569f77efd294551c6ea8db80542504fcc1e86c",
+    "status": "completed",
+    "summary": "**Warning**: Code scanning cannot determine the alerts introduced by this pull request, because 2 configurations present on `refs/heads/main` were not found:\n\n### Actions workflow (`publish-images.yml`)\n\n* :question:&nbsp;&nbsp;`.github/workflows/publish-images.yml:codeql/language:javascript-typescript`\n* :question:&nbsp;&nbsp;`.github/workflows/publish-images.yml:codeql/language:python`\n\n\n[View all branch alerts](/PatrikSi/threatlens/security/code-scanning?query=pr%3A31+tool%3ACodeQL+is%3Aopen)."
+  },
+  "security_aggregate_check_before_disposition": {
+    "annotations_count": 16,
+    "completed_at": "2026-10-09T03:46:24Z",
+    "conclusion": "failure",
+    "head_sha": "a6c07f7f2718cd4f9a6caab823b481fc2ac7525e",
+    "html_url": "https://github.com/PatrikSi/threatlens/runs/113659780795",
+    "id": 113659780795,
+    "independent_of_workflow_analysis_job_success": true,
+    "name": "CodeQL",
+    "observed_at_utc": "2026-10-09T04:07:40.816740+00:00",
+    "raw_metadata_sha256": "20fa8f0d60446a873287824b121b0c16d4141328017b50269924d374ce60b3d7",
+    "started_at": "2026-10-09T03:46:21Z",
+    "status": "completed"
+  },
+  "synthetic_merge_revision": "42fbb11627341bab6e7e6135b68a24d915f07d77",
+  "synthetic_merge_tree_matches_application": true
+}

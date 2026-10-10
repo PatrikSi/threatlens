@@ -1,20 +1,27 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Iterator
 import ipaddress
 import re
+
+from app.services.ioc_network_extraction import network_matches
+from app.services.ioc_normalization import normalize_domain, normalize_email, normalize_url, refang
+
+
+MAX_SOURCE_CHARS = 4_000_000
+MAX_EXTRACTED_OCCURRENCES = 100_000
+EVIDENCE_CONTEXT_CHARS = 120
+
+
+class IOCExtractionLimitError(ValueError):
+    """The source exceeds a documented extraction capacity, without partial output."""
 
 
 HASH_SHA256_RE = re.compile(r"\b[a-fA-F0-9]{64}\b")
 HASH_SHA1_RE = re.compile(r"\b[a-fA-F0-9]{40}\b")
 HASH_MD5_RE = re.compile(r"\b[a-fA-F0-9]{32}\b")
-IPV4_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
-IPV6_RE = re.compile(
-    r"(?<![\w:.%])(?:[0-9A-Fa-f]{0,4}:){2,7}"
-    r"[0-9A-Fa-f]{0,4}(?![\w:.%])"
-)
 CVE_RE = re.compile(r"\bCVE-\d{4}-\d{4,7}\b", re.IGNORECASE)
-DOMAIN_RE = re.compile(r"\b(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)\.)+[A-Za-z]{2,24}\b")
 
 
 VENDOR_TERMS = (
@@ -64,11 +71,11 @@ PROGRAM_TERMS = (
 )
 
 PROGRAM_PATTERNS = tuple(
-    (term, re.compile(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])"))
+    (term, re.compile(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", re.IGNORECASE | re.ASCII))
     for term in sorted(PROGRAM_TERMS, key=len, reverse=True)
 )
 VENDOR_PATTERNS = tuple(
-    (term, re.compile(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])"))
+    (term, re.compile(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", re.IGNORECASE | re.ASCII))
     for term in sorted(VENDOR_TERMS, key=len, reverse=True)
 )
 
@@ -80,14 +87,23 @@ class ExtractedIOC:
     value_norm: str
     source_section: str
     confidence: float
+    source_start: int | None = None
+    source_end: int | None = None
+    evidence_text: str | None = None
+    transformations: tuple[str, ...] = ()
 
 
 def normalize_ioc_search_value(value: str) -> tuple[str, str] | None:
     """Recognize a complete IOC value using the extraction normalizers."""
 
     candidate = value.strip()
-    if not candidate:
+    if not candidate or len(candidate) > 4096:
         return None
+    candidate = refang(candidate).text
+    if normalized_url := normalize_url(candidate):
+        return "url", normalized_url
+    if normalized_email := normalize_email(candidate):
+        return "email", normalized_email
     if HASH_SHA256_RE.fullmatch(candidate):
         return "hash_sha256", candidate.lower()
     if HASH_SHA1_RE.fullmatch(candidate):
@@ -102,12 +118,8 @@ def normalize_ioc_search_value(value: str) -> tuple[str, str] | None:
     normalized_ip = _normalize_ipv6(candidate)
     if normalized_ip is not None:
         return "ipv6", normalized_ip
-    if DOMAIN_RE.fullmatch(candidate):
-        normalized_domain = candidate.strip(". ").lower()
-        if normalized_domain.startswith("www."):
-            normalized_domain = normalized_domain[4:]
-        if normalized_domain and "." in normalized_domain:
-            return "domain", normalized_domain
+    if normalized_domain := normalize_domain(candidate):
+        return "domain", normalized_domain
     lowered = candidate.lower()
     if lowered in VENDOR_TERMS:
         return "vendor", lowered
@@ -127,67 +139,44 @@ def extract_iocs(*, title: str, summary: str | None, article_text: str | None) -
     for section_name, value in sections:
         if not value:
             continue
-        matches.extend(_extract_from_text(value, section_name))
+        if len(value) > MAX_SOURCE_CHARS:
+            raise IOCExtractionLimitError("IOC source exceeds the 4,000,000-character extraction limit")
+        for match in _extract_from_text(value, section_name):
+            if len(matches) >= MAX_EXTRACTED_OCCURRENCES:
+                raise IOCExtractionLimitError("IOC source exceeds the 100,000-occurrence extraction limit")
+            matches.append(match)
     return matches
 
 
-def _extract_from_text(text: str, section: str) -> list[ExtractedIOC]:
-    lowered = text.lower()
-    matches: list[ExtractedIOC] = []
+def _extract_from_text(text: str, section: str) -> Iterator[ExtractedIOC]:
+    def occurrence(kind: str, norm: str, start: int, end: int, confidence: float,
+                   transformations: tuple[str, ...] = ()) -> ExtractedIOC:
+        return ExtractedIOC(
+            type=kind, value_raw=text[start:end], value_norm=norm,
+            source_section=section, confidence=confidence, source_start=start, source_end=end,
+            evidence_text=text[max(0, start - EVIDENCE_CONTEXT_CHARS):min(len(text), end + EVIDENCE_CONTEXT_CHARS)],
+            transformations=transformations,
+        )
 
     # Whole-word hexadecimal runs of different lengths cannot overlap. Each
     # pattern scans the source once; no pairwise span comparisons are needed.
-    for match in HASH_SHA256_RE.finditer(text):
-        raw = match.group(0)
-        matches.append(ExtractedIOC(type="hash_sha256", value_raw=raw, value_norm=raw.lower(), source_section=section, confidence=1.0))
+    for kind, pattern in (("hash_sha256", HASH_SHA256_RE), ("hash_sha1", HASH_SHA1_RE),
+                          ("hash_md5", HASH_MD5_RE), ("cve", CVE_RE)):
+        for match in pattern.finditer(text):
+            norm = match.group().upper() if kind == "cve" else match.group().lower()
+            yield occurrence(kind, norm, *match.span(), 1.0)
 
-    for match in HASH_SHA1_RE.finditer(text):
-        raw = match.group(0)
-        matches.append(ExtractedIOC(type="hash_sha1", value_raw=raw, value_norm=raw.lower(), source_section=section, confidence=1.0))
+    for match in network_matches(text):
+        yield occurrence(match.type, match.value_norm, match.start, match.end,
+                         0.95 if match.type in {"domain", "url", "email"} else 1.0,
+                         match.transformations)
 
-    for match in HASH_MD5_RE.finditer(text):
-        raw = match.group(0)
-        matches.append(ExtractedIOC(type="hash_md5", value_raw=raw, value_norm=raw.lower(), source_section=section, confidence=1.0))
-
-    for match in CVE_RE.finditer(text):
-        raw = match.group(0)
-        matches.append(ExtractedIOC(type="cve", value_raw=raw, value_norm=raw.upper(), source_section=section, confidence=1.0))
-
-    for match in IPV4_RE.finditer(text):
-        raw = match.group(0)
-        parsed = _normalize_ipv4(raw)
-        if parsed:
-            matches.append(ExtractedIOC(type="ipv4", value_raw=raw, value_norm=parsed, source_section=section, confidence=1.0))
-
-    for match in IPV6_RE.finditer(text):
-        raw = match.group(0)
-        parsed = _normalize_ipv6(raw)
-        if parsed and parsed != "::":
-            matches.append(ExtractedIOC(type="ipv6", value_raw=raw, value_norm=parsed, source_section=section, confidence=1.0))
-
-    for match in DOMAIN_RE.finditer(text):
-        raw = match.group(0)
-        if "@" in raw:
-            continue
-        normalized = raw.strip(". ").lower()
-        if normalized.startswith("www."):
-            normalized = normalized[4:]
-        if normalized and "." in normalized:
-            matches.append(
-                ExtractedIOC(type="domain", value_raw=raw, value_norm=normalized, source_section=section, confidence=0.95)
-            )
-
-    for term, pattern in VENDOR_PATTERNS:
-        for match in pattern.finditer(lowered):
-            raw = text[match.start() : match.end()]
-            matches.append(ExtractedIOC(type="vendor", value_raw=raw, value_norm=term, source_section=section, confidence=0.7))
-
-    for term, pattern in PROGRAM_PATTERNS:
-        for match in pattern.finditer(lowered):
-            raw = text[match.start() : match.end()]
-            matches.append(ExtractedIOC(type="program", value_raw=raw, value_norm=term, source_section=section, confidence=0.7))
-
-    return matches
+    # ASCII case-insensitive matching preserves source offsets for Unicode text.
+    # Lowercasing the whole input can expand characters and invalidate evidence.
+    for kind, patterns in (("vendor", VENDOR_PATTERNS), ("program", PROGRAM_PATTERNS)):
+        for term, pattern in patterns:
+            for match in pattern.finditer(text):
+                yield occurrence(kind, term, *match.span(), 0.7)
 
 
 def _normalize_ipv4(value: str) -> str | None:

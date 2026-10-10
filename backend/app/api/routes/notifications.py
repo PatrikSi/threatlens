@@ -68,6 +68,7 @@ from app.services.notification_webhooks import (
     test_notification_webhook,
     validate_notification_webhook_payload_for_actor,
 )
+from app.services.webhook_request_state import WebhookRequestNotRendered
 from app.services.notification_webhook_test_policy import (
     NotificationWebhookTestPolicyError,
 )
@@ -135,7 +136,7 @@ def list_notification_webhooks(
 ):
     webhooks = db.scalars(
         select(NotificationWebhook)
-        .where(NotificationWebhook.user_id == user.id)
+        .where(NotificationWebhook.user_id == user.id, NotificationWebhook.team_id.is_(None))
         .order_by(NotificationWebhook.created_at.asc())
     ).all()
     can_read_secrets = _can_read_webhook_secrets(request, user)
@@ -203,7 +204,7 @@ def update_notification_webhook(
         select(NotificationWebhook)
         .where(
             NotificationWebhook.id == webhook_id,
-            NotificationWebhook.user_id == user.id,
+            NotificationWebhook.user_id == user.id, NotificationWebhook.team_id.is_(None),
         )
         .with_for_update()
         .execution_options(populate_existing=True)
@@ -212,6 +213,32 @@ def update_notification_webhook(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Webhook not found"
         )
+
+    # Older clients omit new automation fields. Retain them and validate the
+    # effective configuration, including method/payload compatibility.
+    retained = {
+        "include_article_text": bool(webhook.include_article_text),
+        "payload_mode": webhook.payload_mode or "template",
+        "conditions": webhook.conditions_json,
+        "credential_profile_id": webhook.credential_profile_id,
+    }
+    inherited = {
+        key: value
+        for key, value in retained.items()
+        if key not in payload.model_fields_set
+    }
+    if inherited:
+        from pydantic import ValidationError
+
+        try:
+            payload = NotificationWebhookWrite.model_validate(
+                {**payload.model_dump(), **inherited}
+            )
+        except ValidationError as exc:
+            raise HTTPException(
+                422,
+                "The update conflicts with retained automation settings; reload the webhook before editing",
+            ) from exc
 
     accessible_feed_ids = _validate_payload(
         db,
@@ -253,7 +280,7 @@ def delete_notification_webhook(
 ):
     webhook = db.scalar(
         select(NotificationWebhook).where(
-            NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id
+            NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id, NotificationWebhook.team_id.is_(None)
         )
     )
     if webhook is None:
@@ -300,7 +327,7 @@ def list_notification_webhook_deliveries(
     fence_data_access_context(db, data_access)
     webhook = db.scalar(
         select(NotificationWebhook).where(
-            NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id
+            NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id, NotificationWebhook.team_id.is_(None)
         )
     )
     if webhook is None:
@@ -384,7 +411,7 @@ def retry_notification_webhook_delivery_route(
         )
     webhook = db.scalar(
         select(NotificationWebhook).where(
-            NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id
+            NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id, NotificationWebhook.team_id.is_(None)
         )
     )
     if webhook is None:
@@ -418,7 +445,7 @@ def retry_notification_webhook_delivery_route(
         retried = retry_notification_webhook_delivery(
             db, webhook=webhook, delivery=delivery
         )
-    except NotificationWebhookRetryInProgressError as exc:
+    except (NotificationWebhookRetryInProgressError, WebhookRequestNotRendered) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
@@ -532,6 +559,8 @@ def test_notification_webhook_route(
         data_access=data_access,
     )
     try:
+        from app.services.export_job_access import capture_export_authorization
+
         result = test_notification_webhook(
             db,
             user=user,
@@ -541,6 +570,9 @@ def test_notification_webhook_route(
             data_access=data_access,
             authorization=authorization,
             operation_id=str(request.state.request_id),
+            credential_snapshot=capture_export_authorization(
+                request, authorization, data_access
+            ),
         )
     except NotificationWebhookTestPolicyError as exc:
         raise HTTPException(
@@ -581,6 +613,15 @@ def _validate_payload(
         validate_notification_webhook_payload_for_actor(
             payload, available_feed_ids, actor_user=actor_user
         )
+        if payload.credential_profile_id is not None:
+            from app.services.webhook_credentials import load_credential
+
+            load_credential(
+                db,
+                profile_id=payload.credential_profile_id,
+                user_id=actor_user.id,
+                require_enabled=payload.enabled,
+            )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -607,9 +648,7 @@ def _preserve_inaccessible_selected_feeds(
 
     stored = notification_webhook_write_from_model(webhook)
     stored_hidden_ids = [
-        feed_id
-        for feed_id in stored.feed_ids
-        if feed_id not in accessible_feed_ids
+        feed_id for feed_id in stored.feed_ids if feed_id not in accessible_feed_ids
     ]
     stored_visible_ids = [
         feed_id for feed_id in stored.feed_ids if feed_id in accessible_feed_ids

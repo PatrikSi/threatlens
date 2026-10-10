@@ -1,0 +1,64 @@
+{
+  "candidate_revision": "6141a7192e3d6970be9e67230da14b64da1c8894",
+  "contracts": {
+    "beat_deep_copies_all_worker_configuration": true,
+    "bounded_canary_admission_and_scheduler_tick_heartbeat_controls_retained": true,
+    "compose_command_resource_limits_and_health_budgets_unchanged": true,
+    "fresh_loader_refuses_worker_implementation_imports_for_both_ai_profiles": true,
+    "future_declared_publisher_attribute_overrides_fail_parity_guard": true,
+    "new_producer_not_set_as_current_app": true,
+    "only_beat_imports_and_includes_cleared": true,
+    "per_entry_result_overrides_preserved": true,
+    "raw_send_task_result_default_explicit": true,
+    "real_periodic_declarations_signatures_and_bind_defaults_retained": true,
+    "serialized_registered_task_and_fallback_message_parity": true,
+    "task_execution_bodies_never_run_in_parity_proof": true,
+    "watchdog_only_child_app_selector_changed": true,
+    "watchdog_signal_shutdown_heartbeat_and_default_grace_unchanged": true,
+    "worker_app_unfinalized_after_selected_beat_loader": true,
+    "worker_conf_tasks_and_registration_source_unchanged": true
+  },
+  "limitations": [
+    "The retained successful ARM diagnostic demonstrates costly worker task loading in that run; it does not establish the earlier failed ARM root cause.",
+    "This change creates a new candidate and requires fresh exact-source qualification.",
+    "Prior failed uninstrumented capacity and ARM outcomes remain retained; this review does not waive a release gate."
+  ],
+  "owner_reported_control_counts": {
+    "additional_ai_canary_queue_wire_cases": 3,
+    "current_ai_disabled_schedule_wire_entries": 31,
+    "full_producer_metadata_delay_result_override_wire_cases": 4,
+    "independent_reviewer_test_executions": 0,
+    "new_focused_cases_passed": 43,
+    "prior_focused_cases_passed": 24,
+    "total_focused_cases_passed": 67
+  },
+  "pinned_celery_source_sha256": {
+    "app/base.py": "9e7e78975863b655d006a2211ca48135366a2a120ef7ad714a494ccb25785dfc",
+    "app/task.py": "c9227dfbb9a46fc3d2905c3724c4012f75b5dafcd84af479bad096fc919d2011",
+    "beat.py": "b085d8f35191ad231cc1f82f582c44e29c5a9dd87e5c18517825ef8ca3a4e36a",
+    "loaders/base.py": "6d9f92c0c34b23084f3718a03494ceba4776d50a0a35f33cb1245bd82fcd58bf"
+  },
+  "previous_runtime_source_revision": "1251826fa113aca4e084f0dd7239d056d97be3b2",
+  "review": "independent_read_only_beat_producer_dependency_and_message_contract_review",
+  "schema_version": 1,
+  "scope": "Source and owner control read only; no imports of application implementations, workload, Docker, commit, staging, network or remote mutation",
+  "source_review_is_not_hosted_gate_clearance": true,
+  "source_sha256": {
+    "backend/app/tasks/beat_app.py": "ccfb6d45a94a15afab9776b4f7925b98460cba2480d19facafa8580d4c5336ec",
+    "backend/app/tasks/beat_watchdog.py": "eadebd73cc1288fd3df0b35f1934bf1fcd32e96b6d31b44d29a4b36e6f45a6c6",
+    "backend/tests/unit/test_beat_app.py": "a32c8c23d21c8c92c653387fd12b4b100f7499bc7e38b3d6b7e7a5ae14718c91"
+  },
+  "status": "clear_for_new_candidate_qualification",
+  "unchanged_runtime_file_sha256": {
+    "backend/app/core/config.py": "686ad84ee14ed4d9943aeb26d9448e6e1e8e079e085f5de133d6e49fc68139dc",
+    "backend/app/tasks/beat_scheduler.py": "0496c574007a24ce645fb861b8e966ad988a1bdb6e7e6d9a6881365b8fe4b164",
+    "backend/app/tasks/bounded_beat.py": "07318fcb2ef1f3ed33f684d46ed607beeda081d79a3ea6c8e42d1fd8a961b8e5",
+    "backend/app/tasks/celery_app.py": "2a8fbe9593bdb722b4fb8fd0dfd7d23f1e7b469a51a9713aed86bae74d9b51e9",
+    "backend/requirements-lock.txt": "c42689b53244004ad12e17ba4f0ea5f12b8e30d16ee56565b93ca0d2d0ab1ef1",
+    "backend/requirements.txt": "9f623337c1b124a6ea4e5cf140c1de676d53e63814c34843070a3a8757fcf0bc",
+    "docker-compose.build.yml": "b4df3a50abafaca1dd8fc8ee348e3f4bece0460d4693276f3bef86f53ada23aa",
+    "docker-compose.yml": "28ff5055e07fc4a818546f1610fc73cd18b011fa2cbe6b607d183fee941a88d3",
+    "docker/backend.Dockerfile": "0cfe2f77c0378de1c428759e190e29c0654436f93459b9263b8d9de5f860275c"
+  },
+  "worker_implementation_includes_count": 15
+}

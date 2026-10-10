@@ -1,9 +1,11 @@
+import errno
 import uuid
 from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -21,6 +23,7 @@ from app.services.export_transport import DisconnectSafeFileResponse
 from app.core.api_errors import ApiHTTPException
 from app.core.token_scopes import SCOPE_READ_ITEMS
 from app.db.session import get_db
+from app.db.budgets import DatabaseDeadlineExceeded
 from app.models.export_job import ExportJob
 from app.schemas.exports import (
     ArticleExportJobList,
@@ -48,6 +51,8 @@ from app.services.export_job_download import (
     ExportJobArtifactUnavailable,
     materialize_export_job_download,
 )
+from app.services.export_download_budget import ExportDownloadPreparationBudget
+from app.services.export_download_capacity import ExportDownloadCapacityUnavailable
 from app.services.export_jobs import (
     ExportJobCapacityExceeded,
     ExportJobConflict,
@@ -252,76 +257,98 @@ def download_export_job(
     principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_ITEMS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ) -> DisconnectSafeFileResponse:
-    job = _job(db, job_id, principal, lock=True)
-    if job.expires_at <= datetime.now(timezone.utc):
-        terminal_export_job(db, job, "expired")
-        db.commit()
-        raise HTTPException(
-            status_code=410, detail="This export has expired. Start a new export."
-        )
-    if job.status != "ready":
-        raise HTTPException(
-            status_code=409, detail="This export is not ready for download."
-        )
+    budget = ExportDownloadPreparationBudget.start()
     download = None
+    transferred = False
     try:
-        download = materialize_export_job_download(
-            db,
-            job,
-            current_authorization=get_authorization_context(request),
-            current_access=data_access,
-        )
-        record_audit(
-            db,
-            actor_user_id=export_user_id(principal),
-            actor_principal_type=export_principal_type(principal),
-            actor_principal_id=principal.id,
-            action="exports.job.download",
-            resource_type="export_job",
-            resource_id=str(job.id),
-            metadata={
-                "format": job.format,
-                "item_count": job.item_count,
-                "file_size": job.file_size,
-            },
-        )
-        # Keep publication policy fences for response streaming, as for the
-        # synchronous export endpoint; audit commit happens before reacquiring.
-        db.commit()
-        job = _job(db, job_id, principal, lock=True)
-        if job.status != "ready" or job.expires_at <= datetime.now(timezone.utc):
-            raise ExportJobArtifactUnavailable("Export is no longer available")
-        authorization, access = authorize_export_job(db, job)
-        fence_export_job_access(db, job, authorization, access)
-        current = get_authorization_context(request)
-        fence_authorization_context(db, current)
-        fence_data_access_context(db, data_access)
-        assert_export_sources_visible(db, job, data_access)
-        return download.response(
-            media_type=job.media_type,
-            filename=job.filename,
-            headers={
-                "Cache-Control": "no-store",
-                "X-Content-Type-Options": "nosniff",
-                "X-Export-Item-Count": str(job.item_count),
-            },
-        )
+        with budget.transaction(db):
+            job = _job(db, job_id, principal, lock=True)
+            if job.expires_at <= datetime.now(timezone.utc):
+                terminal_export_job(db, job, "expired")
+                db.commit()
+                raise HTTPException(
+                    status_code=410, detail="This export has expired. Start a new export."
+                )
+            if job.status != "ready":
+                raise HTTPException(
+                    status_code=409, detail="This export is not ready for download."
+                )
+            download = materialize_export_job_download(
+                db,
+                job,
+                current_authorization=get_authorization_context(request),
+                current_access=data_access,
+                budget=budget,
+            )
+            record_audit(
+                db,
+                actor_user_id=export_user_id(principal),
+                actor_principal_type=export_principal_type(principal),
+                actor_principal_id=principal.id,
+                action="exports.job.download",
+                resource_type="export_job",
+                resource_id=str(job.id),
+                metadata={
+                    "format": job.format,
+                    "item_count": job.item_count,
+                    "file_size": job.file_size,
+                },
+            )
+            db.commit()
+        # Audit commits before reacquiring the policy fences retained through
+        # streaming. Both preparation transactions share one absolute deadline.
+        with budget.transaction(db):
+            job = _job(db, job_id, principal, lock=True)
+            if job.status != "ready" or job.expires_at <= datetime.now(timezone.utc):
+                raise ExportJobArtifactUnavailable("Export is no longer available")
+            authorization, access = authorize_export_job(db, job)
+            fence_export_job_access(db, job, authorization, access)
+            current = get_authorization_context(request)
+            fence_authorization_context(db, current)
+            fence_data_access_context(db, data_access)
+            assert_export_sources_visible(db, job, data_access)
+            response = download.response(
+                media_type=job.media_type,
+                filename=job.filename,
+                headers={
+                    "Cache-Control": "no-store",
+                    "X-Content-Type-Options": "nosniff",
+                    "X-Export-Item-Count": str(job.item_count),
+                },
+            )
+        transferred = True
+        return response
     except (
         ExportJobAccessDenied,
         AuthorizationStateUnavailable,
         DataPolicyError,
     ) as exc:
-        if download is not None:
-            download.close()
         raise _access_changed() from exc
+    except (DatabaseDeadlineExceeded, OperationalError) as exc:
+        if isinstance(exc, OperationalError) and getattr(exc.orig, "sqlstate", None) not in {
+            "57014", "55P03",
+        }:
+            raise
+        raise ApiHTTPException(
+            status_code=504,
+            error_code="export_download_preparation_deadline",
+            detail="Preparing the download exceeded its time budget. Retry this download shortly.",
+            headers={"Retry-After": "5"},
+        ) from exc
+    except (ExportDownloadCapacityUnavailable, OSError) as exc:
+        if isinstance(exc, OSError) and exc.errno not in {errno.ENOSPC, errno.EDQUOT, errno.ENOMEM}:
+            raise
+        raise ApiHTTPException(
+            status_code=503,
+            error_code="export_download_capacity",
+            detail="Temporary download storage is busy or unavailable. Retry this download shortly.",
+            headers={"Retry-After": "5"},
+        ) from exc
     except (ExportJobArtifactUnavailable, ValueError) as exc:
-        if download is not None:
-            download.close()
         raise HTTPException(
             status_code=410,
             detail="The stored export is unavailable. Start a new export.",
         ) from exc
-    except Exception:
-        if download is not None:
+    finally:
+        if download is not None and not transferred:
             download.close()
-        raise

@@ -1,5 +1,11 @@
+from app.models.ai_quota_group import AIQuotaGroup, AIQuotaGroupMember, AIQuotaTeamTurn
+from app.models.team_hunt_claim import TeamHuntClaim
+from app.models.indicator_publication import IndicatorPublication, IndicatorPublicationLabel, IndicatorPublicationSource
+from app.models.automation_execution import AutomationCallback, AutomationExecution, AutomationPolicyUpdate
 from app.models.ai_provider_budget import AIProviderBudgetState, AIProviderBudgetReservation
 from app.models.team import Team
+from app.models.team_ai_context import TeamAIContext
+from app.models.team_item_assessment import TeamAssessmentRevision, TeamItemAssessment
 from app.models.lifecycle_pruning import LifecyclePruningRecord
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
@@ -52,6 +58,7 @@ from app.models.processing_work import (
 )
 from app.models.governance_operation_receipt import GovernanceOperationReceipt
 from app.models.ioc import IOC, ItemIOC
+from app.models.intel_assessment import (ItemIntelState, TeamIntelState, IndicatorAssessment, IndicatorAssessmentLabel, IndicatorAssessmentHistory, IndicatorSuppression, IndicatorSuppressionHistory)
 from app.models.integration import (
     IntegrationAttempt,
     IntegrationDelivery,
@@ -94,6 +101,7 @@ from app.models.lifecycle import (
 )
 from app.models.mfa import MFALoginChallenge, UserRecoveryCode, UserTOTPCredential
 from app.models.notification_webhook import NotificationWebhook
+from app.models.webhook_credential import WebhookCredentialProfile
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.oidc import ExternalIdentity, OIDCProvider
 from app.models.oidc_access import (
@@ -126,9 +134,38 @@ from app.models.temporary_elevation import (
 )
 from app.models.user import User
 from app.models.workspace import WorkspaceRolePolicy, WorkspaceUserPreference
+from app.models.automation_receiver import AutomationReceiverCredential
+from app.models.ai_article_continuation import AIArticleContinuation
+from app.models.team_ai_governance import TeamAIGovernance
+
+from app.models.publication_consumer import PublicationConsumer, PublicationSubscription, PublicationChange
+
+from app.models.ai_qualification import AIQualification
+
+from app.models.team_hunt_view import TeamHuntView
+
+from app.models.mcp_oauth import MCPOAuthClient, MCPOAuthCode, MCPDelegation
 
 __all__ = [
+    "AutomationReceiverCredential",
+    "AIArticleContinuation",
+    "TeamAIGovernance",
+    "PublicationConsumer",
+    "PublicationSubscription",
+    "PublicationChange",
+    "AIQualification",
+    "TeamHuntView",
+    "MCPOAuthClient",
+    "MCPOAuthCode",
+    "MCPDelegation",
+    "AIQuotaGroup", "AIQuotaGroupMember", "AIQuotaTeamTurn",
+    "TeamHuntClaim",
+    "IndicatorPublication", "IndicatorPublicationLabel", "IndicatorPublicationSource",
+    "AutomationCallback", "AutomationExecution", "AutomationPolicyUpdate",
     "Team",
+    "TeamAIContext",
+    "TeamAssessmentRevision",
+    "TeamItemAssessment",
     "AIProviderBudgetState",
     "AIProviderBudgetReservation",
     "ProcessingDispatchState",
@@ -179,6 +216,13 @@ __all__ = [
     "GovernanceOperationReceipt",
     "ExternalIdentity",
     "IOC",
+    "ItemIntelState",
+    "TeamIntelState",
+    "IndicatorAssessment",
+    "IndicatorAssessmentLabel",
+    "IndicatorAssessmentHistory",
+    "IndicatorSuppression",
+    "IndicatorSuppressionHistory",
     "IntegrationAttempt",
     "IntegrationDelivery",
     "IntegrationDeliveryMetric",
@@ -216,6 +260,7 @@ __all__ = [
     "LifecyclePruningRecord",
     "MFALoginChallenge",
     "NotificationWebhook",
+    "WebhookCredentialProfile",
     "NotificationWebhookDelivery",
     "OIDCProvider",
     "OIDCAccessPolicy",

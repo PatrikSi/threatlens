@@ -88,6 +88,8 @@ function RouteLoadingFallback({ label }: { label: string }) {
   )
 }
 
+const MCPOAuthConsentPage = lazy(() => import('./pages/MCPOAuthConsentPage'))
+
 function suspenseRoute(element: React.ReactNode, label: string) {
   return <Suspense fallback={<RouteLoadingFallback label={label} />}>{element}</Suspense>
 }
@@ -115,6 +117,7 @@ function createAppRouter() {
               </WorkspaceModuleRoute>
             )}
           />
+          <Route path="mcp/authorize" element={suspenseRoute(<MCPOAuthConsentPage />, 'Loading MCP authorization…')} />
           <Route path="start" element={<WorkspaceStartRoute />} />
           <Route path="teams" element={<WorkspaceModuleRoute moduleId="primary.teams">{suspenseRoute(<TeamsPage />, 'Loading team workspaces...')}</WorkspaceModuleRoute>} />
           <Route

@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "review_date": "2026-10-08",
+  "reviewed_revision": "fc7baa133f6c81626b511bc4f59ea429e3f2c437",
+  "baseline_revision": "35ac120",
+  "integration_base_revision": "4ccd249b713b98241f78c7592be9c57d3f941b8d",
+  "version": "2.0.1",
+  "suggested_next_version": "2.1.0",
+  "ready_to_merge": false,
+  "backend": {
+    "passed": 4530,
+    "skipped": 5,
+    "failed": 0,
+    "duration_seconds": 1229.48,
+    "test_start_revision": "49430fe95f4330b6a4e2c32b0cea354417da7079",
+    "source_and_tests_stable_during_final_run": true,
+    "coverage": {
+      "covered_lines": 57805,
+      "num_statements": 64237,
+      "percent_covered": 87.02779669411255,
+      "percent_covered_display": "87",
+      "missing_lines": 6432,
+      "excluded_lines": 97,
+      "percent_statements_covered": 89.98707909771628,
+      "percent_statements_covered_display": "90",
+      "num_branches": 16528,
+      "num_partial_branches": 3285,
+      "covered_branches": 12483,
+      "missing_branches": 4045,
+      "percent_branches_covered": 75.52637947725073,
+      "percent_branches_covered_display": "76"
+    },
+    "critical_coverage_gates_passed": true,
+    "reporting_combined_coverage_percent": 87.23,
+    "dependency_import_target": {
+      "PyJWT": "2.15.1",
+      "urllib3": "2.8.0"
+    },
+    "main_virtual_environment_modified": false,
+    "sdk_protocol_passed": 119,
+    "sdk_authenticated_http_passed": 2,
+    "sdk_version": "2.2.0",
+    "sdk_httpx2_version": "2.7.0",
+    "skip_reasons": {
+      "optional_sdk_checks": 3,
+      "explicit_capacity_harness_entry_points": 2
+    }
+  },
+  "frontend": {
+    "files_passed": 164,
+    "tests_passed": 1355,
+    "lint_passed": true,
+    "build_passed": true,
+    "production_bundle_smoke_passed": true,
+    "browser_typescript_and_scoped_lint_passed": true
+  },
+  "browsers": {
+    "engines": [
+      "chromium",
+      "firefox",
+      "webkit"
+    ],
+    "playwright_image": "mcr.microsoft.com/playwright:v1.63.0-noble",
+    "real_server_passed": 63,
+    "interaction_passed": 135,
+    "patched_library_cookies_oidc_passed": 15,
+    "full_real_server_libraries": {
+      "PyJWT": "2.13.0",
+      "urllib3": "2.7.0"
+    },
+    "additional_auth_libraries": {
+      "PyJWT": "2.15.1",
+      "urllib3": "2.8.0"
+    },
+    "final_matrices_run_sequentially": true,
+    "owned_services_cleaned_up": true
+  },
+  "audits": {
+    "python_runtime_known_vulnerabilities": 0,
+    "npm_all_dependencies": {
+      "info": 0,
+      "low": 0,
+      "moderate": 2,
+      "high": 5,
+      "critical": 0,
+      "total": 7
+    },
+    "npm_production_dependencies": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "repository_frontend_audit_exit_code": 1,
+    "frontend_audit_suppressions_added": false,
+    "native_image_fixable_high_critical": {
+      "backend": 0,
+      "web": 0
+    },
+    "image_scan_evidence": "image-scans.json"
+  },
+  "static_and_artifacts": {
+    "compile_passed": true,
+    "ruff_passed": true,
+    "source_size_passed": true,
+    "production_files_checked": 1003,
+    "runtime_lock_reproduced": true,
+    "generated_api_contract_matches": true,
+    "generated_browser_fixture_matches": true,
+    "bash_syntax_passed": true,
+    "shellcheck_passed": true,
+    "aggregate_diff_hygiene_passed": true,
+    "native_image_inventory_and_legal_comparison_passed": true,
+    "native_web_legacy_and_hardened_startup_restart_passed": true,
+    "prometheus_alert_tests_passed": true
+  },
+  "recovery": {
+    "unit_tests_run": 125,
+    "unit_skipped": 4,
+    "operations_tests_run": 24,
+    "operations_skipped": 1,
+    "disposable_docker_e2e_passed": 4,
+    "docker_e2e_duration_seconds": 199.77,
+    "owned_services_and_volumes_cleaned_up": true,
+    "source_loss_drill_run_this_review": false
+  },
+  "capacity": {
+    "profile": "smoke",
+    "status": "passed",
+    "budget_violations": {},
+    "artifact": "../../capacity/2026-10-08-review-smoke.json",
+    "sustained_release_comparison_run": false
+  },
+  "ai_semantic_qualification": {
+    "dataset_sha256": "4dce59ec16c4b1d54c92d0c40f003465c96c9f8e27cc06a854ca351984c603e1",
+    "cases": 12,
+    "cases_pending_analyst_review": 12,
+    "cases_analyst_approved": 0,
+    "semantic_quality_approved": false,
+    "real_paid_provider_calls_performed": false
+  },
+  "unrun_candidate_gates": [
+    "remote CodeQL",
+    "OpenSearch vendor contract on final candidate",
+    "ARM64 source-build scan/smoke",
+    "exact published platform digest scan/smoke/promotion",
+    "target-host sustained release comparison"
+  ],
+  "remote_push_tag_or_merge_performed": false,
+  "production_qualified": false
+}

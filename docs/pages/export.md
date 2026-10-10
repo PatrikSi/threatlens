@@ -55,18 +55,32 @@ STIX exports a valid STIX 2.1 Bundle. ThreatLens articles become `Report` object
 
 | ThreatLens value | STIX object |
 |---|---|
-| IPv4 address, domain, MD5, SHA-1, SHA-256 | `Indicator` |
+| IPv4/IPv6 address, domain, URL, email address, MD5, SHA-1, SHA-256 | `Indicator` |
 | CVE | `Vulnerability` |
 | Vendor | `Identity` |
 | Program | `Software` |
 
 Source URLs become external references, article tags become report labels, and classification confidence is converted to the STIX `0` to `100` scale. The export can apply no marking or a `TLP:WHITE`, `TLP:GREEN`, `TLP:AMBER`, or `TLP:RED` marking. This is an interoperability mapping, not a claim that every article is a validated indicator or that ThreatLens publishes directly to a TIP or SIEM.
 
+Indicator patterns carry the `unreviewed-extraction` label and a description of
+their match confidence. They omit STIX Indicator `confidence`: recognizing a
+value in text does not establish maliciousness. Review the patterns before
+enabling detections. Raw article exports include the shared inventory; they do
+not apply a team's verdicts or suppression rules. Use reviewed, team-scoped
+automation events or [reviewed publications](reviewed-publications.md) for that workflow.
+
 ### MISP
 
 MISP exports one unpublished event per article in a MISP-compatible response document. Source URLs, tags, summaries, optional article text, and supported IOC attributes are included. The selected distribution value is written to each event, but events remain unpublished and are not sent to a MISP server.
 
-IOC mappings include `ip-dst`, `domain`, `md5`, `sha1`, `sha256`, `vulnerability`, `target-org`, and `text`. Review event quality, distribution, and `to_ids` semantics before publishing imported events.
+IOC mappings include `ip-dst` for IPv4/IPv6, `domain`, `url`, direction-neutral
+`email`, `md5`, `sha1`, `sha256`, `vulnerability`, `target-org`, and `text`.
+Extracted attributes use `to_ids: false` and comments identify their unreviewed
+provenance. Event threat level is undefined (`4`); AI relevance is not a severity
+assessment. Review event quality and distribution, apply any team verdicts and
+suppression rules, and explicitly enable chosen detection attributes before
+publishing imported events. This replaces the earlier automatic `to_ids: true`
+behavior for raw extracted values.
 
 ### PDF Bundle
 
@@ -79,6 +93,14 @@ The readable bundle is a ZIP with `manifest.json` and one PDF per article under 
 - Full article text is format-specific and opt-in except for the default JSONL and ThreatLens bundle presets.
 - Export filters, format, item count, size, duration, and outcome are audited. Search text, article contents, and private notes are not written to audit metadata.
 - Synchronous export artifacts are generated in temporary files and removed after the response. Background jobs retain encrypted artifact chunks for their configured lifetime; download materialization uses temporary files that are removed after the response.
+- Background rendering scratch is private to the effective database connection
+  (endpoint, database, role and connection options) and execution claim. Cleanup
+  never scans another database's namespace. Password rotation retains the same
+  namespace. Legacy flat `threatlens-export-job-*` directories are not adopted:
+  restart an isolated export container to clear its temporary filesystem, or
+  remove those old directories only after all workers sharing that host storage
+  have stopped. Changing database identity can leave an old namespace requiring
+  the same deliberate cleanup. Backend test runs use independent temporary roots.
 
 ## Operational Limits
 
@@ -89,6 +111,9 @@ The readable bundle is a ZIP with `manifest.json` and one PDF per article under 
 | `EXPORT_PREVIEW_LIMIT` | `25` | Maximum rows returned in a preview. |
 | `EXPORT_MAX_UNCOMPRESSED_BYTES` | `250000000` | Maximum generated content before or after compression. |
 | `EXPORT_LOCK_TTL_SECONDS` | `900` | Per-user export lock expiry and crash recovery window. Active exports renew the lock every third of this interval. |
+| `EXPORT_DOWNLOAD_PREPARATION_TIMEOUT_SECONDS` | `30` | Total background-artifact download preparation allowance, including authorization, decryption, temporary writes, audit, and final access checks. |
+| `EXPORT_DOWNLOAD_SCRATCH_HEADROOM_BYTES` | `67108864` | Free temporary-storage space that download admission must preserve (64 MiB). |
+| `EXPORT_TRANSFER_TIMEOUT_SECONDS` | `300` | Maximum response transfer lifetime after preparation. |
 
 Only one generated export per user can run at a time. Results are loaded in bounded batches and written to disk rather than assembled completely in memory. A changing result set, exhausted size budget, unavailable Redis lock, or competing export produces a clear failure instead of a partial artifact. Narrow filters and retry after the current export finishes.
 
@@ -109,6 +134,41 @@ deadline. Acceptance is durable before broker publication and idempotent for the
 same principal, request, and idempotency key. Jobs expose progress, cancellation,
 failure reasons, expiry, and a download when ready. Current permissions and the
 accepting credential are checked during generation and download.
+
+Before decrypting a background artifact, download admission reserves its full
+size in an anonymous temporary file. API processes sharing the temporary
+directory coordinate this check with a nonblocking file lock, and filesystem
+allocation accounts for reservations held by other active downloads. With the
+default 512 MiB API temporary filesystem and 64 MiB headroom, only one near-limit
+250 MB artifact can be prepared or transferred at a time. Smaller concurrent
+downloads can use the remaining space. Reservations last through response
+streaming and release on success, disconnect, timeout, failure, or process death.
+
+Storage admission returns HTTP 503 with `export_download_capacity` and
+`Retry-After: 5` when capacity is unavailable. The ready job remains intact: retry
+the same download rather than creating another export. If this persists, inspect
+temporary-filesystem capacity, other temporary files, and allocation support.
+Linux anonymous files, process-local `/proc` descriptors, and `posix_fallocate`
+support are required; unsupported storage fails before plaintext is copied.
+The small `threatlens-export-download-admission.lock` coordination file contains
+no article data and must not be removed while API processes are running.
+
+Preparation uses one monotonic deadline across its transactions. SQL statements
+receive the remaining allowance, and bounded decryption/write chunks check the
+deadline before proceeding. Exceeding it returns HTTP 504 with
+`export_download_preparation_deadline` and `Retry-After: 5`, closes partial
+plaintext, and leaves the stored job available for retry. Final authorization
+locks remain held during the independently bounded transfer. As with other
+database operations, connection establishment and failed-network cleanup retain
+their configured driver limits; a blocked kernel filesystem call cannot be
+preempted between chunk checkpoints. Use the supported local tmpfs configuration
+and include those driver limits when sizing end-to-end infrastructure timeouts.
+
+The headroom protects against coordinated download allocations; unrelated
+processes can still consume temporary storage. Keep container memory and tmpfs
+budgets aligned, use the same `TMPDIR` for API processes sharing temporary
+storage, and qualify the preparation allowance on target hardware before raising
+artifact sizes or download concurrency.
 
 Each queued job receives a durable publication reservation. If the broker's
 acknowledgement is lost or consumers pause, periodic repair does not keep adding
@@ -135,3 +195,10 @@ after migration so older publishers do not bypass the reservation protocol.
 - `GET /api/v1/exports/jobs/{id}/download` downloads an available artifact.
 
 The generated [API reference](../reference/api.md#exports) and [OpenAPI document](../reference/openapi.json) define the complete request schemas.
+
+## Reviewed team publications
+
+The separate [reviewed publication mode](reviewed-publications.md) applies current
+team verdicts, suppression, expiry and evidence revisions before approval. It
+retains stable artifact identities and monotonic withdrawal updates; raw research
+exports above continue to include the shared inventory.

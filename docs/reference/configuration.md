@@ -41,6 +41,14 @@
 | `JWT_ALGORITHM` (`jwt_algorithm`) | `HS256` | JWT signature algorithm. |
 | `JWT_EXPIRES_MINUTES` (`jwt_expires_minutes`) | `1440` | Access token TTL in minutes. |
 | `ALLOW_LEGACY_UNSCOPED_TOKENS` (`allow_legacy_unscoped_tokens`) | `false` | Whether API tokens with empty scope lists are accepted. |
+| `MCP_ENABLED` (`mcp_enabled`) | `false` | Enables the optional read-only MCP endpoint at `/api/v1/mcp` through the web proxy. Requires explicitly scoped local bearer credentials; see [MCP setup](../pages/mcp.md). |
+| `MCP_OAUTH_ENABLED` (`mcp_oauth_enabled`) | `false` | Enable pre-registered public OAuth clients, explicit browser consent and short-lived MCP-only access tokens. Requires a public HTTPS application origin in `PUBLIC_APP_URL`. |
+| `MCP_ALLOWED_ORIGINS` (`mcp_allowed_origins`) | empty | Comma-separated exact HTTP(S) Origin allowlist for MCP browser clients, separate from `CORS_ORIGINS`. Empty rejects all requests carrying Origin. |
+| `MCP_REQUEST_MAX_BYTES` (`mcp_request_max_bytes`) | `16384` | Maximum MCP request-body bytes; range 1,024–65,536. |
+| `MCP_RESPONSE_MAX_BYTES` (`mcp_response_max_bytes`) | `65536` | Maximum complete MCP JSON-response bytes; range 16,384–65,536, including text and structured-content copies. |
+| `MCP_REQUEST_TIMEOUT_SECONDS` (`mcp_request_timeout_seconds`) | `15` | MCP SQL/output/transfer deadline; range 1–30 seconds. Initial database checkout and cleanup may overrun it under ordinary database timeouts; see [MCP operating limits](../pages/mcp.md#protocol-and-operating-limits). |
+| `MCP_RATE_LIMIT_PER_MINUTE` (`mcp_rate_limit_per_minute`) | `60` | Redis-backed MCP request allowance per authenticated principal; source-IP allowance is five times this value. Range 1–10,000. |
+| `MCP_MAX_CONCURRENT_REQUESTS` (`mcp_max_concurrent_requests`) | `4` | Configured MCP request cap per API process; range 1–64. Effective admission is the smaller of this value and half of `DATABASE_POOL_SIZE + DATABASE_MAX_OVERFLOW`, rounded down. Enabling MCP requires pool capacity of at least two. |
 | `ALLOW_SELF_REGISTRATION` (`allow_self_registration`) | `false` | Enables/disables `/auth/register`. |
 | `DEFAULT_API_TOKEN_EXPIRY_DAYS` (`default_api_token_expiry_days`) | `90` | Default token lifetime if not supplied. |
 | `AI_ENABLED` (`ai_enabled`) | `false` | Enables AI routes, nav visibility, enrichment, and daily-brief features. |
@@ -50,8 +58,8 @@
 | `PUBLIC_APP_URL` (`public_app_url`) | _(empty)_ | Optional public browser URL, without credentials/query/fragment, used to make report integration links absolute. |
 | `EXPOSE_API_DOCS_IN_PRODUCTION` (`expose_api_docs_in_production`) | `false` | Keeps `/docs` and `/redoc` disabled by default in production. |
 | `EXPOSE_OPENAPI_SCHEMA_IN_PRODUCTION` (`expose_openapi_schema_in_production`) | `true` | Keeps the machine-readable OpenAPI contract available at `/openapi.json` by default. Set to `false` if the schema is distributed only as a checked-in artifact. |
-| `ADMIN_EMAIL` (`admin_email`) | `admin@example.com` | Seed admin identity. |
-| `ADMIN_PASSWORD` (`admin_password`) | `admin123` | Seed admin password. |
+| `ADMIN_EMAIL` (`admin_email`) | `admin@example.com` | Seed admin identity. When seeding runs, the login email schema validates and normalizes it before database access; invalid or special-use domains fail with an actionable error. |
+| `ADMIN_PASSWORD` (`admin_password`) | `admin123` | Seed admin password; 1–256 characters with no carriage returns or line feeds. Seeding validates both login fields before opening a database session. |
 | `FETCH_USER_AGENT` (`fetch_user_agent`) | `ThreatLensBot/1.0 (+https://localhost)` | User-Agent for feed/article HTTP requests. |
 | `FEED_CONNECT_TIMEOUT_SECONDS` (`feed_connect_timeout_seconds`) | `5` | Feed HTTP connect timeout. |
 | `FEED_READ_TIMEOUT_SECONDS` (`feed_read_timeout_seconds`) | `15` | Feed HTTP read timeout. |
@@ -218,6 +226,8 @@
 | `EXPORT_LOCK_TTL_SECONDS` (`export_lock_ttl_seconds`) | `900` | Redis-backed per-user export lock lifetime and abandoned-lock recovery interval. Active exports renew the lock every third of this interval. |
 | `EXPORT_JOB_TIMEOUT_SECONDS` (`export_job_timeout_seconds`) | `3600` | Background generation deadline per attempt; the worker hard limit adds 60 seconds for shutdown. |
 | `EXPORT_TRANSFER_TIMEOUT_SECONDS` (`export_transfer_timeout_seconds`) | `300` | Absolute response-streaming lifetime for prepared synchronous/background exports, including client backpressure. Expiry terminates the transfer and releases its authorization fences and scratch file. |
+| `EXPORT_DOWNLOAD_PREPARATION_TIMEOUT_SECONDS` (`export_download_preparation_timeout_seconds`) | `30` | Shared deadline for preparing a stored export download, including SQL, decryption, temporary writes, audit, and final authorization checks. A preparation timeout leaves the ready artifact available for retry. |
+| `EXPORT_DOWNLOAD_SCRATCH_HEADROOM_BYTES` (`export_download_scratch_headroom_bytes`) | `67108864` | Free temporary-storage bytes reserved for other API work. Downloads allocate their full anonymous-file storage before decryption; insufficient space returns a retryable capacity error. API processes sharing storage must use the same `TMPDIR`. |
 | `EXPORT_JOB_LEASE_SECONDS` (`export_job_lease_seconds`) | `120` | Renewable durable claim lease; expired claims are repaired by maintenance. |
 | `EXPORT_JOB_RETENTION_SECONDS` (`export_job_retention_seconds`) | `86400` | Time from acceptance to expiry, including queue wait. |
 | `EXPORT_JOB_MAX_ATTEMPTS` (`export_job_max_attempts`) | `3` | Maximum interrupted/retryable generation attempts. |
@@ -232,6 +242,9 @@ lifecycle**. Restarting with different environment values does not overwrite the
 catalog, and missing or partial rows fail closed instead of being recreated.
 
 ## Production Validation Rules
+
+Invalid settings block startup; validation messages identify failed fields and
+rules without printing the supplied settings dictionary.
 
 When `APP_ENV` is `production` or `prod`:
 
@@ -483,7 +496,7 @@ docker compose logs -f api worker worker-ai worker-exports worker-maintenance wo
 - OIDC requires HTTPS by default. `ALLOW_INSECURE_HTTP_OIDC=true` is a separate development-only transport opt-in and does not grant access to private hosts. For backward compatibility, `ALLOW_PRIVATE_NETWORK_OIDC=true` continues to permit HTTP only when the target is private; setting both flags makes the two risks explicit. When the ThreatLens callback itself uses HTTP, `AUTH_COOKIE_SECURE=false` is also required and production mode remains intentionally unsuitable for that deployment.
 - Notification webhook targets are validated on create, update, test, retry, and delivery. Public webhook targets must use `https`; private-network or internal-only webhook targets require `ALLOW_PRIVATE_NETWORK_WEBHOOKS=true`.
 - `TRUSTED_PROXY_CIDRS` only controls whether ThreatLens trusts proxy-supplied client IP headers. It does not widen outbound safety checks, and every trusted proxy hop that can append `X-Forwarded-For` should be included.
-- `APP_DATA_ENCRYPTION_KEY` protects feed URLs, stored webhook templates, saved delivery snapshots, and the OIDC client secret at rest; keep it distinct from `JWT_SECRET` and back it up with any `APP_DATA_ENCRYPTION_PREVIOUS_KEYS`.
+- `APP_DATA_ENCRYPTION_KEY` protects feed URLs, stored webhook templates, reusable webhook authentication/signing credentials, saved delivery snapshots, and the OIDC client secret at rest; keep it distinct from `JWT_SECRET` and back it up with any `APP_DATA_ENCRYPTION_PREVIOUS_KEYS`. Credential profiles participate in startup and operations encrypted-data inventory, including disabled profiles. Retain the old application key until existing profile secrets have been replaced under the new key; reading or delivering with a profile does not automatically rewrite its ciphertext.
 - Admin-only encrypted data inventory is available at `/health/encrypted-data` and includes both a current scan and the most recent startup scan summary for unreadable encrypted rows.
 
 ## Theme Storage

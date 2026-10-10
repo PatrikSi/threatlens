@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Callable, Iterable, Sequence
 
-from sqlalchemy import and_, exists, false, func, literal, or_, select, true
+from sqlalchemy import String, and_, cast, exists, false, func, literal, or_, select, true
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, aliased
 
@@ -25,6 +25,8 @@ from app.models.data_policy import (
 )
 from app.models.feed import Feed
 from app.models.item import Item
+from app.models.team import Team
+from app.services.team_access import team_access_predicate
 from app.services.ai_telemetry_lineage import (
     _copy_child_run_lineage,
     _copy_resource_lineage_if_present,
@@ -74,13 +76,14 @@ class AITelemetryWouldDenySummary:
 def ai_task_run_access_predicate(data_access: DataAccessContext):
     if not data_access.principal_eligible:
         return false()
+    team_access = _team_task_access_predicate(data_access)
     if not data_access.enforced:
-        return true()
+        return team_access
     system_envelope = _resource_envelope_exists(
         DATA_ACCESS_RESOURCE_AI_TASK_RUN,
         AITaskRun.id,
     )
-    return or_(
+    return and_(team_access, or_(
         and_(
             AITaskRun.data_access_scope == AI_DATA_ACCESS_SCOPE_SYSTEM,
             AITaskRun.task_type == _SYSTEM_TASK_TYPE,
@@ -100,14 +103,22 @@ def ai_task_run_access_predicate(data_access: DataAccessContext):
                 data_access,
             ),
         ),
-    )
+    ))
 
 
 def ai_usage_event_access_predicate(data_access: DataAccessContext):
     if not data_access.principal_eligible:
         return false()
+    team_access = or_(
+        AIUsageEvent.feature_type != "team_assessment",
+        exists(select(AITaskRun.id).where(
+            AITaskRun.id == AIUsageEvent.task_run_id_snapshot,
+            AITaskRun.task_type == "team_assessment",
+            _team_task_access_predicate(data_access),
+        )),
+    )
     if not data_access.enforced:
-        return true()
+        return team_access
     usage_envelope = _resource_envelope_exists(
         DATA_ACCESS_RESOURCE_AI_USAGE_EVENT,
         AIUsageEvent.id,
@@ -131,7 +142,7 @@ def ai_usage_event_access_predicate(data_access: DataAccessContext):
             )
         ),
     )
-    return or_(
+    return and_(team_access, or_(
         and_(
             AIUsageEvent.data_access_scope == AI_DATA_ACCESS_SCOPE_SYSTEM,
             AIUsageEvent.feature_type == _SYSTEM_TASK_TYPE,
@@ -149,6 +160,23 @@ def ai_usage_event_access_predicate(data_access: DataAccessContext):
                 data_access,
             ),
         ),
+    ))
+
+
+def _team_task_access_predicate(data_access: DataAccessContext):
+    """Team privacy applies even when handling-label enforcement is disabled.
+
+    Keep the team binding on retained run metadata so regenerating an assessment
+    does not lose historical access checks. Never cast untrusted JSON to UUID.
+    """
+    if data_access.principal_type != "user":
+        return AITaskRun.task_type != "team_assessment"
+    return or_(
+        AITaskRun.task_type != "team_assessment",
+        exists(select(Team.id).where(
+            cast(Team.id, String) == AITaskRun.metadata_json["team_id"].as_string(),
+            team_access_predicate(Team.id, data_access.principal_id),
+        )),
     )
 
 
@@ -193,22 +221,10 @@ def list_ai_task_runs_for_data_access(
     parent_run_id: uuid.UUID | None = None,
     only_failures: bool = False,
 ) -> AITaskRunListResponse:
-    if data_access.principal_eligible and not data_access.enforced:
-        from app.services.ai_ops import list_ai_task_runs
+    if data_access.principal_eligible and not data_access.enforced and status in {"queued", "running"}:
+        from app.services.ai_ops import _reconcile_stale_ai_runs
 
-        return list_ai_task_runs(
-            db,
-            limit=limit,
-            offset=offset,
-            task_type=task_type,
-            status=status,
-            trigger_source=trigger_source,
-            model=model,
-            since=since,
-            parent_run_id=parent_run_id,
-            only_failures=only_failures,
-            reconcile_stale=status in {"queued", "running"},
-        )
+        _reconcile_stale_ai_runs(db)
 
     from app.services.ai_task_projection import _map_run_responses
 
@@ -251,11 +267,6 @@ def get_ai_task_run_detail_for_data_access(
     run_id: uuid.UUID,
     data_access: DataAccessContext,
 ) -> AITaskRunDetailResponse | None:
-    if data_access.principal_eligible and not data_access.enforced:
-        from app.services.ai_ops import get_ai_task_run_detail
-
-        return get_ai_task_run_detail(db, run_id=run_id)
-
     from app.services.ai_task_projection import _map_run_responses
 
     run = db.scalar(
@@ -266,6 +277,15 @@ def get_ai_task_run_detail_for_data_access(
     )
     if run is None:
         return None
+    if not data_access.enforced and run.status in {"queued", "running"}:
+        from app.services.ai_ops import _reconcile_stale_ai_runs
+
+        _reconcile_stale_ai_runs(db)
+        run = db.scalar(select(AITaskRun).where(
+            AITaskRun.id == run_id, ai_task_run_access_predicate(data_access),
+        ).execution_options(populate_existing=True))
+        if run is None:
+            return None
     events = list(
         db.scalars(
             select(AITaskEvent)
@@ -316,7 +336,7 @@ def initialize_ai_task_run_data_access(
     run.data_access_lineage_complete = False
     db.add(run)
     db.flush()
-    if run.task_type == _DIRECT_TASK_TYPE_ITEM and run.item_id is not None:
+    if run.task_type in (_DIRECT_TASK_TYPE_ITEM, "team_assessment") and run.item_id is not None:
         capture_ai_task_run_data_access(
             db,
             run_id=run.id,
@@ -903,7 +923,7 @@ def _is_system_usage(
 
 
 def _task_run_shape_is_provable(run: AITaskRun) -> bool:
-    if run.task_type == _DIRECT_TASK_TYPE_ITEM:
+    if run.task_type in (_DIRECT_TASK_TYPE_ITEM, "team_assessment"):
         return bool(
             run.item_id is not None
             and run.daily_brief_id is None
@@ -929,7 +949,7 @@ def _task_run_shape_is_provable(run: AITaskRun) -> bool:
 
 
 def _usage_event_shape_is_provable(event: AIUsageEvent) -> bool:
-    if event.feature_type == _DIRECT_TASK_TYPE_ITEM:
+    if event.feature_type in (_DIRECT_TASK_TYPE_ITEM, "team_assessment"):
         return bool(
             event.item_id is not None
             and event.daily_brief_id is None

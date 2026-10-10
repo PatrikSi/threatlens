@@ -35,8 +35,10 @@ from app.services.notification_webhook_templates import (
     render_field,
     render_template,
 )
+from app.services.webhook_article_text import ArticleTextSnapshot, uses_article_text, validate_article_text_placement
 
 THREATLENS_SOURCE_DELIVERY_ID_HEADER = "X-ThreatLens-Source-Delivery-ID"
+MAX_TEMPLATE_BODY_BYTES = 270_336
 
 
 @dataclass
@@ -67,7 +69,9 @@ def render_notification_request(
     alert_context: AlertMatchContext | None = None,
     failed_webhook_context: FailedWebhookContext | None = None,
     digest_context: DailyDigestContext | None = None,
+    article_text: ArticleTextSnapshot | None = None,
 ) -> RenderedNotificationRequest:
+    validate_article_text_placement(payload)
     rendered_at = triggered_at or datetime.now(timezone.utc)
     delivery_uuid = delivery_id or uuid.uuid4()
     context = build_template_context(
@@ -80,6 +84,7 @@ def render_notification_request(
         alert_context=alert_context,
         failed_webhook_context=failed_webhook_context,
         digest_context=digest_context,
+        article_text=article_text,
     )
 
     rendered_url = render_template(payload.url_template, context)
@@ -99,29 +104,39 @@ def render_notification_request(
     json_body: dict | None = None
     form_body: list[tuple[str, str]] | None = None
     raw_body: bytes | None = None
+    remaining_body_bytes = MAX_TEMPLATE_BODY_BYTES
+
+    def body_field(field: NotificationWebhookField) -> tuple[str, str]:
+        nonlocal remaining_body_bytes
+        key = NotificationWebhookField(key=render_template(field.key, context), value="").key
+        value = render_template(field.value, context, max_bytes=remaining_body_bytes)
+        remaining_body_bytes -= len(key.encode("utf-8")) + len(value.encode("utf-8"))
+        if remaining_body_bytes < 0:
+            raise ValueError("Rendered webhook body exceeds 264 KiB; include fewer or smaller fields")
+        return key, value
 
     if payload.body_mode == "json":
         json_body = {}
-        for rendered_field in (
-            render_field(field, context) for field in payload.body_fields
-        ):
-            assign_nested_json_value(
-                json_body, rendered_field.key, rendered_field.value
-            )
-        body_text = json.dumps(json_body, ensure_ascii=True)
+        for field in payload.body_fields:
+            key, value = body_field(field)
+            assign_nested_json_value(json_body, key, value)
+        # New article-content templates retain the UTF-8 text budget without
+        # inflating non-ASCII evidence into six/twelve-byte escape sequences.
+        body_text = json.dumps(json_body, ensure_ascii=not uses_article_text(payload))
         headers_dict.setdefault("Content-Type", "application/json")
     elif payload.body_mode == "form":
         form_body = []
-        for rendered_field in (
-            render_field(field, context) for field in payload.body_fields
-        ):
-            form_body.append((rendered_field.key, rendered_field.value))
+        for field in payload.body_fields:
+            form_body.append(body_field(field))
         body_text = urlencode(form_body)
         headers_dict.setdefault("Content-Type", "application/x-www-form-urlencoded")
     elif payload.body_mode == "raw":
-        body_text = render_template(payload.body_template or "", context)
+        body_text = render_template(payload.body_template or "", context, max_bytes=MAX_TEMPLATE_BODY_BYTES)
         raw_body = body_text.encode("utf-8")
         headers_dict.setdefault("Content-Type", default_raw_content_type(body_text))
+
+    if body_text is not None and len(body_text.encode("utf-8")) > MAX_TEMPLATE_BODY_BYTES:
+        raise ValueError("Rendered webhook body exceeds 264 KiB; include fewer or smaller fields")
 
     rendered_headers = [
         NotificationWebhookField(key=key, value=value)

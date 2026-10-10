@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import { SettingsPageHeader, SettingsReadOnlyNotice } from '../components/SettingsPageHeader'
+import { AutomationExecutions } from './AutomationExecutions'
+import { WebhookCredentialProfiles } from './WebhookCredentialProfiles'
 import { NotificationDeliveryHistory } from './NotificationDeliveryHistory'
 import { NotificationWebhookAnalytics } from './NotificationWebhookAnalytics'
 import { SavedWebhooksCard, TestResultAndVariables } from './NotificationWebhookCards'
@@ -29,7 +32,10 @@ function NotificationHeader({ controller }: { controller: NotificationWebhooksCo
 }
 
 export function NotificationWebhooksSettings() {
-  const controller = useNotificationWebhooksController()
+  const [executionsOpen, setExecutionsOpen] = useState(false)
+  const [profilesOpen, setProfilesOpen] = useState(false)
+  const [profilesDirty, setProfilesDirty] = useState(false)
+  const controller = useNotificationWebhooksController(profilesDirty)
   if (controller.currentUserQuery.isLoading) {
     return (
       <div className="space-y-3">
@@ -44,6 +50,8 @@ export function NotificationWebhooksSettings() {
   return (
     <div className="space-y-3">
       <NotificationHeader controller={controller} />
+      <button type="button" className="rounded border border-slate/30 px-3 py-2 text-sm" onClick={() => setProfilesOpen(true)}>Credential profiles</button>
+      <button type="button" className="rounded border border-slate/30 px-3 py-2 text-sm" onClick={() => setExecutionsOpen(true)}>External executions</button>
       <NotificationWebhookAnalytics controller={controller} />
       <div className="grid min-w-0 gap-3 xl:grid-cols-[320px_1fr]">
         <SavedWebhooksCard controller={controller} />
@@ -58,6 +66,8 @@ export function NotificationWebhooksSettings() {
         </div>
       </div>
       <NotificationWebhookDialogs controller={controller} />
+      {executionsOpen && <AutomationExecutions onClose={() => setExecutionsOpen(false)} writable={controller.canManageWebhooks && !controller.currentUserQuery.isError} />}
+      {profilesOpen && <WebhookCredentialProfiles writable={controller.canManageWebhooks && !controller.currentUserQuery.isError} onClose={() => setProfilesOpen(false)} onDirtyChange={setProfilesDirty} />}
     </div>
   )
 }

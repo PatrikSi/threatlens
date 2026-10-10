@@ -1,0 +1,272 @@
+{
+  "artifact_sha256": {
+    "build-result.json": "67e803b540749812b2d791565c4e87ec97ddb1144f134f11ac01b2ab8f9ca00f",
+    "native-aa92-independent-readiness.json": "c7d500dae2d441f944dee81210686b251b4b0d3474b3a2dc9699aff19215af80",
+    "startup-result.json": "7751b99eb870f42ff116eb0ad893f60d6ee42bd86621637923fe44b885b41d2d"
+  },
+  "build": {
+    "actual_builder_limits": {
+      "CpuPeriod": 100000,
+      "CpuQuota": 100000,
+      "Memory": 1610612736,
+      "MemorySwap": 1610612736
+    },
+    "build_limits": {
+      "cpu": 1,
+      "max_parallelism": 1,
+      "memory_mib": 1536,
+      "swap": false
+    },
+    "cleanup": {
+      "elapsed_seconds": 2.528,
+      "exit_code": 0,
+      "log_sha256": "e1c76d4b3dd5fa2953cd7b65da428ea046e0870e493e3282e682f1befe5214b5",
+      "remaining_container_count": 0,
+      "remaining_volume_count": 0
+    },
+    "completed_at_utc": "2026-10-09T09:57:50.353442+00:00",
+    "images": {
+      "backend": {
+        "elapsed_seconds": 50.063,
+        "exit_code": 0,
+        "id": "sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9",
+        "log_sha256": "92b4ea73994c1c41f36866db2bb04e54f98b55acdc498b7e485ef364a3a315dc",
+        "user": "app",
+        "version": "2.1.0"
+      },
+      "web": {
+        "elapsed_seconds": 58.578,
+        "exit_code": 0,
+        "id": "sha256:e0061cfce6f1d10fa7c4c68fadb84d2bd8d9805486c638f1de6b3158b4344490",
+        "log_sha256": "83cd1991dadbd7a7b2cb6bcfc1d506c2138237b6578c557a8f08bb388b730767",
+        "user": "nginx",
+        "version": "2.1.0"
+      }
+    },
+    "platform": "linux/amd64",
+    "source_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+    "source_scope": "fresh tracked Git archive without local configuration, untracked developer lock, caches or backups",
+    "started_at_utc": "2026-10-09T09:55:53.451320+00:00",
+    "status": "passed"
+  },
+  "independent_runtime": {
+    "healthy_count": 10,
+    "http_checks": {
+      "/api/openapi.json": {
+        "content_type": "application/json",
+        "http_status": 200,
+        "semantic_check_passed": true
+      },
+      "/api/v1/health/ready": {
+        "content_type": "application/json",
+        "http_status": 200,
+        "semantic_check_passed": true
+      }
+    },
+    "images": {
+      "backend": "sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9",
+      "web": "sha256:e0061cfce6f1d10fa7c4c68fadb84d2bd8d9805486c638f1de6b3158b4344490"
+    },
+    "kind": "independent_current_native_readiness",
+    "observed_at_utc": "2026-10-09T10:02:41.820445+00:00",
+    "running_count": 11,
+    "schema_version": 1,
+    "scope": "Exact owned synthetic project, actual images and resource settings; no external providers or production data",
+    "service_count": 12,
+    "services": {
+      "api": {
+        "cpu_nanos": 500000000,
+        "exit_code": 0,
+        "health": "healthy",
+        "image_id": "sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9",
+        "memory_bytes": 536870912,
+        "memory_swap_bytes": 536870912,
+        "oom_killed": false,
+        "pids_limit": 256,
+        "read_only": true,
+        "restarts": 0,
+        "running": true
+      },
+      "beat": {
+        "cpu_nanos": 250000000,
+        "exit_code": 0,
+        "health": "healthy",
+        "image_id": "sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9",
+        "memory_bytes": 335544320,
+        "memory_swap_bytes": 335544320,
+        "oom_killed": false,
+        "pids_limit": 96,
+        "read_only": true,
+        "restarts": 0,
+        "running": true
+      },
+      "db": {
+        "cpu_nanos": 500000000,
+        "exit_code": 0,
+        "health": "healthy",
+        "image_id": "sha256:b6ccf02e9b47eac0d67b5eaa0ef56fd59163bffa5506f64e96ceb5053130ec86",
+        "memory_bytes": 536870912,
+        "memory_swap_bytes": 536870912,
+        "oom_killed": false,
+        "pids_limit": 256,
+        "read_only": true,
+        "restarts": 0,
+        "running": true
+      },
+      "migrate": {
+        "cpu_nanos": 1000000000,
+        "exit_code": 0,
+        "health": null,
+        "image_id": "sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9",
+        "memory_bytes": 536870912,
+        "memory_swap_bytes": 536870912,
+        "oom_killed": false,
+        "pids_limit": 64,
+        "read_only": true,
+        "restarts": 0,
+        "running": false
+      },
+      "redis": {
+        "cpu_nanos": 250000000,
+        "exit_code": 0,
+        "health": "healthy",
+        "image_id": "sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
+        "memory_bytes": 134217728,
+        "memory_swap_bytes": 134217728,
+        "oom_killed": false,
+        "pids_limit": 128,
+        "read_only": true,
+        "restarts": 0,
+        "running": true
+      },
+      "review-source": {
+        "cpu_nanos": 100000000,
+        "exit_code": 0,
+        "health": null,
+        "image_id": "sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9",
+        "memory_bytes": 67108864,
+        "memory_swap_bytes": 67108864,
+        "oom_killed": false,
+        "pids_limit": 32,
+        "read_only": true,
+        "restarts": 0,
+        "running": true
+      },
+      "web": {
+        "cpu_nanos": 250000000,
+        "exit_code": 0,
+        "health": "healthy",
+        "image_id": "sha256:e0061cfce6f1d10fa7c4c68fadb84d2bd8d9805486c638f1de6b3158b4344490",
+        "memory_bytes": 134217728,
+        "memory_swap_bytes": 134217728,
+        "oom_killed": false,
+        "pids_limit": 64,
+        "read_only": true,
+        "restarts": 0,
+        "running": true
+      },
+      "worker": {
+        "cpu_nanos": 500000000,
+        "exit_code": 0,
+        "health": "healthy",
+        "image_id": "sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9",
+        "memory_bytes": 536870912,
+        "memory_swap_bytes": 536870912,
+        "oom_killed": false,
+        "pids_limit": 256,
+        "read_only": true,
+        "restarts": 0,
+        "running": true
+      },
+      "worker-ai": {
+        "cpu_nanos": 250000000,
+        "exit_code": 0,
+        "health": "healthy",
+        "image_id": "sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9",
+        "memory_bytes": 536870912,
+        "memory_swap_bytes": 536870912,
+        "oom_killed": false,
+        "pids_limit": 128,
+        "read_only": true,
+        "restarts": 0,
+        "running": true
+      },
+      "worker-exports": {
+        "cpu_nanos": 250000000,
+        "exit_code": 0,
+        "health": "healthy",
+        "image_id": "sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9",
+        "memory_bytes": 536870912,
+        "memory_swap_bytes": 536870912,
+        "oom_killed": false,
+        "pids_limit": 128,
+        "read_only": true,
+        "restarts": 0,
+        "running": true
+      },
+      "worker-maintenance": {
+        "cpu_nanos": 250000000,
+        "exit_code": 0,
+        "health": "healthy",
+        "image_id": "sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9",
+        "memory_bytes": 536870912,
+        "memory_swap_bytes": 536870912,
+        "oom_killed": false,
+        "pids_limit": 128,
+        "read_only": true,
+        "restarts": 0,
+        "running": true
+      },
+      "worker-notifications": {
+        "cpu_nanos": 250000000,
+        "exit_code": 0,
+        "health": "healthy",
+        "image_id": "sha256:8c93f23983fc2baab137db65c9cca92d7dcf689704581dfb587ddb32e0fc89b9",
+        "memory_bytes": 536870912,
+        "memory_swap_bytes": 536870912,
+        "oom_killed": false,
+        "pids_limit": 256,
+        "read_only": true,
+        "restarts": 0,
+        "running": true
+      }
+    },
+    "source_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+    "status": "passed"
+  },
+  "kind": "exact_source_native_build_and_runtime",
+  "merge_tag_publication_or_model_promotion_performed": false,
+  "platform": "linux/amd64",
+  "previous_failed_attempts_retained": true,
+  "prior_native_revision": "6141a7192e3d6970be9e67230da14b64da1c8894",
+  "schema_version": 1,
+  "scope": "Owned synthetic local instance, fresh tracked source images; no real external providers or production data",
+  "source_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+  "startup": {
+    "completed_at_utc": "2026-10-09T10:00:06.648910+00:00",
+    "coordinated_writer_stop": true,
+    "dedicated_migration": {
+      "elapsed_seconds": 1.968,
+      "exit_code": 0,
+      "log_sha256": "d4688bec77af1d023dcda99d7360de0219978e8e4ba5b981ebb86d1b7733b08d"
+    },
+    "http_status": 200,
+    "openapi_checked_contract_equal": true,
+    "openapi_version": "2.1.0",
+    "ready_status": 200,
+    "source_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+    "started_at_utc": "2026-10-09T09:58:57.505758+00:00",
+    "startup": {
+      "elapsed_seconds": 50.952,
+      "exit_code": 0,
+      "log_sha256": "01173638f306f5b32165ea0da2999e0780c35ba403bd6dba38663b09979c0b56"
+    },
+    "status": "passed",
+    "writer_stop": {
+      "elapsed_seconds": 10.751,
+      "exit_code": 0,
+      "log_sha256": "81a61d90bac328adfe8443ee499802b1b664e6345bd6e8c5ca3b57fe8deb33ea"
+    }
+  },
+  "status": "passed"
+}

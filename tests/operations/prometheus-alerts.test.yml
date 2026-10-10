@@ -1,0 +1,85 @@
+rule_files:
+  - ../../scripts/operations/examples/prometheus-alerts.yml
+evaluation_interval: 1m
+tests:
+  - name: Isolated restart fires immediately and survives incident resolution
+    interval: 1m
+    input_series:
+      - series: 'threatlens_host_last_restart_timestamp_seconds{deployment="test",entity="worker"}'
+        values: '_ 60x6'
+      - series: 'threatlens_host_active_incidents{deployment="test"}'
+        values: '0 1 0x5'
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: ThreatLensContainerRestarted
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: ThreatLensContainerRestarted
+        exp_alerts: &restart_alert
+          - exp_labels:
+              deployment: test
+              entity: worker
+              severity: warning
+            exp_annotations:
+              summary: ThreatLens observed a container restart
+              description: Inspect the affected service logs and resource limits. Repeated restarts refresh the five-minute observation window.
+      - eval_time: 2m
+        alertname: ThreatLensContainerRestarted
+        exp_alerts: *restart_alert
+      - eval_time: 2m
+        alertname: ThreatLensHostOrRecoveryObjectiveFailed
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: ThreatLensContainerRestarted
+        exp_alerts: *restart_alert
+      - eval_time: 6m
+        alertname: ThreatLensContainerRestarted
+        exp_alerts: []
+  - name: Repeated observed restarts refresh the event window
+    interval: 1m
+    input_series:
+      - series: 'threatlens_host_last_restart_timestamp_seconds{deployment="test",entity="worker"}'
+        values: '_ 60 60 180x6'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: ThreatLensContainerRestarted
+        exp_alerts: *restart_alert
+      - eval_time: 8m
+        alertname: ThreatLensContainerRestarted
+        exp_alerts: []
+  - name: First scrape after incident resolution still sees the event
+    interval: 1m
+    input_series:
+      - series: 'threatlens_host_last_restart_timestamp_seconds{deployment="test",entity="worker"}'
+        values: '_ _ _ 60x4'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ThreatLensContainerRestarted
+        exp_alerts: *restart_alert
+      - eval_time: 6m
+        alertname: ThreatLensContainerRestarted
+        exp_alerts: []
+  - name: Missing scrapes do not refresh the observation window
+    interval: 1m
+    input_series:
+      - series: 'threatlens_host_last_restart_timestamp_seconds{deployment="test",entity="worker"}'
+        values: '_ 60 _ _ 60 60 60'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ThreatLensContainerRestarted
+        exp_alerts: *restart_alert
+      - eval_time: 6m
+        alertname: ThreatLensContainerRestarted
+        exp_alerts: []
+  - name: No event and future timestamps cannot invent a current restart
+    interval: 1m
+    input_series:
+      - series: 'threatlens_host_last_restart_timestamp_seconds{deployment="test",entity="worker"}'
+        values: '_ 600x3'
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: ThreatLensContainerRestarted
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: ThreatLensContainerRestarted
+        exp_alerts: []

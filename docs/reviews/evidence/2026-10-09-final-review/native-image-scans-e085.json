@@ -1,0 +1,133 @@
+{
+  "attempt": 1,
+  "cleanup": {
+    "errors": [],
+    "remaining_container_count": 0,
+    "removed_count": 3
+  },
+  "database": {
+    "DownloadedAt": "2026-10-09T11:41:03.127894199Z",
+    "NextUpdate": "2026-10-10T07:05:00.081187086Z",
+    "UpdatedAt": "2026-10-09T07:05:00.081187346Z",
+    "Version": 2
+  },
+  "database_download": {
+    "actual_container_limits": {
+      "Memory": 805306368,
+      "MemorySwap": 805306368,
+      "NanoCpus": 500000000,
+      "NetworkMode": "bridge",
+      "PidsLimit": 128
+    },
+    "elapsed_seconds": 10.437,
+    "exit_code": 0,
+    "log_sha256": "d816ec94b9d7ce25b57f4707617d495db4212288d4a3d1cb2fc5bb7aaaabe421"
+  },
+  "database_metadata_sha256_after": "e1c9a62f4a4834f71fd0863512c32b7f807f0e1b33578485219a3a2168e55317",
+  "database_metadata_sha256_before": "e1c9a62f4a4834f71fd0863512c32b7f807f0e1b33578485219a3a2168e55317",
+  "database_sha256_after": "e86a0753ce504f78d5721d898b33a125b6f886fd9c0ac1b7ae9a31ca2ed0f031",
+  "database_sha256_before": "e86a0753ce504f78d5721d898b33a125b6f886fd9c0ac1b7ae9a31ca2ed0f031",
+  "images": {
+    "backend": {
+      "actual_container_limits": {
+        "Memory": 805306368,
+        "MemorySwap": 805306368,
+        "NanoCpus": 500000000,
+        "NetworkMode": "none",
+        "PidsLimit": 128
+      },
+      "archive_bytes": 131713536,
+      "archive_identity": {
+        "configuration_digest": "sha256:85d28bc8bf16aff74aa933f23839d9bf3df6c6eef5138df7ad2ea0ec77f273eb",
+        "docker_oci_manifest_digest": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+        "manifest_and_config_content_hashes_verified": true,
+        "source_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+        "version": "2.1.0"
+      },
+      "archive_sha256": "49ded86be5aacafc78d060df70dd79895fd12b7c230615c8f89efe918260b240",
+      "elapsed_seconds": 9.177,
+      "exit_code": 0,
+      "image_id": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+      "log_sha256": "2c12566c5138ad7876127e52cf5f25957e45df057badc47cde8bb1a5bb3d3e75",
+      "reproducible_archive_removed_after_capture": true,
+      "scan_json_sha256": "223c8b59e32925a77ad706ca1fdf8ef19a726811dc5d3a4bc6df6777ec726776",
+      "secret_count": 0,
+      "secret_rule_ids": [],
+      "vulnerability_counts": {
+        "CRITICAL": 0,
+        "HIGH": 0
+      },
+      "vulnerability_ids": []
+    },
+    "web": {
+      "actual_container_limits": {
+        "Memory": 805306368,
+        "MemorySwap": 805306368,
+        "NanoCpus": 500000000,
+        "NetworkMode": "none",
+        "PidsLimit": 128
+      },
+      "archive_bytes": 30484992,
+      "archive_identity": {
+        "configuration_digest": "sha256:c90a1350d31ccc3aa00835b3d90098bf38dc46416459a87f6f34ee3e9aab2c89",
+        "docker_oci_manifest_digest": "sha256:5793441258dec702b2ff54c25d86dae35b2ef1cfa88e628eee0476f4f273a9a6",
+        "manifest_and_config_content_hashes_verified": true,
+        "source_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+        "version": "2.1.0"
+      },
+      "archive_sha256": "f5045a12a67c65099c83bc70e91590fd4ecddd76e918de60a4be2d75e9548598",
+      "elapsed_seconds": 2.088,
+      "exit_code": 0,
+      "image_id": "sha256:5793441258dec702b2ff54c25d86dae35b2ef1cfa88e628eee0476f4f273a9a6",
+      "log_sha256": "a4a431b14de771ff56a121991d97f65c64bee488359ffc66bbc52ea247b24fc9",
+      "reproducible_archive_removed_after_capture": true,
+      "scan_json_sha256": "5e4f99c3561c2f8e591a4f385384304ab066f7985ecc6152689fd7832d6e3f67",
+      "secret_count": 0,
+      "secret_rule_ids": [],
+      "vulnerability_counts": {
+        "CRITICAL": 0,
+        "HIGH": 0
+      },
+      "vulnerability_ids": []
+    }
+  },
+  "independent_build_input_review_sha256": "3dd59f43655886b26d4a9dd35656c895ab7474a75a96dbe6f54c19882d0f90e7",
+  "independent_source_review_sha256": "62c6d0fea475bce7bc9c17a0a73f3e702f39db6d039021078a938d7c041e4443",
+  "kind": "exact_source_native_image_scans",
+  "launcher_sha256": "0d376ac8dc159ada17f7f3de06868ee2b216773d1592b61d09fc9fa7df81953e",
+  "limits": {
+    "cpus": 0.5,
+    "memory_mib": 768,
+    "pids": 128,
+    "swap": false
+  },
+  "platform": "linux/amd64",
+  "policy": {
+    "exit_code": 1,
+    "ignore_unfixed": true,
+    "scanners": [
+      "vuln",
+      "secret"
+    ],
+    "severity": [
+      "HIGH",
+      "CRITICAL"
+    ]
+  },
+  "preparation_sha256": "42892ec2d1be22227b93fc96a281886611ea54bf84f3063561bd448f132989d9",
+  "preserved_initial_projection_sha256": "649c571812d2789ee6fa230b4c657000ced7a16c3f8866b6d5b6b1221ef33b5d",
+  "previous_failures_preserved": true,
+  "prior_aa92_public_scans_sha256": "9762553e7ab1d58e46df8aa33a8884c2c5885670e7b41aa6d50a2a95f0016037",
+  "result_sha256": "f0af3b4cdbd3d698a66695df6e10be4646054980e6b8a6537dbfdd5a40987abb",
+  "same_database_and_metadata_for_both_scans": true,
+  "scanner_image_id": "sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e",
+  "schema_version": 1,
+  "scope": [
+    "One fresh owned database download and two actual immutable-image scans; no retry.",
+    "HIGH/CRITICAL ignore-unfixed vulnerability and secret policy; this is not a claim of zero vulnerabilities at every severity.",
+    "Earlier aa92 missing-tool preflight failure remain retained under their actual source revisions; no such restoration or failed preflight occurred in this new first attempt.",
+    "Both offline scan containers and database download container were removed with no errors or remnants."
+  ],
+  "source_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "status": "passed"
+}

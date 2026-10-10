@@ -4,7 +4,6 @@ import random
 import time
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
@@ -22,12 +21,14 @@ from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.schemas.ai import AITestConnectionResponse
+from app.services.ai_generation_results import AIItemEnrichmentResult, AIDailyBriefGenerationResult
 from app.services import ai_normalization as _ai_normalization
 from app.services import ai_prompting as _ai_prompting
 from app.services import ai_provider_client as _ai_provider_client
 from app.services.ai_workflow_recovery import owns_pending_daily_brief
 from app.services.ai_brief_sources import load_brief_sources
 from app.services.ai_enrichment_provenance import enrichment_result_provenance, refresh_verified_provenance
+from app.services.ai_extraction import ExtractionValidationError, build_verified_extraction
 from app.services.ai_config import ActiveAISettings, load_active_ai_settings
 from app.services.ai_egress_data_policy import (
     AIEgressPolicyError,
@@ -114,30 +115,6 @@ AI_PROVIDER_RETRY_BASE_DELAY_SECONDS = 0.5
 AI_PROVIDER_RETRY_MAX_DELAY_SECONDS = 8.0
 
 
-@dataclass(frozen=True)
-class AIItemEnrichmentResult:
-    enrichment: ItemAIEnrichment | None
-    status: str
-    reason: str | None
-    input_text_chars: int
-    prompt_char_count: int | None = None
-    response_char_count: int | None = None
-    error: str | None = None
-
-
-@dataclass(frozen=True)
-class AIDailyBriefGenerationResult:
-    brief: AIDailyBrief | None
-    status: str
-    reason: str | None
-    items_considered: int
-    items_selected: int
-    prompt_char_count: int | None = None
-    response_char_count: int | None = None
-    integration_event_id: uuid.UUID | None = None
-    error: str | None = None
-
-
 def is_stale_daily_brief_pending(brief: AIDailyBrief, *, now: datetime) -> bool:
     if brief.status != "pending":
         return False
@@ -183,7 +160,8 @@ def run_item_ai_enrichment(
             input_text_chars=0,
             error=active.configuration_error if active.ai_enabled else None,
         )
-    if not active.summary_enabled and not active.relevance_enabled:
+    extraction_enabled = getattr(active, "structured_extraction_enabled", False)
+    if not any((active.summary_enabled, active.relevance_enabled, extraction_enabled)):
         return AIItemEnrichmentResult(
             enrichment=None,
             status="skipped",
@@ -208,6 +186,11 @@ def run_item_ai_enrichment(
             reason="no_article" if article is None else "no_article_text",
             input_text_chars=len((article.text or "")) if article is not None else 0,
         )
+
+    from app.services.ai_article_continuation import continuation_preflight_error
+    if error := continuation_preflight_error(db, task_run_id, active, article.text or ""):
+        return AIItemEnrichmentResult(enrichment=None, status="error", reason="extraction_plan_changed",
+            input_text_chars=len(article.text or ""), error=error)
 
     feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
     classification = db.scalar(
@@ -237,7 +220,13 @@ def run_item_ai_enrichment(
                     feed_name=feed.name if feed is not None else "", tag_names=tag_names,
                     source_hash=source_hash, generated_at=enrichment.generated_at or enrichment.updated_at,
                 )
-                refresh_verified_provenance(db, enrichment=enrichment, provenance=provenance)
+                if refresh_verified_provenance(db, enrichment=enrichment, provenance=provenance):
+                    from app.services.webhook_ai_events import emit_article_ai_ready
+
+                    # Re-fetching unchanged text can advance its source revision.
+                    # Replace any now-stale outbox evidence without another model
+                    # call; identical accepted revisions remain deduplicated.
+                    emit_article_ai_ready(db, item_id=item_id)
             return AIItemEnrichmentResult(
                 enrichment=enrichment,
                 status="skipped",
@@ -259,6 +248,7 @@ def run_item_ai_enrichment(
                 payload={"item_id": str(item_id)},
             )
     input_text_chars = len(article.text or "")
+    extraction_article_text = article.text or ""
     messages = _build_item_enrichment_messages(
         active,
         item=item,
@@ -273,6 +263,15 @@ def run_item_ai_enrichment(
         feed_name=feed.name if feed is not None else "", tag_names=tag_names,
         source_hash=source_hash, generated_at=claim_updated_at,
     )
+    # Capture the revision before committing/releasing ORM instances. A source
+    # refresh while the provider is running must not relabel old evidence as new.
+    extraction_snapshot = {
+        "article_id": article.id,
+        "article_retrieved_at": article.retrieved_at,
+        "source_version": int(item.classification_required_version),
+        "source_hash": source_hash,
+        "article_text_length": len(" ".join((article.text or "").split())),
+    } if extraction_enabled else None
     stop_reason = _prepare_provider_claim(
         db,
         task_run_id=task_run_id,
@@ -305,15 +304,26 @@ def run_item_ai_enrichment(
     db.commit()
 
     try:
-        completion = _request_json_with_usage(
-            db,
-            active,
-            feature_type=FEATURE_ITEM_ENRICHMENT,
-            item_id=item_id,
-            task_run_id=task_run_id,
-            provider_operation_scope="item_enrichment",
-            messages=messages,
-        )
+        if extraction_snapshot is not None and extraction_snapshot["article_text_length"] > MAX_ITEM_ARTICLE_PROMPT_CHARS:
+            from app.services.ai_extraction_sections import run_section_extraction, section_execution_checkpoint
+            completion, structured_extraction = run_section_extraction(
+                db, active, item_id=item_id, task_run_id=task_run_id, claim_updated_at=claim_updated_at,
+                messages=messages, article_text=extraction_article_text, snapshot=extraction_snapshot,
+                request=_request_json_with_usage, checkpoint=section_execution_checkpoint(
+                    db, item_id=item_id, task_run_id=task_run_id, claim_updated_at=claim_updated_at,
+                    snapshot=extraction_snapshot, observe_stop=_record_task_run_stop_observed,
+                ),
+            )
+        else:
+            completion = _request_json_with_usage(
+                db, active, feature_type=FEATURE_ITEM_ENRICHMENT, item_id=item_id,
+                task_run_id=task_run_id, provider_operation_scope="item_enrichment", messages=messages,
+            )
+            structured_extraction = (
+                build_verified_extraction(
+                    completion.payload.get("structured_extraction"), messages=messages, **extraction_snapshot,
+                ) if extraction_snapshot is not None else None
+            )
     except AITaskRunStoppedError as exc:
         return AIItemEnrichmentResult(
             enrichment=_load_item_enrichment(db, item_id=item_id),
@@ -321,7 +331,7 @@ def run_item_ai_enrichment(
             reason=exc.reason,
             input_text_chars=input_text_chars,
         )
-    except AIIntegrationError as exc:
+    except (AIIntegrationError, ExtractionValidationError) as exc:
         stop_reason = _record_task_run_stop_observed(
             db,
             task_run_id=task_run_id,
@@ -370,6 +380,10 @@ def run_item_ai_enrichment(
             reason="request_failed",
             input_text_chars=input_text_chars,
         )
+    if extraction_enabled:
+        # Acquire the policy fence before execution/enrichment/snapshot locks;
+        # successful evidence and its derived event share this transaction.
+        lock_data_policy_revision_for_derivation(db)
     stop_reason = _record_task_run_stop_observed(
         db,
         task_run_id=task_run_id,
@@ -418,6 +432,7 @@ def run_item_ai_enrichment(
         .values(
             status="ready",
             result_provenance_json=result_provenance,
+            **({"structured_extraction_json": structured_extraction} if extraction_enabled else {}),
             summary_text=summary_text,
             relevance_score=relevance_score,
             relevance_label=relevance_label,
@@ -449,6 +464,15 @@ def run_item_ai_enrichment(
             prompt_char_count=completion.prompt_char_count,
             response_char_count=completion.response_char_count,
         )
+    if extraction_enabled:
+        from app.services.intel_events import emit_intel_events
+
+        # The outbox commits with the successful provider result; its recovery
+        # sweeper routes it even if the worker stops before any broker delivery.
+        emit_intel_events(db, item_id=item_id, deterministic=False)
+    from app.services.webhook_ai_events import emit_article_ai_ready
+
+    emit_article_ai_ready(db, item_id=item_id)
     return AIItemEnrichmentResult(
         enrichment=enrichment,
         status="ready",
@@ -1012,13 +1036,21 @@ def _request_json_with_usage(
     execution_checkpoint: Callable[[], None] | None = None,
     execution_commit: Callable[[], None] | None = None,
     request_authorization: AuthorizationContext | None = None,
+    request_authorization_check: Callable[[], None] | None = None,
 ) -> AICompletionResult:
+    if feature_type == "team_assessment" and request_authorization_check is None:
+        raise AIIntegrationError(
+            "Team assessment provider calls require a current team and accepting-credential authorization fence.",
+            retryable=False,
+        )
     if feature_type == FEATURE_REPORT and provider_operation_scope is None:
         raise AIIntegrationError(
             "Report provider calls require a durable operation scope.",
             retryable=False,
         )
     def enforce_provider_authorization(db: Session, **kwargs):
+        if request_authorization_check is not None:
+            request_authorization_check()
         if request_authorization is not None:
             try:
                 fence_authorization_context(db, request_authorization)
@@ -1062,6 +1094,7 @@ def request_ai_json_with_usage(
     *,
     feature_type: str,
     messages: list[dict[str, str]],
+    item_id: uuid.UUID | None = None,
     report_id: uuid.UUID | None = None,
     task_run_id: uuid.UUID | None = None,
     provider_operation_scope: str | None = None,
@@ -1070,6 +1103,7 @@ def request_ai_json_with_usage(
     max_provider_attempts: int | None = None,
     execution_checkpoint: Callable[[], None] | None = None,
     execution_commit: Callable[[], None] | None = None,
+    request_authorization_check: Callable[[], None] | None = None,
 ) -> AICompletionResult:
     """Run a provider exchange with the standard retry, history, and cancellation behavior."""
     if feature_type == FEATURE_CONNECTION_TEST:
@@ -1083,6 +1117,7 @@ def request_ai_json_with_usage(
         active,
         feature_type=feature_type,
         messages=messages,
+        item_id=item_id,
         report_id=report_id,
         task_run_id=task_run_id,
         provider_operation_scope=provider_operation_scope,
@@ -1091,6 +1126,7 @@ def request_ai_json_with_usage(
         max_provider_attempts=max_provider_attempts,
         execution_checkpoint=execution_checkpoint,
         execution_commit=execution_commit,
+        request_authorization_check=request_authorization_check,
     )
 
 

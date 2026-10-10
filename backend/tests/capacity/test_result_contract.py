@@ -54,8 +54,31 @@ def test_incompatible_hardware_workload_or_target_is_not_compared(field, value):
     assert result["metrics"] == []
 
 
+def test_shared_epoch_arrival_contract_requires_a_matching_baseline():
+    from tests.capacity.workload_support import PROFILES
+
+    previous, current = run(), run()
+    workload = deepcopy(PROFILES["sustained"])
+    assert workload["arrival_contract"] == "five-lanes-shared-monotonic-epoch-v2"
+    assert workload["start_gate_participants"] == 5
+    assert workload["start_gate_timeout_seconds"] == 30
+    current["comparison_identity"]["workload"].update(workload)
+    previous["comparison_identity"]["workload"].update({
+        key: value for key, value in workload.items()
+        if key not in {"arrival_contract", "start_gate_participants", "start_gate_timeout_seconds"}
+    })
+    for record in [previous, current]:
+        record["comparison_fingerprint"] = fingerprint(record["comparison_identity"])
+    result = compare_results(previous, current)
+    assert not result["compatible"]
+    assert result["metrics"] == []
+    matched = deepcopy(current)
+    matched["git_revision"] = "release-b"
+    assert compare_results(current, matched)["compatible"]
+
+
 @pytest.mark.parametrize(
-    "mutation", ["schema", "fingerprint", "failed", "budget", "sampler", "dirty"]
+    "mutation", ["schema", "fingerprint", "failed", "budget", "sampler", "dirty", "cleanup"]
 )
 def test_reject_invalid_or_failed_results(mutation):
     a = run()
@@ -69,10 +92,21 @@ def test_reject_invalid_or_failed_results(mutation):
         a["source_dirty"] = True
     elif mutation == "budget":
         a["budget_violations"] = {"memory": 1}
+    elif mutation == "cleanup":
+        a["cleanup"] = {"status": "failed", "remaining_container_ids": ["owned"]}
     else:
         a["sampler"] = {"errors": ["ConnectionError"]}
     with pytest.raises(ValueError):
         compare_results(a, run())
+
+
+@pytest.mark.parametrize("cleanup", [None, [], "passed", True, 1])
+@pytest.mark.parametrize("side", ["baseline", "candidate"])
+def test_malformed_cleanup_evidence_is_a_contract_error(cleanup, side):
+    baseline, candidate = run(), run()
+    (baseline if side == "baseline" else candidate)["cleanup"] = cleanup
+    with pytest.raises(ValueError, match="cleanup evidence must be an object"):
+        compare_results(baseline, candidate)
 
 
 def test_small_sample_and_zero_baseline_are_not_fabricated_percentages():

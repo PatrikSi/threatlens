@@ -247,6 +247,6 @@ def test_export_grounding_notes_describe_structural_checks_without_semantic_over
 
 def test_single_section_limit_rejects_dense_inline_syntax_before_parser_materialization(monkeypatch):
     monkeypatch.setattr(report_markdown, "MAX_SECTION_BYTES", 1024)
-    monkeypatch.setattr(report_markdown, "MarkdownIt", lambda *_args, **_kwargs: pytest.fail("oversized input reached parser"))
+    monkeypatch.setattr(report_markdown, "report_markdown_parser", lambda: pytest.fail("oversized input reached parser"))
     with pytest.raises(report_markdown.ReportRenderingLimitError, match="section"):
         render_report_html(report_fixture("*x* " * 300))

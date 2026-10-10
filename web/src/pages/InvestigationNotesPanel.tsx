@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 
 import { resolveApiErrorMessage } from '../api/errors'
 import type { InvestigationNote } from '../types/investigations'
@@ -14,6 +14,14 @@ import {
 import { InvestigationConfirmDialog } from './InvestigationShared'
 import type { InvestigationDetailController } from './useInvestigationDetail'
 
+function canChangeNote(controller: InvestigationDetailController, note: InvestigationNote) {
+  return Boolean(controller.access?.canWrite && canEditInvestigationNote(
+    note.author_user_id,
+    controller.currentUserQuery.data?.id,
+    controller.detailQuery.data?.current_user_role ?? null,
+  ))
+}
+
 export function InvestigationNotesPanel({
   controller,
 }: {
@@ -28,6 +36,11 @@ export function InvestigationNotesPanel({
     controller.notesQuery.isError &&
     isTerminalInvestigationAccessError(controller.notesQuery.error)
   const notesPage = terminalCollectionError ? undefined : controller.notesQuery.data
+  const removalNote = notesPage?.notes.find((note) => note.id === pendingRemoval?.note.id)
+  const canRemove = Boolean(removalNote && canChangeNote(controller, removalNote))
+  useEffect(() => {
+    if (pendingRemoval && !canRemove) setPendingRemoval(null)
+  }, [pendingRemoval, canRemove])
 
   if (!detail || !controller.access) return null
   const hasNotesPage = Boolean(notesPage)
@@ -135,13 +148,7 @@ export function InvestigationNotesPanel({
         <div className="mt-4 divide-y divide-slate/15 border-y border-slate/15 dark:divide-white/10 dark:border-white/10">
           {notesPage.notes.map((note) => {
             const editing = controller.editingNoteId === note.id
-            const canEdit =
-              controller.access?.canWrite &&
-              canEditInvestigationNote(
-                note.author_user_id,
-                controller.currentUserQuery.data?.id,
-                detail.current_user_role,
-              )
+            const canEdit = canChangeNote(controller, note)
             return (
               <article key={note.id} className="min-w-0 py-3">
                 <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
@@ -219,7 +226,7 @@ export function InvestigationNotesPanel({
                       event.preventDefault()
                       const body = controller.editingNoteBody.trim()
                       if (
-                        body &&
+                        canEdit && body &&
                         controller.editingNoteVersion !== null &&
                         controller.editingNoteInvestigationVersion !== null
                       )
@@ -242,15 +249,17 @@ export function InvestigationNotesPanel({
                       maxLength={10_000}
                       className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                       value={controller.editingNoteBody}
-                      disabled={controller.mutation.isPending}
+                      disabled={!canEdit || controller.mutation.isPending}
                       onChange={(event) => controller.setEditingNoteBody(event.target.value)}
                     />
+                    {!canEdit && <p role="status" className="mt-1 text-sm">Editing is paused because you can no longer change this note. Your unsaved note is preserved; cancel to return to the saved note.</p>}
                     <div className="mt-2 grid grid-cols-2 gap-2 sm:flex">
                       <button
                         type="submit"
                         className="min-h-11 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
                         disabled={
                           controller.mutation.isPending ||
+                          !canEdit ||
                           controller.editingNoteVersion === null ||
                           controller.editingNoteInvestigationVersion === null ||
                           !controller.editingNoteBody.trim()
@@ -298,7 +307,7 @@ export function InvestigationNotesPanel({
       )}
 
       <InvestigationConfirmDialog
-        open={Boolean(pendingRemoval)}
+        open={Boolean(pendingRemoval) && canRemove}
         title="Remove analyst note?"
         description="Remove this note from the investigation? Its content will no longer be visible, but the removal remains recorded in Activity and audit logs."
         confirmLabel="Remove note"
@@ -306,7 +315,7 @@ export function InvestigationNotesPanel({
         error={removalError}
         onCancel={() => setPendingRemoval(null)}
         onConfirm={() => {
-          if (!pendingRemoval) return
+          if (!pendingRemoval || !canRemove) return
           controller.mutation.mutate(
             {
               kind: 'remove-note',

@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "deployment": "threatlens-production",
+  "compose_project": "threatlens",
+  "ignored_services": [
+    "migrate"
+  ],
+  "services": {
+    "api": {
+      "min_instances": 1,
+      "memory_warning_ratio": 0.85
+    },
+    "db": {
+      "min_instances": 1,
+      "memory_warning_ratio": 0.85
+    },
+    "redis": {
+      "min_instances": 1,
+      "memory_warning_ratio": 0.85
+    },
+    "web": {
+      "min_instances": 1,
+      "memory_warning_ratio": 0.85
+    },
+    "worker": {
+      "min_instances": 1,
+      "memory_warning_ratio": 0.85
+    },
+    "worker-ai": {
+      "min_instances": 1,
+      "memory_warning_ratio": 0.85
+    },
+    "worker-exports": {
+      "min_instances": 1,
+      "memory_warning_ratio": 0.85
+    },
+    "worker-maintenance": {
+      "min_instances": 1,
+      "memory_warning_ratio": 0.85
+    },
+    "worker-notifications": {
+      "min_instances": 1,
+      "memory_warning_ratio": 0.85
+    },
+    "beat": {
+      "min_instances": 1,
+      "memory_warning_ratio": 0.85
+    }
+  },
+  "storage": {
+    "database-host-volume": {
+      "path": "/var/lib/docker",
+      "min_free_bytes": 10737418240,
+      "min_free_ratio": 0.15
+    },
+    "backup-staging": {
+      "path": "/srv/threatlens-backups",
+      "min_free_bytes": 10737418240,
+      "min_free_ratio": 0.15
+    }
+  },
+  "recovery": {
+    "primary_storage_domain": "primary-host",
+    "backup_interval_seconds": 86400,
+    "evidence": {
+      "local_backup": {
+        "receipt": "/var/lib/threatlens-monitor/local_backup.json",
+        "verification_key": "/etc/threatlens-monitor/local_backup.key",
+        "issuer": "local-backup-verifier",
+        "storage_domain": "primary-host",
+        "max_age_seconds": 108000
+      },
+      "offhost_copy": {
+        "receipt": "/var/lib/threatlens-monitor/offhost_copy.json",
+        "verification_key": "/etc/threatlens-monitor/offhost_copy.key",
+        "issuer": "offhost-copy-verifier",
+        "storage_domain": "recovery-site",
+        "max_age_seconds": 129600
+      },
+      "key_recovery": {
+        "receipt": "/var/lib/threatlens-monitor/key_recovery.json",
+        "verification_key": "/etc/threatlens-monitor/key_recovery.key",
+        "issuer": "key-recovery-verifier",
+        "storage_domain": "key-escrow",
+        "max_age_seconds": 2592000
+      },
+      "host_loss_drill": {
+        "qualification_scope": "independent_target",
+        "receipt": "/var/lib/threatlens-monitor/host_loss_drill.json",
+        "verification_key": "/etc/threatlens-monitor/host_loss_drill.key",
+        "issuer": "host-loss-drill-verifier",
+        "storage_domain": "recovery-site",
+        "max_age_seconds": 7776000
+      }
+    }
+  }
+}

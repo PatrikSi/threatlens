@@ -1,0 +1,44 @@
+{
+  "candidate_sha": "d4b79adbc49413063e8a263fbfe39db6e1ecb696",
+  "version": "2.1.0",
+  "platform": "linux/amd64",
+  "scanner": "aquasec/trivy:0.70.0",
+  "threshold": {
+    "scanners": "vuln",
+    "severity": [
+      "HIGH",
+      "CRITICAL"
+    ],
+    "ignore_unfixed": true,
+    "exit_code": 1
+  },
+  "database": {
+    "Version": 2,
+    "NextUpdate": "2026-10-08T07:38:55.515026457Z",
+    "UpdatedAt": "2026-10-07T07:38:55.515026687Z",
+    "DownloadedAt": "2026-10-08T12:09:31.680206548Z"
+  },
+  "database_origin": "fresh mirror.gcr.io/aquasec/trivy-db:2 download",
+  "images": {
+    "backend": {
+      "tag": "threatlens-remediation-backend:d4b79ad",
+      "image_id": "sha256:006375a36dc1c87fff95f7e5ea1a259d63c0b7d458cc5d50f08952217bf66742",
+      "exit_code": 0,
+      "counts": {
+        "HIGH": 0,
+        "CRITICAL": 0
+      },
+      "findings": []
+    },
+    "web": {
+      "tag": "threatlens-remediation-web:d4b79ad",
+      "image_id": "sha256:73becbc9a1c1eab5b31cb959c180503c32bdb60aec27a285b8b9ad8132c8d8f4",
+      "exit_code": 0,
+      "counts": {
+        "HIGH": 0,
+        "CRITICAL": 0
+      },
+      "findings": []
+    }
+  }
+}

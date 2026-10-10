@@ -21,7 +21,7 @@ from app.services.webhook_delivery_locking import (
 )
 
 WEBHOOK_INTEGRATION_TYPE = "webhook"
-WEBHOOK_CONFIG_SCHEMA_VERSION = 1
+WEBHOOK_CONFIG_SCHEMA_VERSION = 3
 WEBHOOK_SUBSCRIPTION_KEY = "legacy-webhook"
 INTEGRATION_DIRECTION_DESTINATION = "destination"
 
@@ -212,6 +212,10 @@ def _load_webhook_subscription(
 
 
 def _sync_webhook_instance(instance: IntegrationInstance, webhook: NotificationWebhook) -> None:
+    from app.services.webhook_article_text import uses_snapshot_context
+    from app.services.notification_webhook_storage import notification_webhook_write_from_model
+    from app.services.webhook_ai_events import condition_uses_ai_relevance
+
     config = dict(instance.config_json) if isinstance(instance.config_json, dict) else {}
     config["legacy_webhook_id"] = str(webhook.id)
     instance.owner_user_id = webhook.user_id
@@ -219,7 +223,15 @@ def _sync_webhook_instance(instance: IntegrationInstance, webhook: NotificationW
     instance.integration_type = WEBHOOK_INTEGRATION_TYPE
     instance.direction = INTEGRATION_DIRECTION_DESTINATION
     instance.enabled = webhook.enabled
-    instance.schema_version = WEBHOOK_CONFIG_SCHEMA_VERSION
+    instance.schema_version = 3 if (
+        webhook.include_article_text
+        or webhook.event_type == "article.ai.ready"
+        or condition_uses_ai_relevance(webhook.conditions_json)
+        or uses_snapshot_context(notification_webhook_write_from_model(webhook))
+    ) else 2 if (
+        webhook.conditions_json or webhook.credential_profile_id
+        or (webhook.payload_mode or "template") != "template"
+    ) else 1
     instance.config_json = config
 
 
@@ -237,6 +249,8 @@ def _sync_webhook_subscription(
         "feed_scope": webhook.feed_scope,
         "feed_ids": list(webhook.feed_ids_json or []),
     }
+    if webhook.conditions_json is not None:
+        subscription.filter_json = {**subscription.filter_json, "conditions": webhook.conditions_json}
     subscription.transform_json = {"legacy_webhook_id": str(webhook.id)}
 
 

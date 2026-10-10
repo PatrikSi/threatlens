@@ -5,6 +5,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import type { SavedView } from '../types/savedViews'
 import type { Team, TeamPage } from '../types/teams'
@@ -12,10 +13,18 @@ import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import { TeamCreateForm } from './TeamCreateForm'
 import { TeamListPanel } from './TeamListPanel'
 import { TeamMembersPanel } from './TeamMembersPanel'
+import { TeamAIGovernance } from './TeamAIGovernance'
+import { TeamIntegrations } from './TeamIntegrations'
+import { TeamHuntWorklist } from './TeamHuntWorklist'
+import { TeamIndicatorPanels } from './TeamIndicatorPanels'
 import { TeamSettingsEditor, type TeamGroupChoice } from './TeamSettingsEditor'
 
 function accessLost(error: unknown) {
   return error instanceof ApiError && [401, 403, 404].includes(error.status)
+}
+
+function showTeamDetails(adminMode: boolean, panel: string | null) {
+  return adminMode || !['ai-context', 'ai-governance', 'indicator-suppressions', 'hunts', 'integrations'].includes(panel ?? '')
 }
 
 export function TeamsPage() {
@@ -60,6 +69,7 @@ export function TeamsPage() {
     setCreated(null)
     void queryClient.invalidateQueries({ queryKey: ['teams'] })
   }, [created, queryClient, setParams])
+  const detailsPanel = showTeamDetails(adminMode, params.get('panel'))
   const team = detail.data
   const changePage = (next: number) =>
     setParams((current) => {
@@ -156,44 +166,10 @@ export function TeamsPage() {
                   </p>
                 </div>
                 {!adminMode && (
-                  <>
-                    <nav
-                      aria-label="Team resources"
-                      className="flex flex-wrap gap-4"
-                    >
-                      <Link
-                        className="font-semibold text-cyan"
-                        to={`/alerts?view=occurrences&queue_scope=team&team_id=${team.id}`}
-                      >
-                        Open shared triage
-                      </Link>
-                      <Link
-                        className="font-semibold text-cyan"
-                        to={`/investigations?team_id=${team.id}`}
-                      >
-                        Open team investigations
-                      </Link>
-                      <Link className="font-semibold text-cyan" to="/">
-                        Open dashboard views
-                      </Link>
-                    </nav>
-                    {hasRequiredPermissions(permissions, ['read:views']) && (
-                      <TeamSharedViews
-                        key={`views-${team.id}`}
-                        team={team}
-                        writable={hasRequiredPermissions(permissions, [
-                          'write:teams',
-                          'write:views',
-                        ])}
-                      />
-                    )}
-                    <TeamMembersPanel
-                      key={`members-${team.id}`}
-                      teamId={team.id}
-                    />
-                  </>
+                  <TeamWorkspaceResources team={team} permissions={permissions}
+                    panel={params.get('panel')} unavailable={user.isError || detail.isError} />
                 )}
-                {(team.can_manage || (adminMode && canAdminister)) && (
+                {detailsPanel && (team.can_manage || (adminMode && canAdminister)) && (
                   <TeamSettingsEditor
                     key={team.id}
                     team={team}
@@ -202,6 +178,7 @@ export function TeamsPage() {
                     onSaved={updateTeam}
                   />
                 )}
+                <AdminTeamAIGovernance teamId={team.id} enabled={adminMode} permissions={permissions} unavailable={user.isError || detail.isError} />
                 {adminMode && (
                   <p className="text-sm">
                     Administration shows team configuration. Reading team
@@ -217,6 +194,65 @@ export function TeamsPage() {
         </div>
       )}
     </section>
+  )
+}
+
+function TeamWorkspaceResources({ team, permissions, panel, unavailable }: {
+  team: Team
+  permissions: string[]
+  panel: string | null
+  unavailable: boolean
+}) {
+  const detailsPanel = showTeamDetails(false, panel)
+  return (
+    <>
+      <nav
+        aria-label="Team resources"
+        className="flex flex-wrap gap-4"
+      >
+        <Link
+          className="font-semibold text-cyan"
+          to={`/alerts?view=occurrences&queue_scope=team&team_id=${team.id}`}
+        >
+          Open shared triage
+        </Link>
+        <Link
+          className="font-semibold text-cyan"
+          to={`/investigations?team_id=${team.id}`}
+        >
+          Open team investigations
+        </Link>
+        <Link className="font-semibold text-cyan" aria-current={panel === 'hunts' ? 'page' : undefined} to={`/teams?team=${team.id}&panel=hunts`}>Team hunt queue</Link>
+        <Link className="font-semibold text-cyan" to={`/teams?team=${team.id}&panel=ai-governance`}>AI destinations</Link>
+        {team.can_manage && hasRequiredPermissions(permissions, ['write:teams', 'write:notifications']) && <Link className="font-semibold text-cyan" to={`/teams?team=${team.id}&panel=integrations`}>Team integrations</Link>}
+        <Link className="font-semibold text-cyan" to="/">
+          Open dashboard views
+        </Link>
+      </nav>
+      <TeamIndicatorPanels teamId={team.id} panel={panel} permissions={permissions} unavailable={unavailable} />
+      {detailsPanel && hasRequiredPermissions(permissions, ['read:views']) && (
+        <TeamSharedViews
+          key={`views-${team.id}`}
+          team={team}
+          writable={hasRequiredPermissions(permissions, [
+            'write:teams',
+            'write:views',
+          ])}
+        />
+      )}
+      {panel === 'hunts' && hasRequiredPermissions(permissions, ['read:items']) && (
+        <TeamHuntWorklist key={team.id} teamId={team.id}
+          writable={hasRequiredPermissions(permissions, ['write:teams'])}
+          canInvestigate={hasRequiredPermissions(permissions, ['write:investigations'])}
+          unavailable={unavailable} />
+      )}
+      {panel === 'integrations' && team.can_manage && hasRequiredPermissions(permissions, ['write:teams', 'write:notifications']) && <TeamIntegrations key={team.id} teamId={team.id} unavailable={unavailable} />}
+      {panel === 'ai-governance' && <TeamAIGovernance key={team.id} teamId={team.id} unavailable={unavailable} />}
+      {detailsPanel && <TeamMembersPanel
+        key={`members-${team.id}`}
+        teamId={team.id}
+      />}
+    </>
   )
 }
 
@@ -258,8 +294,10 @@ function TeamSharedViews({
       void queryClient.invalidateQueries({ queryKey: ['views'] })
     },
   })
+  const confirmDiscard = useUnsavedChangesWarning(Boolean(sourceId || name || share.isPending), 'You have an unsaved shared monitoring view. Leave without saving?')
   return (
     <section className="space-y-3" aria-label="Team views">
+      {confirmDiscard.discardDialog}
       <h2 className="text-lg font-semibold">Shared monitoring views</h2>
       {views.isError ? (
         <p role="alert">
@@ -345,4 +383,8 @@ function TeamSharedViews({
       )}
     </section>
   )
+}
+
+function AdminTeamAIGovernance({ teamId, enabled, permissions, unavailable }: { teamId: string; enabled: boolean; permissions: string[]; unavailable: boolean }) {
+  return enabled && permissions.includes('write:ai') ? <TeamAIGovernance key={teamId} teamId={teamId} admin unavailable={unavailable} /> : null
 }

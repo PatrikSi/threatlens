@@ -1,0 +1,200 @@
+{
+  "analyzer_sha256": "69795628ceab8dfa4944082b7d956c688e6dfa2e4344a8656a09d5b00ba645a4",
+  "arrival_contract": "five-lanes-shared-monotonic-epoch-v2",
+  "baseline": {
+    "application_source_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+    "coverage": {
+      "governance_operations": 300,
+      "host_samples": 596,
+      "lane_starts": 5,
+      "lock_samples": 5205,
+      "operation_events": 902,
+      "original_sampler_samples": 23886,
+      "query_events": 13509
+    },
+    "host": {
+      "cgroup_cpu_usage_us": 215855034,
+      "cgroup_throttled_periods": 0,
+      "cgroup_throttled_us": 0,
+      "cpu_pressure_some_us": 65081266,
+      "observed_interval_ms": 604058.851979,
+      "process_involuntary_context_switches": 241768,
+      "process_voluntary_context_switches": 795203,
+      "samples": 596,
+      "selected_cpu_busy_percent": 37.011763,
+      "selected_cpu_steal_clock_ticks": 0,
+      "workload_process_cpu_ms": 211550.775628
+    },
+    "observer": {
+      "guarded_callback_body_elapsed_ms_excluding_nested_snapshot": 8363.088302,
+      "nested_snapshot_body_elapsed_ms_included_in_sampler": 251.670536,
+      "nested_snapshot_mean_us": 10.53632,
+      "sampler_callback_body_elapsed_ms": 3834.909194
+    },
+    "original_sampler": {
+      "maximum_gap_ms": 428.886757,
+      "mean_gap_ms": 25.302102,
+      "new_maximum_triggered_graphs": 14,
+      "numeric_waiter_observations": 252,
+      "periodic_graphs": 5191,
+      "query_age_while_lock_waiting_peak_ms": 606.404,
+      "samples": 23886
+    },
+    "phase": {
+      "governance_intervals_overlapping_service_operations": {
+        "ai_connection": 85,
+        "export": 12
+      },
+      "inferred_epoch_upper_bound_from_first_lane_entry_ms": 2.349708,
+      "lanes": {
+        "ai_connection": {
+          "aggregate_outer_minus_original_p95_ms": 0.020636,
+          "arrival_drift_above_100ms_count": 15,
+          "entire_operation_service_thread_cpu_p95_ms": 61.638957,
+          "inferred_epoch_arrival_drift_p95_ms": 97.226758,
+          "interarrival_p95_ms": 2105.099958,
+          "original_all_outcome_p95_ms": 291.327,
+          "original_gate_p95_ms": 291.327,
+          "original_gate_samples": 301,
+          "paced_operations": 300
+        },
+        "export": {
+          "aggregate_outer_minus_original_p95_ms": 0.032061,
+          "arrival_drift_above_100ms_count": 0,
+          "entire_operation_service_thread_cpu_p95_ms": 378.253215,
+          "inferred_epoch_arrival_drift_p95_ms": -0.31854,
+          "interarrival_p95_ms": 2001.415143,
+          "original_all_outcome_p95_ms": 465.547,
+          "original_gate_p95_ms": 237.3,
+          "original_gate_samples": 294,
+          "paced_operations": 300
+        },
+        "governance": {
+          "aggregate_outer_minus_original_p95_ms": 0.021166,
+          "arrival_drift_above_100ms_count": 1,
+          "entire_operation_service_thread_cpu_p95_ms": 6.256598,
+          "inferred_epoch_arrival_drift_p95_ms": 0.046567,
+          "interarrival_p95_ms": 2001.65516,
+          "original_all_outcome_p95_ms": 70.041,
+          "original_gate_p95_ms": 70.041,
+          "original_gate_samples": 300,
+          "paced_operations": 300
+        }
+      },
+      "pre_barrier_service_lane_entry_spread_ms": 0.253132,
+      "same_index_governance_after_ai_ms": {
+        "p50_ms": 250.000494,
+        "p95_ms": 251.028072
+      },
+      "same_index_governance_after_export_ms": {
+        "p50_ms": 500.008806,
+        "p95_ms": 501.681687
+      }
+    }
+  },
+  "candidate": {
+    "application_source_revision": "79001439677cae246faef0a398ddea50c47faf80",
+    "coverage": {
+      "governance_operations": 300,
+      "host_samples": 596,
+      "lane_starts": 5,
+      "lock_samples": 5212,
+      "operation_events": 902,
+      "original_sampler_samples": 23667,
+      "query_events": 13497
+    },
+    "host": {
+      "cgroup_cpu_usage_us": 222127449,
+      "cgroup_throttled_periods": 0,
+      "cgroup_throttled_us": 0,
+      "cpu_pressure_some_us": 61740502,
+      "observed_interval_ms": 604346.705143,
+      "process_involuntary_context_switches": 242385,
+      "process_voluntary_context_switches": 791010,
+      "samples": 596,
+      "selected_cpu_busy_percent": 38.119704,
+      "selected_cpu_steal_clock_ticks": 0,
+      "workload_process_cpu_ms": 217810.673096
+    },
+    "observer": {
+      "guarded_callback_body_elapsed_ms_excluding_nested_snapshot": 8627.514477,
+      "nested_snapshot_body_elapsed_ms_included_in_sampler": 254.680658,
+      "nested_snapshot_mean_us": 10.761003,
+      "sampler_callback_body_elapsed_ms": 3967.217917
+    },
+    "original_sampler": {
+      "maximum_gap_ms": 414.726408,
+      "mean_gap_ms": 25.537594,
+      "new_maximum_triggered_graphs": 14,
+      "numeric_waiter_observations": 261,
+      "periodic_graphs": 5198,
+      "query_age_while_lock_waiting_peak_ms": 501.316,
+      "samples": 23667
+    },
+    "phase": {
+      "governance_intervals_overlapping_service_operations": {
+        "ai_connection": 96,
+        "export": 14
+      },
+      "inferred_epoch_upper_bound_from_first_lane_entry_ms": 6.204689,
+      "lanes": {
+        "ai_connection": {
+          "aggregate_outer_minus_original_p95_ms": 0.021406,
+          "arrival_drift_above_100ms_count": 15,
+          "entire_operation_service_thread_cpu_p95_ms": 62.812434,
+          "inferred_epoch_arrival_drift_p95_ms": 95.664957,
+          "interarrival_p95_ms": 2112.470226,
+          "original_all_outcome_p95_ms": 304.632,
+          "original_gate_p95_ms": 304.632,
+          "original_gate_samples": 301,
+          "paced_operations": 300
+        },
+        "export": {
+          "aggregate_outer_minus_original_p95_ms": 0.030827,
+          "arrival_drift_above_100ms_count": 0,
+          "entire_operation_service_thread_cpu_p95_ms": 127.813643,
+          "inferred_epoch_arrival_drift_p95_ms": 1.850176,
+          "interarrival_p95_ms": 2001.581512,
+          "original_all_outcome_p95_ms": 475.526,
+          "original_gate_p95_ms": 230.682,
+          "original_gate_samples": 293,
+          "paced_operations": 300
+        },
+        "governance": {
+          "aggregate_outer_minus_original_p95_ms": 0.024483,
+          "arrival_drift_above_100ms_count": 1,
+          "entire_operation_service_thread_cpu_p95_ms": 6.533048,
+          "inferred_epoch_arrival_drift_p95_ms": 1.349231,
+          "interarrival_p95_ms": 2001.617067,
+          "original_all_outcome_p95_ms": 82.903,
+          "original_gate_p95_ms": 82.903,
+          "original_gate_samples": 300,
+          "paced_operations": 300
+        }
+      },
+      "pre_barrier_service_lane_entry_spread_ms": 5.320116,
+      "same_index_governance_after_ai_ms": {
+        "p50_ms": 249.991277,
+        "p95_ms": 250.760727
+      },
+      "same_index_governance_after_export_ms": {
+        "p50_ms": 499.997329,
+        "p95_ms": 501.541735
+      }
+    }
+  },
+  "diagnostic_contract": "threatlens-capacity-diagnostics-v2",
+  "limitations": [
+    "The shared epoch itself was not recorded. The epoch estimate is an inferred upper bound from first observed service arrivals; lane.start denotes pre-barrier entry. Relative drift can be negative against this proxy.",
+    "Actual export/governance median separation is approximately500ms and AI/governance approximately250ms in both runs; service overlap is correlation, not proof of a particular blocking task.",
+    "Service CPU covers each entire observed operation. Outer-minus-original figures subtract aggregate quantiles, not paired per-operation timer overhead.",
+    "Guarded callback elapsed sums exclude the nested original sampler snapshot body to avoid double counting. They include observer work and scheduling delay, and omit indirect SQL or scheduling perturbation; they are not subtractable workload CPU costs.",
+    "Query age while Lock-waiting is not actual lock wait duration. A later graph and cached activity context cannot prove the exact lock holding interval or assign background task identity.",
+    "Host counters cover the selected host CPU and sampled cgroup; zero steal or throttling does not establish a quiet host or exclude interference.",
+    "This perturbed pair has no comparator flags. Previously failed uninstrumented comparisons remain failed; one instrumented pass does not independently establish release readiness."
+  ],
+  "observer_sha256": "24f7521559baeff97558cca177c480415bc1190224eaf9438132b522209b055c",
+  "retained_analysis_sha256": "0a1dee43ec21d26b403f4146ec310a4d08c0ef66a4f6d43f024d858260ebb630",
+  "schema": "capacity-v2-phase-host-public-v1",
+  "scope": "One matched shared-clock instrumented 600-second pair; retained evidence projection only"
+}

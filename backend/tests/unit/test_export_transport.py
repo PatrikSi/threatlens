@@ -39,7 +39,7 @@ def test_deadline_cleans_partial_or_unstarted_file_transfers(
     artifact.write_bytes(b"private evidence" * 20)
     scratch = None
     if anonymous:
-        scratch = ExportDownloadScratch()
+        scratch = ExportDownloadScratch(reserved_bytes=artifact.stat().st_size)
         scratch.file.write(artifact.read_bytes())
         artifact.unlink()
         response = scratch.response(media_type="text/plain", filename="export.txt", headers={})
@@ -131,3 +131,33 @@ def test_external_cancellation_also_runs_file_cleanup(tmp_path):
 
     asyncio.run(cancel_transfer())
     assert not artifact.exists()
+
+
+@pytest.mark.parametrize("blocked_phase", ["http.response.start", "http.response.body"])
+def test_in_memory_download_deadline_releases_request_dependency(monkeypatch, blocked_phase):
+    from app.services.export_transport import DeadlineResponse
+
+    monkeypatch.setattr(get_settings(), "export_transfer_timeout_seconds", .03)
+    application = FastAPI()
+    closed = []
+
+    def authorization_fence():
+        try:
+            yield
+        finally:
+            closed.append(True)
+
+    @application.get("/download")
+    def download(_resource: Annotated[None, Depends(authorization_fence)]):
+        return DeadlineResponse(b"reviewed evidence")
+
+    application.add_middleware(ExportTransferDeadlineMiddleware)
+
+    async def backpressured_send(message):
+        if message["type"] == blocked_phase:
+            assert closed == []
+            await anyio.sleep_forever()
+
+    with pytest.raises(ExportTransferDeadlineExceeded):
+        anyio.run(application, _scope(), receive, backpressured_send)
+    assert closed == [True]

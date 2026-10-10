@@ -54,12 +54,21 @@ Legacy route behavior:
 - User profile summary (`email`, `role`, `status`, `created`)
 - Change password form
 - OIDC identity status with link and password-confirmed unlink controls when a provider is enabled
+- Personal Article previews switch to remember whether original previews load
+  external resources. It defaults off and explains the privacy tradeoff before
+  saving. Each preview can override it temporarily; scripts remain blocked.
+  Organization navigation defaults and navigation resets do not change this
+  personal consent. Saving requires `write:workspace_preferences`; reading the
+  setting requires `read:workspace`.
 - API calls:
   - `GET /auth/me`
   - `POST /auth/change-password`
   - `GET /auth/oidc/account`
   - `POST /auth/oidc/link`
   - `DELETE /auth/oidc/account`
+  - `GET /workspace/preferences`
+  - `PUT /workspace/preferences` (privacy-only writes preserve navigation;
+    older navigation clients that omit the privacy field preserve its value)
 
 ## Identity Provider (Admin)
 
@@ -78,6 +87,8 @@ Legacy route behavior:
 
 ## Integrations: Webhooks
 
+For granular subscriptions, typed intelligence events, reusable credentials and HMAC verification, see [Intelligence automation and SIEM webhooks](intelligence-automation.md).
+
 - Personal outbound webhook notifications for:
   - `rss_item_new`
   - `alert_match`
@@ -85,6 +96,10 @@ Legacy route behavior:
   - `webhook_failed`
   - `daily_digest` (backward-compatible API identifier for the AI Daily Brief)
   - `report_ready`
+  - `article.ai.ready` (successful shared article AI analysis)
+  - `intel.extraction.ready`
+  - `intel.indicators.changed`
+  - `hunt.approved`
 - The AI Daily Brief event is only offered when AI is enabled, configured, and daily briefing is enabled.
 - The report event is only offered when AI reporting is enabled and configured; stored inactive selections remain visible.
 - AI Daily Brief delivery uses the persisted system-wide brief; a hook's RSS feed scope does not rebuild or filter the generated brief.
@@ -105,9 +120,18 @@ Legacy route behavior:
   - body mode (`json`, `form`, `raw`, `none`)
   - timeout
   - any feed or selected feeds
+  - AND/OR/exclusion conditions, including shared AI relevance score or label
+  - template or structured automation payloads, with opt-in extracted article text
 - URL query strings entered directly in the URL field are automatically moved into query parameter fields
 - Template variables use `{{ item.title }}` style placeholders
+- Searchable payload-field choices add placeholders to JSON/form fields or raw
+  templates. JSON output-key conflicts are explained before insertion. Full-text
+  fields expose availability, source revision and truncation metadata.
+- Feed/tag/rule/team condition choices expose names where the caller has access;
+  enumerated conditions use dropdown choices. Unavailable lookups preserve the
+  existing draft and offer retry or exact-value entry.
 - Delivery tooling:
+  - non-sending matching and payload preview using a captured article/event
   - test send against a selected sample feed
   - rendered request/response preview
   - recent delivery history per webhook
@@ -212,6 +236,11 @@ permission requires the built-in administrator base role.
   explicitly read-only.
 - `write:tokens` enables the create form and revoke actions.
 - Create token form: name, expiry days, scopes CSV
+- MCP credentials require explicit `read:mcp` in that CSV plus the feature
+  scopes for their tools. For article search/evidence, use
+  `read:mcp,read:items`. Blank/default scopes and wildcard-only credentials do
+  not enable MCP. See [Read-only MCP access](./mcp.md) for setup and disclosure
+  limits.
 - One-time display of created token secret
 - Admin optional filter by `user_id`
 - API calls:

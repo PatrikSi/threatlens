@@ -118,6 +118,8 @@ def test_valid_visible_citations_agree_with_html_and_pdf_source_links(body, clai
     "Visible point <!-- [S1] -->",
     "`Visible point [S1]`",
     "Visible point [S1] [S&#50;]",
+    "![927 affected organizations](https://example.test/chart.png)",
+    "![927 affected organizations [S1]](https://example.test/chart.png)",
 ])
 def test_key_points_obey_the_same_visible_citation_contract(point):
     with pytest.raises(ReportGroundingError):
@@ -125,3 +127,38 @@ def test_key_points_obey_the_same_visible_citation_contract(point):
             {"body_markdown": "Supported narrative [S1].", "citations": ["S1"], "key_points": [point]},
             known_citations={"S1"},
         )
+
+
+@pytest.mark.parametrize("block", [
+    "```text\n73 employees were compromised in the incident.\n```",
+    "    73 employees were compromised in the incident.",
+    "```text\n73 employees were compromised in the incident. [S1]\n```",
+])
+def test_uncited_visible_fenced_and_indented_claims_are_rejected(block):
+    body = f"A different supported claim. [S1]\n\n{block}"
+    soup, pdf_text, source_links = _artifacts(body)
+    assert "73 employees" in soup.pre.get_text() and "73 employees" in pdf_text
+    assert len(source_links) == 1
+    with pytest.raises(ReportGroundingError, match="adjacent Source"):
+        _validate(body)
+
+
+@pytest.mark.parametrize("body", [
+    "Source: [S1]\n\n```python\nprint('Observed example')\n```",
+    "```text\n73 employees were compromised.\n```\n\nSources: [S1]",
+    "Evidence: [S1]\n\n    Observed example code",
+])
+def test_explicit_adjacent_code_captions_are_navigable_in_exports(body):
+    section = _validate(body)
+    soup, _, source_links = _artifacts(body)
+    assert section.claim_blocks == 2
+    assert len(soup.select('a[href="#report-source-S1"]')) == len(source_links) == 1
+
+
+@pytest.mark.parametrize("caption", [
+    "Source: `[S1]`", "[Source: [S1]](https://example.test)",
+    "Source: <!-- [S1] -->", "Source: [S2]",
+])
+def test_hidden_literal_linked_or_unknown_code_captions_cannot_supply_evidence(caption):
+    with pytest.raises(ReportGroundingError):
+        _validate(f"Another cited claim [S1].\n\n{caption}\n\n```text\nUncited factual claim.\n```")

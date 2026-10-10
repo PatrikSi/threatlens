@@ -31,6 +31,10 @@ on:
           - baseline
           - sustained
         default: sustained
+      diagnostics:
+        description: Collect bounded transaction and host timing for sustained runs
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -52,7 +56,13 @@ jobs:
         env:
           BASELINE_REF: ${{ inputs.baseline_ref }}
           CANDIDATE_REF: ${{ inputs.candidate_ref }}
+          CAPACITY_PROFILE: ${{ inputs.profile }}
+          CAPACITY_DIAGNOSTICS: ${{ inputs.diagnostics }}
         run: |
+          if [[ "$CAPACITY_DIAGNOSTICS" == true && "$CAPACITY_PROFILE" != sustained ]]; then
+            echo "Capacity diagnostics require the sustained profile" >&2
+            exit 2
+          fi
           baseline_sha="$(git rev-parse --verify --end-of-options "${BASELINE_REF}^{commit}")"
           candidate_sha="$(git rev-parse --verify --end-of-options "${CANDIDATE_REF}^{commit}")"
           git worktree add --detach /tmp/threatlens-capacity-baseline "$baseline_sha"
@@ -68,18 +78,45 @@ jobs:
         env:
           CAPACITY_PROFILE: ${{ inputs.profile }}
           CAPACITY_TARGET: ${{ inputs.target_id }}
+          CAPACITY_DIAGNOSTICS: ${{ inputs.diagnostics }}
         run: |
+          capacity_docker_host="$(timeout 20s python scripts/operations/run_capacity_reference.py --print-docker-host)"
+          export DOCKER_HOST="$capacity_docker_host"
+          unset DOCKER_CONTEXT
           profile_args=(--profile "$CAPACITY_PROFILE")
           if [[ "$CAPACITY_PROFILE" == sustained ]]; then
             profile_args+=(--duration-seconds 600)
           fi
+          if [[ "${CAPACITY_DIAGNOSTICS:-false}" == true ]]; then
+            timeout 20s python scripts/operations/run_capacity_diagnostic.py \
+              --describe-observer --observer-dir "$GITHUB_WORKSPACE/scripts/operations" \
+              --output "$GITHUB_WORKSPACE/capacity-results/diagnostic-observer-identity.json"
+          fi
           for release in baseline candidate; do
-            env -u THREATLENS_TEST_DATABASE_URL -u THREATLENS_TEST_REDIS_URL \
-              timeout 15m "/tmp/threatlens-capacity-python-${release}/bin/python" \
-              "/tmp/threatlens-capacity-${release}/backend/scripts/run_capacity_baseline.py" \
+            capacity_command=("/tmp/threatlens-capacity-python-${release}/bin/python" \
+              "/tmp/threatlens-capacity-${release}/backend/scripts/run_capacity_baseline.py")
+            if [[ "${CAPACITY_DIAGNOSTICS:-false}" == true ]]; then
+              capacity_command=("/tmp/threatlens-capacity-python-${release}/bin/python" \
+                "$GITHUB_WORKSPACE/scripts/operations/run_capacity_diagnostic.py" \
+                --entrypoint "/tmp/threatlens-capacity-${release}/backend/scripts/run_capacity_baseline.py" \
+                --observer-dir "$GITHUB_WORKSPACE/scripts/operations" \
+                --output "$GITHUB_WORKSPACE/capacity-results/${release}-diagnostics.json" --)
+            fi
+            python scripts/operations/run_capacity_reference.py \
+              --artifact "$GITHUB_WORKSPACE/capacity-results/${release}.json" \
+              --log "$GITHUB_WORKSPACE/capacity-results/${release}.log" \
+              --attestation "$GITHUB_WORKSPACE/capacity-results/${release}-cleanup-attestation.json" -- \
+              timeout 15m "${capacity_command[@]}" \
               "${profile_args[@]}" --target-id "$CAPACITY_TARGET" --cpu-count 1 --max-rss-mib 1024 \
-              --output "$GITHUB_WORKSPACE/capacity-results/${release}.json" \
-              > "capacity-results/${release}.log" 2>&1
+              --output "$GITHUB_WORKSPACE/capacity-results/${release}.json"
+            if [[ "${CAPACITY_DIAGNOSTICS:-false}" == true ]]; then
+              timeout 20s python scripts/operations/run_capacity_diagnostic.py \
+                --verify --observer-dir "$GITHUB_WORKSPACE/scripts/operations" \
+                --identity "$GITHUB_WORKSPACE/capacity-results/diagnostic-observer-identity.json" \
+                --measurement "$GITHUB_WORKSPACE/capacity-results/${release}.json" \
+                --output "$GITHUB_WORKSPACE/capacity-results/${release}-diagnostics.json" \
+                --source-revision "$(git -C "/tmp/threatlens-capacity-${release}" rev-parse HEAD)"
+            fi
           done
 
       - name: Compare compatible measurement artifacts

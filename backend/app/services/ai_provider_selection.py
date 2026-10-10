@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 PROVIDER_SELECTION_KEY = "provider_selection"
 _FEATURE_FIELDS = {
     "item_enrichment": "item_enrichment_provider_id",
+    "team_assessment": "team_assessment_provider_id",
     "daily_brief": "daily_brief_provider_id",
     "report": "report_provider_id",
 }
@@ -44,6 +45,8 @@ def _assigned_provider_id(db: Session, feature_type: str | None) -> uuid.UUID | 
         return None
     field_name = _FEATURE_FIELDS.get(feature_type or "")
     override = getattr(routing, field_name) if field_name else None
+    if feature_type == "team_assessment" and override is None:
+        override = routing.item_enrichment_provider_id
     return override or routing.default_provider_id
 
 
@@ -76,6 +79,14 @@ def provider_selection_metadata(
         # The existing connection test deliberately tests the legacy settings.
         return result
     selected_id = _assigned_provider_id(db, feature)
+    if feature == "team_assessment" and result.get("team_id"):
+        from app.services.team_ai_governance import team_selected_provider
+
+        selected_key = team_selected_provider(db, uuid.UUID(str(result["team_id"])))
+        if selected_key is not None:
+            selected_id = (
+                None if selected_key == "legacy" else uuid.UUID(selected_key[8:])
+            )
     provider = db.get(AIProviderConfiguration, selected_id) if selected_id else None
     result[PROVIDER_SELECTION_KEY] = {
         "provider_id": str(selected_id) if selected_id else None,

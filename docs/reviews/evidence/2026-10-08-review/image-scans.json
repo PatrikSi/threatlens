@@ -1,0 +1,191 @@
+{
+  "scanner": "aquasec/trivy:0.70.0",
+  "threshold": {
+    "scanners": "vuln",
+    "severity": [
+      "HIGH",
+      "CRITICAL"
+    ],
+    "ignore_unfixed": true,
+    "exit_code": 1
+  },
+  "database": {
+    "Version": 2,
+    "NextUpdate": "2026-10-08T07:38:55.515026457Z",
+    "UpdatedAt": "2026-10-07T07:38:55.515026687Z",
+    "DownloadedAt": "2026-10-08T11:01:21.032116043Z"
+  },
+  "database_origin_refresh": "ghcr.io denied anonymous token; fresh mirror download used",
+  "images": {
+    "backend": {
+      "tag": "threatlens-backend:review-20261008",
+      "image_config_id": "sha256:a8f964d487ab96b95601bcfa27df7f4e6715accc785fa83e87fdc95e11f67680",
+      "exit_code": 1,
+      "counts": {
+        "HIGH": 5,
+        "CRITICAL": 3
+      },
+      "findings": [
+        {
+          "target": "/input/backend.tar (debian 12.15)",
+          "package": "libpcre2-8-0",
+          "installed": "10.42-1+deb12u1",
+          "fixed": "10.42-1+deb12u2",
+          "id": "CVE-2026-103111",
+          "severity": "HIGH",
+          "url": "https://avd.aquasec.com/nvd/cve-2026-103111"
+        },
+        {
+          "target": "/input/backend.tar (debian 12.15)",
+          "package": "perl-base",
+          "installed": "5.36.0-7+deb12u3",
+          "fixed": "5.36.0-7+deb12u4",
+          "id": "CVE-2026-13221",
+          "severity": "CRITICAL",
+          "url": "https://avd.aquasec.com/nvd/cve-2026-13221"
+        },
+        {
+          "target": "/input/backend.tar (debian 12.15)",
+          "package": "perl-base",
+          "installed": "5.36.0-7+deb12u3",
+          "fixed": "5.36.0-7+deb12u4",
+          "id": "CVE-2026-42496",
+          "severity": "CRITICAL",
+          "url": "https://avd.aquasec.com/nvd/cve-2026-42496"
+        },
+        {
+          "target": "/input/backend.tar (debian 12.15)",
+          "package": "perl-base",
+          "installed": "5.36.0-7+deb12u3",
+          "fixed": "5.36.0-7+deb12u4",
+          "id": "CVE-2026-8376",
+          "severity": "CRITICAL",
+          "url": "https://avd.aquasec.com/nvd/cve-2026-8376"
+        },
+        {
+          "target": "/input/backend.tar (debian 12.15)",
+          "package": "perl-base",
+          "installed": "5.36.0-7+deb12u3",
+          "fixed": "5.36.0-7+deb12u4",
+          "id": "CVE-2026-42497",
+          "severity": "HIGH",
+          "url": "https://avd.aquasec.com/nvd/cve-2026-42497"
+        },
+        {
+          "target": "/input/backend.tar (debian 12.15)",
+          "package": "perl-base",
+          "installed": "5.36.0-7+deb12u3",
+          "fixed": "5.36.0-7+deb12u4",
+          "id": "CVE-2026-48962",
+          "severity": "HIGH",
+          "url": "https://avd.aquasec.com/nvd/cve-2026-48962"
+        },
+        {
+          "target": "/input/backend.tar (debian 12.15)",
+          "package": "perl-base",
+          "installed": "5.36.0-7+deb12u3",
+          "fixed": "5.36.0-7+deb12u4",
+          "id": "CVE-2026-57432",
+          "severity": "HIGH",
+          "url": "https://avd.aquasec.com/nvd/cve-2026-57432"
+        },
+        {
+          "target": "/input/backend.tar (debian 12.15)",
+          "package": "perl-base",
+          "installed": "5.36.0-7+deb12u3",
+          "fixed": "5.36.0-7+deb12u4",
+          "id": "CVE-2026-57433",
+          "severity": "HIGH",
+          "url": "https://avd.aquasec.com/nvd/cve-2026-57433"
+        }
+      ],
+      "upstream_references": [
+        "https://github.com/PCRE2Project/pcre2/security/advisories/GHSA-r9hj-j2rw-4q3m",
+        "https://github.com/Perl/perl5/commit/03f74bbbd3a68350d926ee93d56ee4808c28c4c7.patch",
+        "https://github.com/Perl/perl5/commit/40754edc72dd3e513d758153c0e2f0215897740e.patch",
+        "https://github.com/Perl/perl5/commit/5e7f119eb2bb1181be908701f22bf7068e722f1c.patch",
+        "https://github.com/Perl/perl5/commit/5f7eb6bbbe0510964e3fb1d6bb691e5445913e55.patch",
+        "https://github.com/Perl/perl5/commit/e4f681784bcdeaa91ff02a2fa4cdcae5c46779d7.patch",
+        "https://github.com/Perl/perl5/issues/23388",
+        "https://github.com/Perl/perl5/pull/24433"
+      ]
+    },
+    "web": {
+      "tag": "threatlens-web:review-20261008",
+      "image_config_id": "sha256:1e6448d5d5f7fa8b9f57d02156d673fc71a391935fde70ad1656b8c088a00f85",
+      "exit_code": 1,
+      "counts": {
+        "HIGH": 4
+      },
+      "findings": [
+        {
+          "target": "/input/web.tar (alpine 3.24.1)",
+          "package": "pcre2",
+          "installed": "10.47-r1",
+          "fixed": "10.49-r0",
+          "id": "CVE-2026-103111",
+          "severity": "HIGH",
+          "url": "https://avd.aquasec.com/nvd/cve-2026-103111"
+        },
+        {
+          "target": "/input/web.tar (alpine 3.24.1)",
+          "package": "pcre2",
+          "installed": "10.47-r1",
+          "fixed": "10.48-r0",
+          "id": "CVE-2026-86145",
+          "severity": "HIGH",
+          "url": "https://avd.aquasec.com/nvd/cve-2026-86145"
+        },
+        {
+          "target": "/input/web.tar (alpine 3.24.1)",
+          "package": "pcre2",
+          "installed": "10.47-r1",
+          "fixed": "10.48-r0",
+          "id": "CVE-2026-89157",
+          "severity": "HIGH",
+          "url": "https://avd.aquasec.com/nvd/cve-2026-89157"
+        },
+        {
+          "target": "/input/web.tar (alpine 3.24.1)",
+          "package": "pcre2",
+          "installed": "10.47-r1",
+          "fixed": "10.48-r0",
+          "id": "CVE-2026-89161",
+          "severity": "HIGH",
+          "url": "https://avd.aquasec.com/nvd/cve-2026-89161"
+        }
+      ],
+      "upstream_references": [
+        "https://github.com/PCRE2Project/pcre2/commit/1dcd0cf42a6a7cb62cc9a7c024196733abcfda95%20%28pcre2-10.48-RC1%29",
+        "https://github.com/PCRE2Project/pcre2/pull/937",
+        "https://github.com/PCRE2Project/pcre2/releases/tag/pcre2-10.48",
+        "https://github.com/PCRE2Project/pcre2/security/advisories/GHSA-3r4p-g7gg-ppmf",
+        "https://github.com/PCRE2Project/pcre2/security/advisories/GHSA-q8g2-wprr-34m9",
+        "https://github.com/PCRE2Project/pcre2/security/advisories/GHSA-r9hj-j2rw-4q3m"
+      ]
+    },
+    "backend-fixed": {
+      "tag": "threatlens-backend:review-20261008-fixed",
+      "image_config_id": "sha256:0a22ab49ed0beb99e84c316f38f8cf682e37410139625ca34a6c469baad0969f",
+      "exit_code": 0,
+      "counts": {},
+      "findings": []
+    },
+    "web-fixed": {
+      "tag": "threatlens-web:review-20261008-fixed",
+      "image_config_id": "sha256:70263e31a75aabc89b3480459cb865a82720f7fc947320860c1c3db7c3abdf20",
+      "exit_code": 0,
+      "counts": {},
+      "findings": []
+    }
+  },
+  "checks": {
+    "native_web_startup": "legacy writable-root and read-only tmpfs startup/restart passed",
+    "dependency_artifacts": "complete image-pair inventories and bundled legal files match",
+    "git_diff_check": "passed"
+  },
+  "upstream_advisories": [
+    "https://security-tracker.debian.org/tracker/CVE-2026-103111",
+    "https://security-tracker.debian.org/tracker/CVE-2026-13221"
+  ]
+}

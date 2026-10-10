@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "dataset_version": "2026-09-v1",
+  "dataset_sha256": "4dce59ec16c4b1d54c92d0c40f003465c96c9f8e27cc06a854ca351984c603e1",
+  "dataset_analyst_approved": false,
+  "captured_outputs_supplied": false,
+  "cases": [
+    {
+      "case_id": "reference-domain",
+      "content_sha256": "7f9f5b18c397837fe086fc40d951f0e0f8e04b34070cd314ba65848e48d3e385",
+      "review_status": "pending_analyst_review",
+      "review_file": "cases/01-reference-domain.md"
+    },
+    {
+      "case_id": "explicit-infrastructure",
+      "content_sha256": "cc99cc0a56a44e32b64f5aed32170943a8fa28af6defa459f47d38727b1c3703",
+      "review_status": "pending_analyst_review",
+      "review_file": "cases/02-explicit-infrastructure.md"
+    },
+    {
+      "case_id": "conflicting-attribution",
+      "content_sha256": "2f27ecd27256adb56561f3f342cc82e1d95e06c2b5d465245747f8edf220bae1",
+      "review_status": "pending_analyst_review",
+      "review_file": "cases/03-conflicting-attribution.md"
+    },
+    {
+      "case_id": "uncertain-attribution",
+      "content_sha256": "862891a91e7e41b84d66645b145b519e3a0a2b877e3b50cda13f90a6307e293e",
+      "review_status": "pending_analyst_review",
+      "review_file": "cases/04-uncertain-attribution.md"
+    },
+    {
+      "case_id": "product-versions",
+      "content_sha256": "25b735bc04d8d0296e1555a4b7b739654f56de33ae9b24435c7728777130467f",
+      "review_status": "pending_analyst_review",
+      "review_file": "cases/05-product-versions.md"
+    },
+    {
+      "case_id": "incomplete-telemetry",
+      "content_sha256": "1f8fefc8ec7579f55ead93b4b66697d3b769f7b5a3dd087ffa0f132980c523e4",
+      "review_status": "pending_analyst_review",
+      "review_file": "cases/06-incomplete-telemetry.md"
+    },
+    {
+      "case_id": "prompt-injection",
+      "content_sha256": "9e3572499f8ba8e97b801f5e29d1d74b17d8eb02718d67d77a15bccf90f03d63",
+      "review_status": "pending_analyst_review",
+      "review_file": "cases/07-prompt-injection.md"
+    },
+    {
+      "case_id": "example-address",
+      "content_sha256": "cca8e2a60d9624807c65e623ce1170d250ba90ba1cd26d36c1d21a5389980e9b",
+      "review_status": "pending_analyst_review",
+      "review_file": "cases/08-example-address.md"
+    },
+    {
+      "case_id": "inferred-relationship",
+      "content_sha256": "328b1d4d32009942176fb936835998a775fc789284a3bf292650b844011e91e8",
+      "review_status": "pending_analyst_review",
+      "review_file": "cases/09-inferred-relationship.md"
+    },
+    {
+      "case_id": "benign-provider",
+      "content_sha256": "0f56ee1ee552a86fe6000be2b857e3a202af7a3ba88bfdde076bc2d3095f350a",
+      "review_status": "pending_analyst_review",
+      "review_file": "cases/10-benign-provider.md"
+    },
+    {
+      "case_id": "quoted-hostile-claim",
+      "content_sha256": "5509a7bb3bf84dc48b1cffa50ef389caf07d16a81c66cfe2888f749b2ef2c2a9",
+      "review_status": "pending_analyst_review",
+      "review_file": "cases/11-quoted-hostile-claim.md"
+    },
+    {
+      "case_id": "evidence-scarcity",
+      "content_sha256": "8235a458a854d652fccb0f4f74c18a54e5f0be7106d0f6d8aabc1cced9961139",
+      "review_status": "pending_analyst_review",
+      "review_file": "cases/12-evidence-scarcity.md"
+    }
+  ],
+  "model_coverage": []
+}

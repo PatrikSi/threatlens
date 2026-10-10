@@ -1,0 +1,133 @@
+{
+  "applicability": {
+    "current_git_objects": {
+      "backend": "ef81b9315e2bdf5b622ed7e171985125cbe6934e",
+      "docker-compose.build.yml": "15b1b8a21d80a46680fdf528635b216383285131",
+      "docker-compose.yml": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "docker/backend.Dockerfile": "40c3c1fa1ecc97759e4d36cab42ba27ade37e900",
+      "docker/web.Dockerfile": "fffc09c62c17baa462d00edf4fe54863e77db652",
+      "web": "12734f2e0521e91abf611326d043355681bf5100"
+    },
+    "unchanged_backend_build_inputs": {
+      "backend": {
+        "backend_build_git_object": "ef81b9315e2bdf5b622ed7e171985125cbe6934e",
+        "current_git_object": "ef81b9315e2bdf5b622ed7e171985125cbe6934e",
+        "matches": true
+      },
+      "docker-compose.yml": {
+        "backend_build_git_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+        "current_git_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+        "matches": true
+      },
+      "docker/backend.Dockerfile": {
+        "backend_build_git_object": "40c3c1fa1ecc97759e4d36cab42ba27ade37e900",
+        "current_git_object": "40c3c1fa1ecc97759e4d36cab42ba27ade37e900",
+        "matches": true
+      }
+    }
+  },
+  "current_application_revision": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+  "current_images": {
+    "backend": {
+      "id": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+      "source_revision": "1f50226feda5c784add911faf9e9ad4f21c628f7",
+      "user": "app",
+      "version": "2.1.0"
+    },
+    "web": {
+      "id": "sha256:e974899db4af6110f19772c881716dcd21028f295e294d3e44aabd22719bd462",
+      "source_revision": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+      "user": "nginx",
+      "version": "2.1.0"
+    }
+  },
+  "final_web_build": {
+    "backend_build_revision": "1f50226feda5c784add911faf9e9ad4f21c628f7",
+    "backend_image_id": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+    "build_elapsed_seconds": 76.04,
+    "builder_cleanup": {
+      "exit_code": 0,
+      "remaining_container_count": 0,
+      "remaining_volume_count": 0
+    },
+    "completed_at_utc": "2026-10-08T22:00:42.004566+00:00",
+    "limits": {
+      "cpus": 1,
+      "maximum_parallelism": 1,
+      "memory_mib": 1536
+    },
+    "previous_source_revision": "1f50226feda5c784add911faf9e9ad4f21c628f7",
+    "ready_status": 200,
+    "source_revision": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+    "started_at_utc": "2026-10-08T21:58:58.278257+00:00",
+    "status": "passed",
+    "web_image_id": "sha256:e974899db4af6110f19772c881716dcd21028f295e294d3e44aabd22719bd462"
+  },
+  "fresh_image_helper_and_scan_status": "passed",
+  "input_evidence": [
+    {
+      "artifact": "final-build-result.json",
+      "sha256": "de065fa0f545433f7dd04b20eb8539e9d6b3d23c515c47272f67e27118765ef7"
+    },
+    {
+      "artifact": "final-web-build-result.json",
+      "sha256": "35bdb77b7c49992be81b2377d2a54465eaede00a95c39f67080b057f220822a2"
+    },
+    {
+      "artifact": "live-openapi-result.json",
+      "sha256": "fe0f88cf3567a406788fd8d0afa3ef1db221a009d4cb41e505ebda16e7bdfcea"
+    },
+    {
+      "artifact": "final-runtime-result.json",
+      "sha256": "ad5566d0dedd329f28127cb7745bd3a4e9391fbd1066a83b788b5afefd09ea65"
+    }
+  ],
+  "kind": "native_image_builds_and_contract_provenance",
+  "openapi_comparison": {
+    "api_version": "2.1.0",
+    "backend_image_id": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+    "canonical_sha256": "50ae98ebddd19dc2ba5a562b1c3e0ffd1a49c141f7578ac41a6edaba872a1424",
+    "current_runtime_matches_checked_in_openapi": true,
+    "current_runtime_versioned_contract_sha256": "a608ae21656a8d50f83919e01a16751720c1199a7f4cd552465770bd3df16aaa",
+    "final_pair_recheck_passed": true,
+    "matches_checked_in_contract": true,
+    "reference_file_sha256": "0e61be87290ac88864058898142e6b85c0729be56b5c10078255890e1633ef01",
+    "source_revision": "1f50226feda5c784add911faf9e9ad4f21c628f7",
+    "status": "passed",
+    "versioned_contract_sha256": "a608ae21656a8d50f83919e01a16751720c1199a7f4cd552465770bd3df16aaa",
+    "web_image_id": "sha256:0e10a3c7497b24237246caa14bc267a2ab2c171ef02d084581dcde98e2213dfa"
+  },
+  "paired_build": {
+    "build_limits": {
+      "cpu": 1,
+      "memory_mib": 1536,
+      "swap": false
+    },
+    "builder_cleanup": {
+      "exit_code": 0,
+      "remaining_container_count": 0,
+      "remaining_volume_count": 0
+    },
+    "completed_at_utc": "2026-10-08T21:43:18.981229+00:00",
+    "images": {
+      "backend": {
+        "elapsed_seconds": 33.69,
+        "exit_code": 0,
+        "id": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+        "user": "app",
+        "version": "2.1.0"
+      },
+      "web": {
+        "elapsed_seconds": 88.32,
+        "exit_code": 0,
+        "id": "sha256:0e10a3c7497b24237246caa14bc267a2ab2c171ef02d084581dcde98e2213dfa",
+        "user": "nginx",
+        "version": "2.1.0"
+      }
+    },
+    "source_revision": "1f50226feda5c784add911faf9e9ad4f21c628f7",
+    "started_at_utc": "2026-10-08T21:41:10.531039+00:00"
+  },
+  "platform": "linux/amd64",
+  "schema_version": 1
+}

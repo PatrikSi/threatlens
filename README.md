@@ -20,6 +20,11 @@ It stores feeds, extracts article text, and gives a single pane of glass to revi
   dead-letter replay, and retained metrics
 - Collaborative investigation collections with members, evidence snapshots, notes,
   lifecycle, and activity history
+- [Team intelligence](docs/pages/teams.md) with evidence-backed assessments,
+  reviewed hunt queues, analyst claims, and deadlines
+- Revisioned indicator evidence, analyst verdicts, suppression, and
+  [reviewed STIX/MISP publications](docs/pages/reviewed-publications.md) with
+  consumer revisions and withdrawal history
 - Filtered article export as CSV, JSONL, ThreatLens ZIP, STIX 2.1, MISP, or readable PDF bundles
 - Feed backup/restore plus webhook and multi-hook SMTP notifications
 - Role-based users: `admin`, `analyst`, and `viewer`, with scoped API tokens and
@@ -31,7 +36,12 @@ It stores feeds, extracts article text, and gives a single pane of glass to revi
 - Selective data lifecycle policies with aggregate previews, safeguards, bounded
   cleanup, cancellation, and auditable run history
 - Durable integration outbox, bounded retries, dead-letter replay, circuit breaking, and delivery metrics
-- Optional AI summaries, relevance scoring, task history, and daily briefs
+- Signed automation webhooks, [external execution tracking](docs/pages/automation-execution.md),
+  and an [OpenSearch hunt connector](docs/pages/opensearch-connector.md)
+- [Read-only MCP access](docs/pages/mcp.md) through scoped credentials and
+  registered OAuth clients
+- Optional AI summaries, relevance scoring, provider routing, shared quotas,
+  task history, and daily briefs
 - Prompted, sourced intelligence reports with templates, schedules, context-safe chunking, and Markdown/HTML/PDF artifacts
 
 ## Quick Start
@@ -56,6 +66,10 @@ ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='use-a-long-password' ./bootstrap.sh
 
 Bootstrap escapes custom credentials for Compose, preserving literal dollar
 signs, quotes and backslashes. Keep the generated file private.
+Use a valid email address; special-use domains such as `.test` and `.invalid`
+cannot sign in. Administrator seeding validates and normalizes the address
+with the same credential schema as login before opening a database session.
+Passwords must contain 1–256 characters without carriage returns or line feeds.
 
 For a production or internet-facing deployment, review `.env.example` and replace any local-only settings before first startup.
 
@@ -215,6 +229,9 @@ ThreatLens works without AI.
 
 ## Useful Commands
 
+For the 2.1 source candidate, read the [release notes and upgrade steps](docs/releases/2.1.0.md).
+Published images remain at their existing version until the release is qualified and published.
+
 For the 2.0 upgrade, read the [release notes and compatibility changes](docs/releases/2.0.0.md)
 before replacing an existing installation.
 
@@ -232,12 +249,15 @@ docker compose stop --timeout 300 api beat worker worker-ai worker-exports worke
 docker compose up -d
 ```
 
-Update to a pinned release:
+Update to a pinned published release. Replace `YOUR_PUBLISHED_VERSION` with a
+published version compatible with your installation and follow that version's
+upgrade steps:
 
 ```bash
-THREATLENS_IMAGE_TAG=1.0.0 docker compose pull
+export THREATLENS_IMAGE_TAG='YOUR_PUBLISHED_VERSION'
+docker compose pull
 docker compose stop --timeout 300 api beat worker worker-ai worker-exports worker-maintenance worker-notifications
-THREATLENS_IMAGE_TAG=1.0.0 docker compose up -d
+docker compose up -d
 ```
 
 Stopping every API and worker process before recreation is required for schema
@@ -282,11 +302,16 @@ docker compose down -v
 docker compose up -d
 ```
 
-Run migrations:
+Apply migrations with the dedicated migration identity after stopping writers:
 
 ```bash
-docker compose exec api alembic upgrade head
+docker compose stop --timeout 300 api beat worker worker-ai worker-exports worker-maintenance worker-notifications
+docker compose run --rm migrate
 ```
+
+Normal API/worker credentials cannot change the schema. Recreate the matching
+API and workers after migration with `docker compose up -d --wait`; see the
+[database upgrade guide](docs/pages/database-privileges.md).
 
 Stop the stack:
 
@@ -355,6 +380,7 @@ npm run build
 - The default Docker setup runs PostgreSQL, Redis, the API, worker, scheduler, and web UI.
 - Published application images can be pinned with `THREATLENS_IMAGE_TAG`; `latest` tracks the newest default published image, while release tags and `sha-*` tags are immutable references.
 - The browser talks to the API through `/api/v1`.
+- The 2.1 UI requires Safari 16.4+, Chrome 111+, or Firefox 128+; see the [browser compatibility notes](docs/releases/2.1.0.md#qualification-and-boundaries).
 - Feed/article fetching, AI calls, webhook and SMTP delivery, and OIDC provider communication can make outbound network requests.
 - Private-network outbound access is off by default. Enable only what you trust in `.env` or your stack environment.
 - OIDC requires HTTPS by default. `ALLOW_INSECURE_HTTP_OIDC=true` is intended only for isolated local development; private IdPs remain separately controlled by `ALLOW_PRIVATE_NETWORK_OIDC`.

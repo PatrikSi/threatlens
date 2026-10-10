@@ -28,6 +28,16 @@ def _data_access_dependency() -> object:
     return object()
 
 
+def test_operation_catalog_rejects_ignored_extra_fields():
+    from app.core.data_policy_route_manifest import _entries
+
+    with pytest.raises(ValueError, match="Route operations require"):
+        _entries(
+            RouteGovernanceClass.CONTROL_PLANE,
+            (("GET", "/v1/example", "example", "unexpected", "ignored"),),
+        )
+
+
 def _nested_data_access_dependency(
     _context: object = Depends(_data_access_dependency),
 ) -> object:
@@ -150,22 +160,22 @@ def test_live_manifest_is_the_exact_immutable_canonical_route_contract():
     attestation = validate_route_governance_manifest(app)
 
     assert ROUTE_GOVERNANCE_MANIFEST_VERSION == 1
-    assert len(ROUTE_GOVERNANCE_MANIFEST.entries) == 311
-    assert len({entry.operation for entry in ROUTE_GOVERNANCE_MANIFEST.entries}) == 311
+    assert len(ROUTE_GOVERNANCE_MANIFEST.entries) == 388
+    assert len({entry.operation for entry in ROUTE_GOVERNANCE_MANIFEST.entries}) == 388
     assert ROUTE_GOVERNANCE_MANIFEST_SHA256 == (
-        "64727c173aea64f8e4a85f28d7c23dadd3ea411cd8f8bc8da7da5a7a72c132f7"
+        "b1099f88ce7962e6350b1951f3fafad58dee9aa71292f91dc83227c6f2aee1c5"
     )
     assert attestation.manifest_sha256 == ROUTE_GOVERNANCE_MANIFEST_SHA256
-    assert attestation.declared_operation_count == 311
-    assert attestation.validated_operation_count == 311
-    assert attestation.request_context_operation_count == 126
+    assert attestation.declared_operation_count == 388
+    assert attestation.validated_operation_count == 388
+    assert attestation.request_context_operation_count == 175
     assert attestation.governance_class_counts == (
         ("captured_async", 5),
-        ("control_plane", 167),
+        ("control_plane", 194),
         ("dynamic_target", 7),
-        ("egress_fenced", 2),
+        ("egress_fenced", 3),
         ("public", 11),
-        ("request_context", 119),
+        ("request_context", 168),
     )
     provider_usage = [entry for entry in ROUTE_GOVERNANCE_MANIFEST.entries
                       if entry.operation.path_format == "/v1/ai/ops/providers"]

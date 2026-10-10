@@ -131,7 +131,7 @@ export function NotificationDeliveryHistory({ controller }: { controller: Notifi
         </p>
       )}
       {selectedWebhookId && retryDelivery.isError && (
-        <p className="mt-3 text-sm text-red-600">
+        <p role="alert" aria-atomic="true" className="mt-3 text-sm text-red-600">
           {resolveApiErrorMessage(retryDelivery.error, 'Failed to retry webhook delivery.')}
         </p>
       )}

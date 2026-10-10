@@ -222,7 +222,7 @@ export function useWorkspaceSettingsController() {
     },
   })
 
-  const roleDirty = Boolean(roleBaseline && roleDraft && rolePolicyDraftIsDirty(roleBaseline, roleDraft))
+  const roleDirty = Boolean(roleEdit && rolePolicyDraftIsDirty(roleEdit.baseline, roleEdit.draft))
   const roleValidation = roleDraft
     ? rolePolicyDraftValidation(
         roleDraft,

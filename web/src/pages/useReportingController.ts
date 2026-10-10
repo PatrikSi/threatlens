@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { ApiError, apiDownload, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
@@ -55,6 +55,9 @@ type ReportDownloadFormat = 'markdown' | 'html' | 'pdf'
 export function useReportingController() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const location = useLocation()
+  const viewKeyRef = useRef(location.key)
+  viewKeyRef.current = location.key
   const { reportId: routeReportId } = useParams<{ reportId?: string }>()
   const currentUser = useCurrentUser()
   const isAdmin = currentUser.data?.role === 'admin'
@@ -101,7 +104,7 @@ export function useReportingController() {
     staleTime: 60_000,
   })
   const [editorialDirty, setEditorialDirty] = useState(false)
-  const builderDraft = useReportBuilderDraft(templatesQuery.data, canAuthor, editorialDirty)
+  const builderDraft = useReportBuilderDraft(templatesQuery.data, editorialDirty)
   const { selectedTemplateId, setSelectedTemplateId, selectedTemplate, filterDraft, setFilterDraft, prompt,
     setPrompt, sections, setSections, excludedItemIds, setExcludedItemIds, title, setTitle,
     deliverWhenReady, setDeliverWhenReady, deliveryMode, setDeliveryMode } = builderDraft
@@ -214,13 +217,15 @@ export function useReportingController() {
         ),
       )
     },
-    onMutate: () => setFeedback(null),
-    onSuccess: (result) => {
-      setFeedback(reportQueueFeedback('retry', result.status))
+    onMutate: () => { setFeedback(null); return viewKeyRef.current },
+    onSuccess: (result, _reportId, viewKey) => {
       void queryClient.invalidateQueries({ queryKey: ['reports'] })
+      if (!mountedRef.current || viewKeyRef.current !== viewKey) return
+      setFeedback(reportQueueFeedback('retry', result.status))
       navigate(`/reporting/${result.report_id}`)
     },
-    onError: (error) => {
+    onError: (error, _reportId, viewKey) => {
+      if (!mountedRef.current || viewKeyRef.current !== viewKey) return
       setFeedback({ kind: 'error', message: resolveReportQueueError(error) })
     },
   })
@@ -229,17 +234,17 @@ export function useReportingController() {
       reportingRequestScope(requestOwnerId, 'report:delete', reportId),
       () => apiFetch<void>(`/reports/${reportId}`, { method: 'DELETE' }),
     ),
-    onMutate: () => setFeedback(null),
-    onSuccess: () => {
-      setFeedback({ kind: 'success', message: 'Report deleted.' })
+    onMutate: () => { setFeedback(null); return viewKeyRef.current },
+    onSuccess: (_result, _reportId, viewKey) => {
       void queryClient.invalidateQueries({ queryKey: ['reports', 'library'] })
+      if (!mountedRef.current || viewKeyRef.current !== viewKey) return
+      setFeedback({ kind: 'success', message: 'Report deleted.' })
       navigate('/reporting')
     },
-    onError: (error) => setActionError(
-      setFeedback,
-      error,
-      'The report could not be deleted',
-    ),
+    onError: (error, _reportId, viewKey) => {
+      if (!mountedRef.current || viewKeyRef.current !== viewKey) return
+      setActionError(setFeedback, error, 'The report could not be deleted')
+    },
   })
   const templateMutation = useMutation({
     mutationKey: ['reports', 'templates', 'save'],

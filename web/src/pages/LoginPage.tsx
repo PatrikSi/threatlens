@@ -119,7 +119,7 @@ export function LoginPage() {
       setPassword('')
       clearPendingOidcReturnDestination()
       markAuthenticated()
-      navigate(resolvePostLoginDestination(location.state), { replace: true })
+      navigate(resolvePostLoginDestination(location.state), { replace: true, flushSync: true })
     },
     onError: (error) => setLoginErrorMessage(resolveLoginError(error)),
     onSettled: () =>
@@ -143,7 +143,7 @@ export function LoginPage() {
       setMfaCode('')
       clearPendingOidcReturnDestination()
       markAuthenticated()
-      navigate(resolvePostLoginDestination(location.state), { replace: true })
+      navigate(resolvePostLoginDestination(location.state), { replace: true, flushSync: true })
     },
     onError: (error) =>
       setMfaErrorState({
@@ -523,7 +523,8 @@ function CredentialFields({
         id="login-email"
         value={email}
         onChange={(event) => onEmailChange(event.target.value)}
-        type="email"
+        type="text"
+        inputMode="email"
         autoComplete="email"
         className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
         required

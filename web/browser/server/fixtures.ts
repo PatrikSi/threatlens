@@ -38,9 +38,15 @@ export async function signIn(page: Page, identity: Identity) {
   await expect(page).not.toHaveURL(/\/login(?:\?|$)/)
 }
 
+export function fixtureFeedEdit(page: Page) {
+  return page.locator('div.rounded.border')
+    .filter({ has: page.getByText('Real-server fixture feed', { exact: true }) })
+    .getByRole('button', { name: 'Edit', exact: true })
+}
+
 export async function openEditor(page: Page) {
   await page.goto('/feeds')
-  await page.getByRole('button', { name: 'Edit', exact: true }).click()
+  await fixtureFeedEdit(page).click()
   return page.getByRole('dialog', { name: 'Real-server fixture feed' })
 }
 

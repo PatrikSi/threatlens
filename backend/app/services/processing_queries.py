@@ -145,8 +145,11 @@ def stage_statement(stage: ProcessingStage):
                     dispatch_after_seconds=get_settings().dispatch_items_missing_articles_after_seconds
                 )
                 if stage == "article"
-                else literal(False)
-            ).label("article_repair_eligible"),
+                # A new or refreshed item is still waiting for article fetching
+                # to commit its input revision. Failed fetches set status=error
+                # and remain eligible for title/summary-only processing.
+                else Item.status != "new"
+            ).label("automatic_repair_eligible"),
         )
         .select_from(Item)
         .join(Feed, Feed.id == Item.feed_id)

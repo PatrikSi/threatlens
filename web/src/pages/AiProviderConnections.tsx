@@ -1,3 +1,4 @@
+import { AiProviderQualification } from './AiProviderQualification'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -7,6 +8,7 @@ import type { AiProviderConnectionsController } from './useAiProviderConnections
 import { AiProviderEndpointHelp } from './AiProviderEndpointHelp'
 import { AiCompletionTokenHelp } from './AiCompletionTokenHelp'
 import { AiProviderCapabilityFields } from './AiProviderCapabilityFields'
+import { AiQuotaGroups } from './AiQuotaGroups'
 import { AiProviderAdmissionFields } from './AiProviderAdmissionFields'
 
 const inputClass =
@@ -41,7 +43,14 @@ export function AiProviderConnections({ controller: c }: { controller: AiProvide
   const editorTitle = useRef<HTMLHeadingElement>(null)
   const addProviderButton = useRef<HTMLButtonElement>(null)
   const focusedDelete = useRef(c.completedDeletes)
-  const focusEditor = () => requestAnimationFrame(() => editorTitle.current?.focus())
+  const focusEditor = () => requestAnimationFrame(() => {
+    const heading = editorTitle.current
+    if (!heading) return
+    // An operator can enter a field before this queued selection focus runs.
+    // Keep that newer focus so typing continues in the chosen control.
+    if (document.activeElement !== heading && heading.parentElement?.contains(document.activeElement)) return
+    heading.focus()
+  })
 
   useEffect(() => {
     if (c.busy || focusedDelete.current === c.completedDeletes) return
@@ -87,6 +96,8 @@ export function AiProviderConnections({ controller: c }: { controller: AiProvide
         <ProviderList c={c} focusEditor={focusEditor} addProviderButton={addProviderButton} />
         <ProviderEditor c={c} editorTitle={editorTitle} />
         <ProviderRouting c={c} onReload={() => setConfirmRoutingReload(true)} />
+        <AiQuotaGroups controller={c} />
+        {c.editor?.baseline && <AiProviderQualification key={c.editor.baseline.id} providerId={c.editor.baseline.id} version={c.editor.baseline.version} />}
       </fieldset>
       <ConfirmDialog
         open={c.pendingSelection !== null}
@@ -473,8 +484,9 @@ function ProviderRouting({ c, onReload }: { c: AiProviderConnectionsController; 
         {c.visibleRouting && (
           <div className="space-y-3">
             {ROUTING_FIELDS.map(({ key, label }) => {
-              const id = c.visibleRouting![key]
+              const id = c.visibleRouting![key] ?? null
               const inherited = key !== 'default_provider_id' && id === null
+              const inheritedProvider = key === 'team_assessment_provider_id' ? 'article provider' : 'default provider'
               return (
                 <div
                   key={key}
@@ -484,7 +496,9 @@ function ProviderRouting({ c, onReload }: { c: AiProviderConnectionsController; 
                     <p className="text-sm font-semibold">{label}</p>
                     <p className="break-words text-sm">
                       {inherited
-                        ? `Default: ${c.providerName(c.visibleRouting!.default_provider_id)}`
+                        ? key === 'team_assessment_provider_id'
+                          ? `Article enrichment: ${c.providerName(c.visibleRouting!.item_enrichment_provider_id ?? c.visibleRouting!.default_provider_id)}`
+                          : `Default: ${c.providerName(c.visibleRouting!.default_provider_id)}`
                         : c.providerName(id)}
                     </p>
                   </div>
@@ -508,11 +522,11 @@ function ProviderRouting({ c, onReload }: { c: AiProviderConnectionsController; 
                     <button
                       type="button"
                       className={buttonClass}
-                      aria-label={`Use ${key === 'default_provider_id' ? 'legacy settings for default provider' : `default provider for ${label.toLowerCase()}`}`}
+                      aria-label={`Use ${key === 'default_provider_id' ? 'legacy settings for default provider' : `${inheritedProvider} for ${label.toLowerCase()}`}`}
                       disabled={id === null || c.routing.isError}
                       onClick={() => c.assign(key, null)}
                     >
-                      {key === 'default_provider_id' ? 'Use legacy settings' : 'Use default'}
+                      {key === 'default_provider_id' ? 'Use legacy settings' : key === 'team_assessment_provider_id' ? 'Use article provider' : 'Use default'}
                     </button>
                   </div>
                 </div>

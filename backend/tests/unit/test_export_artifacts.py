@@ -4,6 +4,7 @@ import json
 import uuid
 import zipfile
 from datetime import datetime, timezone
+from dataclasses import replace
 
 import pytest
 from stix2 import parse
@@ -192,6 +193,54 @@ def test_export_size_limit_removes_partial_artifact():
 def test_export_options_require_state_before_notes():
     with pytest.raises(ValueError, match="include_user_notes requires include_user_state"):
         ArticleExportOptions(include_user_state=False, include_user_notes=True)
+
+
+@pytest.mark.parametrize("export_format", ["stix", "misp"])
+def test_network_indicator_exports_preserve_values_without_claiming_maliciousness(export_format):
+    record = _record()
+    values = {
+        "ipv6": "2001:db8::7",
+        "url": "https://xn--bcher-kva.example/path?query=O'Reilly&item=7#fragment",
+        "email": "O'Reilly@xn--bcher-kva.example",
+    }
+    record = replace(record, iocs=[
+        replace(record.iocs[0], id=uuid.uuid4(), type=kind, value=value, confidence=0.95)
+        for kind, value in values.items()
+    ])
+    artifact = generate_export_artifact(
+        iter([record]), item_count=1, export_format=export_format,
+        filters=ArticleExportFilters(), options=ArticleExportOptions(),
+        max_uncompressed_bytes=1_000_000,
+    )
+    try:
+        document = artifact.path.read_text(encoding="utf-8")
+        if export_format == "stix":
+            bundle = parse(document, allow_custom=False)
+            indicators = [entry for entry in bundle.objects if entry.type == "indicator"]
+            assert len(indicators) == len(values)
+            patterns = {entry.pattern for entry in indicators}
+            assert "[ipv6-addr:value = '2001:db8::7']" in patterns
+            assert "[email-addr:value = 'O\\'Reilly@xn--bcher-kva.example']" in patterns
+            assert (
+                "[url:value = 'https://xn--bcher-kva.example/path?query=O\\'Reilly&item=7#fragment']"
+                in patterns
+            )
+            assert all("confidence" not in entry for entry in indicators)
+            assert all(entry.labels == ["unreviewed-extraction"] for entry in indicators)
+            assert all("match confidence: 0.95" in entry.description for entry in indicators)
+            report = next(entry for entry in bundle.objects if entry.type == "report")
+            assert {entry.id for entry in indicators} <= set(report.object_refs)
+        else:
+            event = json.loads(document)["response"][0]["Event"]
+            assert event["threat_level_id"] == "4"  # High relevance is not high severity.
+            attributes = [entry for entry in event["Attribute"] if entry["type"] != "link"]
+            assert {(entry["type"], entry["value"]) for entry in attributes} == {
+                ("ip-dst", values["ipv6"]), ("url", values["url"]), ("email", values["email"]),
+            }
+            assert all(entry["to_ids"] is False for entry in attributes)
+            assert all("Unreviewed" in entry["comment"] for entry in attributes)
+    finally:
+        remove_export_artifact(artifact.path)
 
 
 def test_export_filters_reject_reversed_ranges():

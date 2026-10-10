@@ -1,0 +1,53 @@
+{
+  "application_source_revision": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+  "comparative_capacity": {
+    "absolute_budget_passing_workloads": 4,
+    "comparator_exit_codes": [
+      1,
+      1
+    ],
+    "configured_workload_seconds": 600,
+    "current_source_capacity_rerun": false,
+    "first_pair_successful_export_p95_change_percent": 52.512,
+    "historical_baseline_revision": "35ac120b28820b6e5b1222a50b5f70f7a6b85c3b",
+    "historical_candidate_revision": "65f4a755c4899373dba14b8128ac25575b130cb6",
+    "regression_threshold_percent": 20,
+    "released_2_0_to_2_1_full_stack_comparison": false,
+    "reverse_drain": {
+      "baseline": 14.059,
+      "candidate": 23.981,
+      "change": 9.922,
+      "change_percent": 70.574,
+      "unit": "ms"
+    },
+    "reverse_pair_flag_count": 5,
+    "status": "pending_stable_isolated_runner"
+  },
+  "intended_source_hosted_quality": {
+    "codeql_languages": [
+      "python",
+      "javascript-typescript"
+    ],
+    "source_build_scan_smoke_platforms": [
+      "linux/amd64",
+      "linux/arm64"
+    ],
+    "status": "pending"
+  },
+  "kind": "remaining_merge_release_and_optional_model_promotion_gates",
+  "optional_ai_semantic_promotion": {
+    "ordinary_ingestion_independent": true,
+    "prepared_cases": 12,
+    "status": "pending_captured_outputs_and_named_human_review"
+  },
+  "public_image_promotion": {
+    "exact_published_platform_digest_scan_smoke_required": true,
+    "platforms": [
+      "linux/amd64",
+      "linux/arm64"
+    ],
+    "remote_publication_performed": false,
+    "status": "pending"
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,82 @@
+{
+  "commands": [
+    {
+      "elapsed_seconds": 2.38,
+      "exit_code": 0,
+      "log_sha256": "849d8eb6363e45c1ba854f2faad35bc411f3d459e859472d7b6d34061df324de",
+      "name": "source-size"
+    },
+    {
+      "elapsed_seconds": 0.87,
+      "exit_code": 0,
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "name": "backend-ruff"
+    },
+    {
+      "elapsed_seconds": 226.26,
+      "exit_code": 0,
+      "log_sha256": "3837c1c9a5759b617e17409172ed87069495dab504c4da69baa28e12fdd98641",
+      "name": "frontend-unit",
+      "passed_test_files": 164,
+      "passed_tests": 1362
+    },
+    {
+      "elapsed_seconds": 12.88,
+      "exit_code": 0,
+      "log_sha256": "a39a1ab58386d7cdcdff5e3326a0ebb1833906a175b563994aef16a47890ab2f",
+      "name": "frontend-lint"
+    },
+    {
+      "elapsed_seconds": 3.33,
+      "exit_code": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "name": "browser-types"
+    },
+    {
+      "elapsed_seconds": 1.07,
+      "exit_code": 0,
+      "log_sha256": "3277ec02e4569b8343b827845102490c8b5c864846816a4c96c4cadc1ada4301",
+      "name": "frontend-audit-gate"
+    },
+    {
+      "elapsed_seconds": 0.57,
+      "exit_code": 0,
+      "log_sha256": "dd66e8e8ae12aed6140bbe346b5aadae893832c0d3dd716e3e1e79e8668ab74b",
+      "name": "frontend-audit-all",
+      "vulnerability_counts": {
+        "critical": 0,
+        "high": 0,
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "total": 0
+      }
+    }
+  ],
+  "completed_at_utc": "2026-10-08T22:23:58.353617+00:00",
+  "elapsed_seconds_measurement": "command_driver_elapsed",
+  "git_objects": {
+    "backend": "ef81b9315e2bdf5b622ed7e171985125cbe6934e",
+    "docker-compose.yml": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+    "docker/backend.Dockerfile": "40c3c1fa1ecc97759e4d36cab42ba27ade37e900",
+    "docker/web.Dockerfile": "fffc09c62c17baa462d00edf4fe54863e77db652",
+    "scripts/operations/fleet.py": "e39f5e08f69ccb0ddd119f669fb0f6ec81e7bbfc",
+    "scripts/operations/qualify_local_topology.py": "9b255898f572976e1683092310cb399fdbed0519",
+    "scripts/verify_mcp_proxy.py": "5fbde4760b15c14a96784159a3ddc73badb1c466",
+    "web": "12734f2e0521e91abf611326d043355681bf5100"
+  },
+  "input_evidence": [
+    {
+      "artifact": "final-source-checks-result.json",
+      "sha256": "2a0b1c117ef86b2209502657d5d80bb868e2c728ef562b3f45062ac8ea2434c3"
+    }
+  ],
+  "kind": "current_source_checks",
+  "node_version": "v22.23.0",
+  "schema_version": 1,
+  "source_revision": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+  "source_size_counter_git_object": "6d3ebb4fb096e31299be2032675794bc2b76aa88",
+  "started_at_utc": "2026-10-08T22:19:50.997318+00:00",
+  "status": "passed",
+  "tracked_production_file_count": 1004
+}

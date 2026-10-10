@@ -1,0 +1,137 @@
+{
+  "actual_measured_baseline_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+  "actual_measured_candidate_revision": "79001439677cae246faef0a398ddea50c47faf80",
+  "baseline_changed_paths": [
+    "backend/tests/capacity/sustained.py",
+    "backend/tests/capacity/test_concurrent_workload.py",
+    "backend/tests/capacity/workload_support.py"
+  ],
+  "errors": [],
+  "frozen_candidate_application_revision": "a6c07f7f2718cd4f9a6caab823b481fc2ac7525e",
+  "harness": [
+    {
+      "backport_git_blob": "ea813300de160f805cebc2f782e13b5d871a7359",
+      "candidate_git_blob": "ea813300de160f805cebc2f782e13b5d871a7359",
+      "historical_git_blob": "43fa83094464d6e65795f7be5136b915bb00c5c3",
+      "matched_harness_blobs": true,
+      "path": "backend/tests/capacity/sustained.py"
+    },
+    {
+      "backport_git_blob": "32e9e8210660fd3a7c6b102ef92d4a60561d9882",
+      "candidate_git_blob": "32e9e8210660fd3a7c6b102ef92d4a60561d9882",
+      "historical_git_blob": "0dcbe21cd595ebcfe83d0b721248a9b16e7341e8",
+      "matched_harness_blobs": true,
+      "path": "backend/tests/capacity/test_concurrent_workload.py"
+    },
+    {
+      "backport_git_blob": "ec7d64b800d1d9dac2287c37dc1e0fa062192569",
+      "candidate_git_blob": "ec7d64b800d1d9dac2287c37dc1e0fa062192569",
+      "historical_git_blob": "8ceb734943bcf5071320dafe68df7217af5e6fdf",
+      "matched_harness_blobs": true,
+      "path": "backend/tests/capacity/workload_support.py"
+    }
+  ],
+  "historical_application_revision": "35ac120b28820b6e5b1222a50b5f70f7a6b85c3b",
+  "kind": "matched_capacity_harness_backport_applicability",
+  "preserved_application_dependency_and_budget_objects": [
+    {
+      "backport_git_object": "5c45eb8c79d900e2dfaa2cab3172ebfdb11a35ea",
+      "baseline_preserved": true,
+      "candidate_git_object": "eb7e337a5dfcae89b536e6f2dee9b89bbaa8d941",
+      "candidate_preserved": true,
+      "frozen_candidate_git_object": "eb7e337a5dfcae89b536e6f2dee9b89bbaa8d941",
+      "historical_git_object": "5c45eb8c79d900e2dfaa2cab3172ebfdb11a35ea",
+      "path": "backend/app"
+    },
+    {
+      "backport_git_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "baseline_preserved": true,
+      "candidate_git_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "candidate_preserved": true,
+      "frozen_candidate_git_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "historical_git_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "path": "backend/alembic"
+    },
+    {
+      "backport_git_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "baseline_preserved": true,
+      "candidate_git_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "candidate_preserved": true,
+      "frozen_candidate_git_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "historical_git_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "path": "backend/alembic.ini"
+    },
+    {
+      "backport_git_object": "f65899caf1f4fd2e7ca5a968f7ec205530d583ea",
+      "baseline_preserved": true,
+      "candidate_git_object": "73b8e55f452a248483fd118fe2265b09f8f034f1",
+      "candidate_preserved": true,
+      "frozen_candidate_git_object": "73b8e55f452a248483fd118fe2265b09f8f034f1",
+      "historical_git_object": "f65899caf1f4fd2e7ca5a968f7ec205530d583ea",
+      "path": "backend/requirements.txt"
+    },
+    {
+      "backport_git_object": "829ab2fac85fa890afb76bca1b493a8ba9d6424f",
+      "baseline_preserved": true,
+      "candidate_git_object": "53c239ffd4679ce835cd86d122df93ba9a11862a",
+      "candidate_preserved": true,
+      "frozen_candidate_git_object": "53c239ffd4679ce835cd86d122df93ba9a11862a",
+      "historical_git_object": "829ab2fac85fa890afb76bca1b493a8ba9d6424f",
+      "path": "backend/requirements-lock.txt"
+    },
+    {
+      "backport_git_object": "caf09ccd85a008cb5146f76fa7bf9affb5ff72b2",
+      "baseline_preserved": true,
+      "candidate_git_object": "caf09ccd85a008cb5146f76fa7bf9affb5ff72b2",
+      "candidate_preserved": true,
+      "frozen_candidate_git_object": "caf09ccd85a008cb5146f76fa7bf9affb5ff72b2",
+      "historical_git_object": "caf09ccd85a008cb5146f76fa7bf9affb5ff72b2",
+      "path": "backend/requirements-dev.txt"
+    },
+    {
+      "backport_git_object": "1a3923307bbe41012ed542fe155414389f064bb8",
+      "baseline_preserved": true,
+      "candidate_git_object": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+      "candidate_preserved": true,
+      "frozen_candidate_git_object": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+      "historical_git_object": "1a3923307bbe41012ed542fe155414389f064bb8",
+      "path": "backend/scripts"
+    },
+    {
+      "backport_git_object": "f6873fda9787128151c28314cb2f3f1d0a445bc5",
+      "baseline_preserved": true,
+      "candidate_git_object": "f6873fda9787128151c28314cb2f3f1d0a445bc5",
+      "candidate_preserved": true,
+      "frozen_candidate_git_object": "f6873fda9787128151c28314cb2f3f1d0a445bc5",
+      "historical_git_object": "f6873fda9787128151c28314cb2f3f1d0a445bc5",
+      "path": "docs/reviews/capacity/budgets.json"
+    },
+    {
+      "backport_git_object": "2c57daa3a8f654b543411ea5627d2502b77e6670",
+      "baseline_preserved": true,
+      "candidate_git_object": "33bc4dbe0ddb10a1c0ddd44868b022feb9815f10",
+      "candidate_preserved": true,
+      "frozen_candidate_git_object": "33bc4dbe0ddb10a1c0ddd44868b022feb9815f10",
+      "historical_git_object": "2c57daa3a8f654b543411ea5627d2502b77e6670",
+      "path": "web"
+    },
+    {
+      "backport_git_object": "b02d69b997700f98cff742581a09f249793b8359",
+      "baseline_preserved": true,
+      "candidate_git_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "candidate_preserved": true,
+      "frozen_candidate_git_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "historical_git_object": "b02d69b997700f98cff742581a09f249793b8359",
+      "path": "docker"
+    }
+  ],
+  "prior_comparison_failures_retained": [
+    37876316405,
+    37880757288,
+    37885492555
+  ],
+  "remote_write_or_workload_performed": false,
+  "schema_version": 1,
+  "scope": "New common arrival protocol; historical app and its locked dependencies retained. Actual backport git_revision must never be represented as historical35ac.",
+  "status": "passed"
+}

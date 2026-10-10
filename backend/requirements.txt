@@ -5,7 +5,7 @@ psycopg[binary]==3.2.9
 alembic==1.16.4
 Authlib==1.7.2
 pydantic-settings==2.10.1
-PyJWT[crypto]==2.13.0
+PyJWT[crypto]==2.15.1
 cryptography==50.0.0
 pwdlib[argon2]==0.3.0
 bcrypt==4.0.1

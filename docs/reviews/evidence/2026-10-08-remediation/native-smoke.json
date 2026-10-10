@@ -1,0 +1,135 @@
+{
+  "status": "passed",
+  "project": "threatlens-isolation-0ac63ec20a7b",
+  "revision": "17f8aea3cec741a6739dfd8ceee8717eb4858133",
+  "images": {
+    "backend": {
+      "tag": "threatlens-isolation-0ac63ec20a7b-backend:test",
+      "id": "sha256:d543b34901a1df2e51f5a723369189bb479642ae7acb6c9122aa969bd4c22509"
+    },
+    "web": {
+      "tag": "threatlens-isolation-0ac63ec20a7b-web:test",
+      "id": "sha256:43e1a5130e4f8017d61cde5cc22c5d08c170b58360c7ecf4a15956c9b51322c7"
+    }
+  },
+  "budgets": {
+    "api": {
+      "Memory": 1073741824,
+      "NanoCpus": 2000000000,
+      "PidsLimit": 256
+    },
+    "beat": {
+      "Memory": 402653184,
+      "NanoCpus": 500000000,
+      "PidsLimit": 96
+    },
+    "db": {
+      "Memory": 2147483648,
+      "NanoCpus": 2000000000,
+      "PidsLimit": 256
+    },
+    "migrate": {
+      "Memory": 536870912,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 64
+    },
+    "redis": {
+      "Memory": 536870912,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 128
+    },
+    "web": {
+      "Memory": 134217728,
+      "NanoCpus": 500000000,
+      "PidsLimit": 64
+    },
+    "worker": {
+      "Memory": 2147483648,
+      "NanoCpus": 2000000000,
+      "PidsLimit": 256
+    },
+    "worker-ai": {
+      "Memory": 1073741824,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 128
+    },
+    "worker-exports": {
+      "Memory": 2147483648,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 128
+    },
+    "worker-maintenance": {
+      "Memory": 805306368,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 128
+    },
+    "worker-notifications": {
+      "Memory": 1073741824,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 256
+    }
+  },
+  "initial_readiness_ms": 2016.66,
+  "proxy_checks": {
+    "bootstrap_session_logout": true,
+    "bounded_report_upload": true,
+    "log_privacy": true,
+    "versioned_openapi": {
+      "title": "ThreatLens API",
+      "summary": "ThreatLens API contract.",
+      "description": "The published API contract is versioned under `/v1` on the backend service and `/api/v1` through the bundled web proxy. Authorization bearer credentials are scoped API tokens, while browser logins establish HttpOnly cookie sessions through `/v1/auth/login`. The bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`. Any unversioned backend-service compatibility aliases are intentionally excluded from the OpenAPI schema and shipped browser/runtime contract.",
+      "license": {
+        "name": "Apache-2.0",
+        "identifier": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+      },
+      "version": "2.1.0",
+      "x-threatlens-contract-sha256": "a608ae21656a8d50f83919e01a16751720c1199a7f4cd552465770bd3df16aaa"
+    },
+    "theme_initializer": true,
+    "migration_head": true,
+    "local_environment_and_uv_lock_absent": true,
+    "upstream_failure_log_privacy": true
+  },
+  "export_cpu_pressure_readiness": {
+    "requests": 8,
+    "max_ms": 2048.82
+  },
+  "oom_isolated": true,
+  "restart_recovered": true,
+  "cleanup": {
+    "completed": true,
+    "remaining_project_resources": {
+      "containers": [],
+      "volumes": [],
+      "networks": []
+    },
+    "remaining_pressure_containers": []
+  },
+  "kind": "fresh_native_image_proxy_and_runtime_isolation",
+  "scope": "owned_disposable_amd64_source_build",
+  "production_qualified": false,
+  "source_build": "git archive of recorded revision, tracked Dockerfiles and ignore rules",
+  "additional_tracked_proxy_helpers": [
+    "scripts/verify_bootstrap_login.py",
+    "scripts/verify_report_upload_proxy.py",
+    "scripts/verify_access_log_privacy.py"
+  ],
+  "applicability": {
+    "candidate_revision": "65f4a755c4899373dba14b8128ac25575b130cb6",
+    "image_build_revision": "17f8aea3cec741a6739dfd8ceee8717eb4858133",
+    "identical_git_objects": {
+      "backend": "931d92f38a1151398557aac2a4ce9fc361965ebf",
+      "web": "9a85f4f78933be487ebe99a0feb3a64e2ce2316b",
+      "docker/backend.Dockerfile": "40c3c1fa1ecc97759e4d36cab42ba27ade37e900",
+      "docker/web.Dockerfile": "fffc09c62c17baa462d00edf4fe54863e77db652",
+      "docker-compose.yml": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "docker-compose.build.yml": "15b1b8a21d80a46680fdf528635b216383285131"
+    },
+    "changed_paths_outside_image_build_contexts": [
+      "scripts/verify_mcp_proxy.py",
+      "tests/operations/test_image_proxy_cleanup.py"
+    ],
+    "basis": "The candidate changes only the host MCP qualification helper and its operations tests; all image build inputs and Compose configuration retain the recorded build revision."
+  }
+}

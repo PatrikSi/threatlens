@@ -129,6 +129,9 @@ def _task_queue(request) -> str | None:
 
 
 TASK_ROUTES = {
+    "app.tasks.indicator_publication_tasks.reconcile_publications": {"queue": QUEUE_MAINTENANCE},
+    "app.tasks.automation_tasks.reconcile_automation_executions": {"queue": QUEUE_MAINTENANCE},
+    "app.tasks.team_assessment_tasks.generate_team_assessment": {"queue": QUEUE_AI},
     "app.tasks.processing_tasks.execute_processing_work": {"queue": QUEUE_PROCESSING},
     "app.tasks.processing_tasks.dispatch_processing_work": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.export_tasks.generate_export_job": {"queue": QUEUE_EXPORTS},
@@ -213,6 +216,10 @@ TASK_ROUTES = {
     "app.tasks.lifecycle_tasks.run_lifecycle_housekeeping": {
         "queue": QUEUE_LIFECYCLE
     },
+    "app.tasks.ai_qualification_tasks.generate_ai_qualification": {"queue": QUEUE_AI},
+    "app.tasks.team_hunt_review_tasks.dispatch_hunt_review_reminders": {"queue": QUEUE_MAINTENANCE},
+    "app.tasks.publication_distribution_tasks.reconcile_distribution": {"queue": QUEUE_MAINTENANCE},
+    "app.tasks.mcp_oauth_tasks.maintain_mcp_authorization": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.ai_workflow_tasks.dispatch_pending_ai_workflows": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.alert_tasks.process_alert_evaluation": {"queue": QUEUE_PROCESSING},
     "app.tasks.alert_tasks.dispatch_pending_alert_evaluations": {
@@ -229,11 +236,18 @@ celery_app = Celery(
     broker=settings.redis_url,
     backend=settings.redis_url,
     include=[
+        "app.tasks.mcp_oauth_tasks",
+        "app.tasks.publication_distribution_tasks",
+        "app.tasks.team_hunt_review_tasks",
+        "app.tasks.ai_qualification_tasks",
         "app.tasks.export_tasks",
         "app.tasks.processing_tasks",
         "app.tasks.feed_tasks",
         "app.tasks.ai_workflow_tasks",
+        "app.tasks.team_assessment_tasks",
         "app.tasks.history_maintenance_tasks",
+        "app.tasks.automation_tasks",
+        "app.tasks.indicator_publication_tasks",
         "app.tasks.alert_tasks",
         "app.tasks.system_health_tasks",
         "app.tasks.lifecycle_tasks",
@@ -274,6 +288,23 @@ celery_app.conf.update(
     },
     visibility_timeout=settings.celery_visibility_timeout_seconds,
     beat_schedule={
+        "mcp-authorization-retention": {
+            "task": "app.tasks.mcp_oauth_tasks.maintain_mcp_authorization",
+            "schedule": 60.0,
+            "options": {"queue": QUEUE_MAINTENANCE},
+        },
+        "publication-distribution": {"task": "app.tasks.publication_distribution_tasks.reconcile_distribution", "schedule": 60.0, "options": {"queue": QUEUE_MAINTENANCE}},
+        "hunt-review-reminders": {"task": "app.tasks.team_hunt_review_tasks.dispatch_hunt_review_reminders", "schedule": 60.0, "options": {"queue": QUEUE_MAINTENANCE}},
+        "reconcile-reviewed-publications": {
+            "task": "app.tasks.indicator_publication_tasks.reconcile_publications",
+            "schedule": 60.0,
+            "options": {"queue": QUEUE_MAINTENANCE},
+        },
+        "reconcile-automation-executions": {
+            "task": "app.tasks.automation_tasks.reconcile_automation_executions",
+            "schedule": 60.0,
+            "options": {"queue": QUEUE_MAINTENANCE},
+        },
         "dispatch-export-jobs": {
             "task": "app.tasks.export_tasks.dispatch_export_jobs",
             "schedule": 30.0,

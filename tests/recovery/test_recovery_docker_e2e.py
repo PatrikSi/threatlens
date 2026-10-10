@@ -50,8 +50,12 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
         self.env_file.chmod(0o600)
 
     def tearDown(self) -> None:
-        self._compose("down", "--volumes", "--remove-orphans", check=False)
-        self.temporary_directory.cleanup()
+        try:
+            result = self._compose("down", "--volumes", "--remove-orphans", check=False)
+            if result.returncode:
+                self.fail(f"Owned recovery Compose cleanup failed (exit {result.returncode})")
+        finally:
+            self.temporary_directory.cleanup()
 
     def _compose(
         self,
@@ -329,10 +333,11 @@ with SessionLocal() as db:
             "'encrypted-placeholder', repeat('a', 64), true);"
             "INSERT INTO ai_settings ("
             "id, singleton_key, company_regions_json, company_stack_json, "
-            "company_priority_topics_json, company_keywords_json, company_exclusions_json"
+            "company_priority_topics_json, company_keywords_json, company_exclusions_json, "
+            "structured_extraction_enabled, hunt_suggestions_enabled"
             ") VALUES ("
             "'20000000-0000-0000-0000-000000000001', 1, '[]'::json, '[]'::json, "
-            "'[]'::json, '[]'::json, '[]'::json);"
+            "'[]'::json, '[]'::json, '[]'::json, true, true);"
         )
         self._psql(
             "CREATE ROLE recovery_e2e_reader NOLOGIN;"

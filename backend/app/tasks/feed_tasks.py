@@ -345,14 +345,24 @@ def _queue_item_ai_enrichment_run(
     force: bool = False,
     model: str | None = None,
     metadata: dict[str, object] | None = None,
-) -> uuid.UUID:
+) -> uuid.UUID | None:
     with db_session() as db:
-        if parent_run_id is not None:
+        from app.models.item_ai_enrichment import ItemAIEnrichment
+        repairing = (metadata or {}).get("recovery") == "recent_missing_or_failed_enrichment"
+        existing = db.get(ItemAIEnrichment, item_id) if repairing else None
+        if existing is not None:
+            from app.services.ai_enrichment_recovery import recover_failed_enrichment
+            run_id = recover_failed_enrichment(db, item_id=item_id)
+            db.commit()
+            if run_id is None:
+                return None
+        elif parent_run_id is not None:
             from app.services.ai_reprocess import ensure_reprocess_child
             run = ensure_reprocess_child(db, parent_id=parent_run_id, item_id=item_id, model=model)
             if run is None:
                 db.commit()
                 return parent_run_id
+            run_id = run.id
         else:
             run = queue_ai_task_run(
                 db, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
@@ -360,8 +370,8 @@ def _queue_item_ai_enrichment_run(
                 item_id=item_id, model=model,
                 metadata={**dict(metadata or {}), "force": bool(force)}, reason=reason,
             )
+            run_id = run.id
         db.commit()
-        run_id = run.id
     from app.services.ai_workflow_publication import publish_ai_workflow
     publish_ai_workflow(run_id, session_factory=db_session)
     return run_id
@@ -388,7 +398,7 @@ def _safe_queue_item_ai_enrichment_run(
     metadata: dict[str, object] | None = None,
 ) -> bool:
     try:
-        _queue_item_ai_enrichment_run(
+        run_id = _queue_item_ai_enrichment_run(
             item_id=item_id,
             trigger_source=trigger_source,
             reason=reason,
@@ -406,7 +416,7 @@ def _safe_queue_item_ai_enrichment_run(
             exc,
         )
         return False
-    return True
+    return run_id is not None
 
 
 def _coerce_utc(value: datetime | None) -> datetime | None:

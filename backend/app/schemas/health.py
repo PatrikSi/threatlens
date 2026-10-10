@@ -56,7 +56,15 @@ class EncryptedDataInventoryResponse(BaseModel):
     ai_provider_secrets: EncryptedDataInventoryCategory = Field(
         default_factory=EncryptedDataInventoryCategory
     )
+    team_assessment_authorizations: EncryptedDataInventoryCategory = Field(
+        default_factory=EncryptedDataInventoryCategory
+    )
+    durable_ai_authorizations: EncryptedDataInventoryCategory = Field(default_factory=EncryptedDataInventoryCategory)
+    publication_consumer_authorizations: EncryptedDataInventoryCategory = Field(default_factory=EncryptedDataInventoryCategory)
     notification_webhooks: EncryptedDataInventoryCategory
+    webhook_credential_secrets: EncryptedDataInventoryCategory = Field(
+        default_factory=EncryptedDataInventoryCategory
+    )
     notification_delivery_snapshots: EncryptedDataInventoryCategory
     oidc_client_secrets: EncryptedDataInventoryCategory = Field(
         default_factory=EncryptedDataInventoryCategory

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging.config
 import math
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 import uuid
 import warnings
@@ -40,6 +42,43 @@ _DEFAULT_TEST_REDIS_IMAGE = "redis:7-alpine"
 _DOCKER_STARTUP_TIMEOUT_SECONDS = 60
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_test_temporary_storage():
+    """Keep concurrent suites' scratch, subprocesses and cleanup independent."""
+    previous = tempfile.tempdir
+    with tempfile.TemporaryDirectory(prefix="threatlens-pytest-") as directory:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setenv("TMPDIR", directory)
+            tempfile.tempdir = directory
+            try:
+                yield
+            finally:
+                tempfile.tempdir = previous
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _preserve_pytest_logging_during_in_process_migrations():
+    """Keep migration CLI logging from replacing the long-lived test process.
+
+    Production invokes Alembic in its own process. Tests invoke it in-process,
+    where fileConfig otherwise closes pytest handlers and disables application
+    loggers, silently invalidating later log assertions. Preserve existing log
+    capture only for this repository's migration INI; unrelated configuration
+    calls and the production CLI retain their ordinary behavior.
+    """
+    migration_ini = (_BACKEND_DIR / "alembic.ini").resolve()
+    configure = logging.config.fileConfig
+
+    def configure_without_migration_cli_reset(filename, *args, **kwargs):
+        if isinstance(filename, (str, os.PathLike)) and Path(filename).resolve() == migration_ini:
+            return None
+        return configure(filename, *args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(logging.config, "fileConfig", configure_without_migration_cli_reset)
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _stabilize_settings_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("APP_ENV", "development")
@@ -48,6 +87,8 @@ def _stabilize_settings_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("APP_DATA_ENCRYPTION_PREVIOUS_KEYS", "")
     monkeypatch.setenv("REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY", "false")
     monkeypatch.setenv("ALLOW_PRIVATE_NETWORK_FETCH", "false")
+    monkeypatch.setenv("ALLOW_PRIVATE_NETWORK_AI", "false")
+    monkeypatch.setenv("ALLOW_PRIVATE_NETWORK_WEBHOOKS", "false")
     monkeypatch.setenv("AI_ENABLED", "false")
     monkeypatch.setenv("AI_API_KEY", "")
     monkeypatch.setenv("AI_API_KEY_BASE_URL", "https://api.openai.com")

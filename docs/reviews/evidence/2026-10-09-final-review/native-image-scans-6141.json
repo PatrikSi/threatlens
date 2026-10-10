@@ -1,0 +1,187 @@
+{
+  "archive_reuse": {
+    "backend_archive_bytes": 131710464,
+    "backend_pre_scan_and_final_sha256_equal": true,
+    "backend_pre_scan_sha256": "94da62eb272f7715b8c607046aa5f871ec3697649ffb4d89b5fce9a66b094db0",
+    "minimum_free_bytes_preflight": 134217728,
+    "strategy": "Reuse the owned backend export via hardlink; export only the web image. Current image and archived manifest/config identities are checked. Reproducible archives are removed after successful capture."
+  },
+  "cleanup": {
+    "errors": [],
+    "remaining_container_count": 0,
+    "removed_count": 2
+  },
+  "completed_at_utc": "2026-10-09T09:19:58.171725+00:00",
+  "database": {
+    "DownloadedAt": "2026-10-09T09:02:17.722736584Z",
+    "NextUpdate": "2026-10-10T07:05:00.081187086Z",
+    "UpdatedAt": "2026-10-09T07:05:00.081187346Z",
+    "Version": 2,
+    "bytes": 1457135616,
+    "download_actual_limits": {
+      "Memory": 805306368,
+      "MemorySwap": 805306368,
+      "NanoCpus": 500000000,
+      "NetworkMode": "bridge",
+      "PidsLimit": 128
+    },
+    "download_exit_code": 0,
+    "download_log_sha256": "6098d117524df7bfb957694651967d17fb3715d716bad119c59db90104848826",
+    "fresh_at_scan_start_and_finish": true,
+    "metadata_sha256_after": "4194325c2edb4df3cb223631ede13251565a68b0590e67136c23322105cc12cb",
+    "metadata_sha256_before": "4194325c2edb4df3cb223631ede13251565a68b0590e67136c23322105cc12cb",
+    "new_downloads_in_successful_attempt": 0,
+    "reused_second_attempt_download": true,
+    "same_database_and_metadata_for_both_images": true,
+    "sha256_after": "e86a0753ce504f78d5721d898b33a125b6f886fd9c0ac1b7ae9a31ca2ed0f031",
+    "sha256_before": "e86a0753ce504f78d5721d898b33a125b6f886fd9c0ac1b7ae9a31ca2ed0f031"
+  },
+  "earlier_attempts": [
+    {
+      "attempt": 1,
+      "cleanup_error_count": 0,
+      "cleanup_remaining_containers": 0,
+      "failure_phase": "disk_storage_preflight",
+      "helper_sha256": "1f9aceeef8dcbff532939a80996717294802c1c66b82c1dbe26a3f74f964abc4",
+      "qualified_image_count": 0,
+      "result_sha256": "acedb2a42a4aec29b153c25e9c541ee67ed34342471c274a4f8e8ae15c0d6988",
+      "retained": true,
+      "status": "failed"
+    },
+    {
+      "attempt": 2,
+      "cleanup_error_count": 0,
+      "cleanup_remaining_containers": 0,
+      "failure_phase": "oci_manifest_versus_configuration_identity_guard",
+      "helper_sha256": "1f9aceeef8dcbff532939a80996717294802c1c66b82c1dbe26a3f74f964abc4",
+      "qualified_image_count": 0,
+      "result_sha256": "55d50183337d69f54a472a7606c02ae982dde8af3bfcfa956a1b41deb46c8ab8",
+      "retained": true,
+      "status": "failed"
+    },
+    {
+      "attempt": 3,
+      "cleanup_error_count": 0,
+      "cleanup_remaining_containers": 0,
+      "failure_phase": "disk_storage_preflight",
+      "helper_sha256": "f2bd8be60c77b9563c088c7533df8ba3fc230c890b4d5c109f796c4ba98c5291",
+      "qualified_image_count": 0,
+      "result_sha256": "37d3f3005c73c4e124d03fc19149f51b4ba9a57e3ee8f3e2d549b7a97146187b",
+      "retained": true,
+      "status": "failed"
+    }
+  ],
+  "evidence_hashes": {
+    "successful_helper_sha256": "dacae898fa3733fbfcc2ffa21b6bdaf21617d8cdf9e30752efbdb302abc369d0",
+    "successful_result_sha256": "78923d0da787c54a66b1b396c60639ca5cf00d3dd26b9226d9e034a3a64120d0"
+  },
+  "guard_controls": {
+    "oci_configuration_identity": {
+      "malformed_rejected": 12,
+      "positive": 4,
+      "proof_sha256": "61c44e880f2c4b39280efcfde02bb488549565ceb12c3c2e4d8180b723061e3a"
+    },
+    "original_exit_preservation": {
+      "after_cases": 2,
+      "after_exits_recorded": 2,
+      "before_cases": 2,
+      "before_exits_recorded": 0,
+      "proof_sha256": "b07883c1304aa93ba415f92218b57136e2e4ca9ef516db589dab9c9cc1540d68"
+    },
+    "validators_resource_policy_and_process_helpers_unchanged_from_controlled_source": true
+  },
+  "images": {
+    "backend": {
+      "actual_container_limits": {
+        "Memory": 805306368,
+        "MemorySwap": 805306368,
+        "NanoCpus": 500000000,
+        "NetworkMode": "none",
+        "PidsLimit": 128
+      },
+      "archive_bytes": 131710464,
+      "archive_identity": {
+        "configuration_digest": "sha256:2c6cbc982ffb54d6de7b5cb627c2de2ba661104464605d5e56470a78fd99d0d3",
+        "docker_oci_manifest_digest": "sha256:30fac76ff3470d9445f11cb5ee5b6a86e760eb8035069c1eff2b1b8fd3c47d1a",
+        "manifest_and_config_content_hashes_verified": true,
+        "source_revision": "6141a7192e3d6970be9e67230da14b64da1c8894",
+        "version": "2.1.0"
+      },
+      "archive_sha256": "94da62eb272f7715b8c607046aa5f871ec3697649ffb4d89b5fce9a66b094db0",
+      "elapsed_seconds": 0.748,
+      "exit_code": 0,
+      "image_id": "sha256:30fac76ff3470d9445f11cb5ee5b6a86e760eb8035069c1eff2b1b8fd3c47d1a",
+      "log_sha256": "5b05a7970a2bc886472920f2f7134ba1eaef2812d535d22d180254b8dd0559f5",
+      "reproducible_archive_removed_after_capture": true,
+      "reused_archive_removed_after_capture": true,
+      "scan_json_sha256": "aaef4e97446201eeaf5ffba2874317780f951d1780d2d57aa50db4cea68933d8",
+      "secret_count": 0,
+      "vulnerability_counts": {
+        "CRITICAL": 0,
+        "HIGH": 0
+      }
+    },
+    "web": {
+      "actual_container_limits": {
+        "Memory": 805306368,
+        "MemorySwap": 805306368,
+        "NanoCpus": 500000000,
+        "NetworkMode": "none",
+        "PidsLimit": 128
+      },
+      "archive_bytes": 30484992,
+      "archive_identity": {
+        "configuration_digest": "sha256:f4da71884a30b2398be944b21f34309410287b6b9e18e4b4253d2d0c7bc889e0",
+        "docker_oci_manifest_digest": "sha256:509c66d0360ab6d6a3220473fe4ee67fb39498289c4b69c26f49d75fc12d1368",
+        "manifest_and_config_content_hashes_verified": true,
+        "source_revision": "6141a7192e3d6970be9e67230da14b64da1c8894",
+        "version": "2.1.0"
+      },
+      "archive_sha256": "014d2d29aa26ec44d9dd62e4bac27ccd44f590f58ec72ff6013a131df389bf99",
+      "elapsed_seconds": 2.355,
+      "exit_code": 0,
+      "image_id": "sha256:509c66d0360ab6d6a3220473fe4ee67fb39498289c4b69c26f49d75fc12d1368",
+      "log_sha256": "0534072816b0fe153347693927297cbf939c53bab6d2a863b094a31a1d80a868",
+      "reproducible_archive_removed_after_capture": true,
+      "scan_json_sha256": "842fd23d3ea360ad6991a9ddc1b3369b3c119db0c809f0b9ce5cf355feb5fb39",
+      "secret_count": 0,
+      "vulnerability_counts": {
+        "CRITICAL": 0,
+        "HIGH": 0
+      }
+    }
+  },
+  "limits": {
+    "cpus": 0.5,
+    "memory_mib": 768,
+    "pids": 128,
+    "swap": false
+  },
+  "platform": "linux/amd64",
+  "policy": {
+    "exit_code": 1,
+    "ignore_unfixed": true,
+    "scanners": [
+      "vuln",
+      "secret"
+    ],
+    "severity": [
+      "HIGH",
+      "CRITICAL"
+    ]
+  },
+  "qualification_notes": [
+    "Attempt2 retained a zero-finding backend scan payload but failed its image identity guard; it did not qualify either image. Its database download and raw evidence remain retained.",
+    "Attempt4 corrects archive storage and image-identity bookkeeping. Scanner severity policy, fixed-issue filter, exit threshold, resource limits and offline scans are unchanged.",
+    "This result covers the actual immutable native image archives under the recorded vulnerability/secret policy. Runtime environments and every dependency severity were not scanned.",
+    "Earlier capacity and ARM qualification failures remain retained; this image-scan result does not waive those separate release gates."
+  ],
+  "scanner": "aquasec/trivy:0.70.0",
+  "scanner_image_id": "sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e",
+  "schema": "native-image-scans-6141-v1",
+  "source_revision": "6141a7192e3d6970be9e67230da14b64da1c8894",
+  "started_at_utc": "2026-10-09T09:19:49.764504+00:00",
+  "status": "passed_for_recorded_policy",
+  "successful_attempt": 4,
+  "version": "2.1.0"
+}

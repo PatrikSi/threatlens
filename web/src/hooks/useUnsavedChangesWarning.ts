@@ -1,7 +1,8 @@
-import { createElement, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
-import { useBlocker } from 'react-router-dom'
+import { createElement, Fragment, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import type { useBlocker } from 'react-router-dom'
 
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { useSharedNavigationWarning } from './useSharedNavigationWarning'
 
 type ConfirmUnsavedChangesFn = (message: string) => boolean
 
@@ -64,12 +65,7 @@ export function useUnsavedChangesWarning(
   message = 'You have unsaved changes. Leave without saving?',
   options: UnsavedChangesWarningOptions = {},
 ): ConfirmDiscardChanges {
-  const blocker = useBlocker(
-    options.ignoreSearchChanges
-      ? ({ currentLocation, nextLocation }) =>
-          isDirty && currentLocation.pathname !== nextLocation.pathname
-      : isDirty,
-  )
+  const navigationDialog = useSharedNavigationWarning({ dirty: isDirty, message, ...options })
   const [pendingAction, setPendingAction] = useState<PendingUnsavedChangesAction | null>(null)
 
   const clearPendingAction = useCallback(
@@ -106,36 +102,25 @@ export function useUnsavedChangesWarning(
 
   useEffect(() => {
     if (!isDirty) {
-      return
-    }
-    if (blocker.state !== 'blocked') {
-      return
-    }
-
-    setPendingAction((current) => current ?? { onConfirm: blocker.proceed, onCancel: blocker.reset })
-  }, [blocker, isDirty])
-
-  useEffect(() => {
-    if (!isDirty) {
       setPendingAction(null)
     }
   }, [isDirty])
 
-  const discardDialog = createElement(ConfirmDialog, {
+  const discardDialog = createElement(Fragment, null, navigationDialog.dialog, createElement(ConfirmDialog, {
     open: pendingAction !== null,
     title: 'Discard unsaved changes?',
     description: message,
     confirmLabel: 'Discard changes',
     onCancel: () => clearPendingAction('onCancel'),
     onConfirm: () => clearPendingAction('onConfirm'),
-  })
+  }))
 
   return useMemo(
     () =>
       Object.assign(requestDiscard, {
         discardDialog,
-        discardDialogOpen: pendingAction !== null,
+        discardDialogOpen: pendingAction !== null || navigationDialog.open,
       }),
-    [discardDialog, pendingAction, requestDiscard],
+    [discardDialog, navigationDialog.open, pendingAction, requestDiscard],
   )
 }

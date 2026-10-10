@@ -27,6 +27,7 @@ import type {
 } from '../types/api'
 import { PasswordManagementSection } from './AccountPasswordManagement'
 import { AccountSecuritySection } from './AccountSecuritySection'
+import { ArticlePreviewPreferences } from './ArticlePreviewPreferences'
 import {
   resolveOIDCLinkNotice,
   resolveOIDCReauthNotice,
@@ -85,6 +86,7 @@ export function AccountPage() {
   const [securityDraftWarning, setSecurityDraftWarning] = useState<
     string | null
   >(null)
+  const [previewDraftDirty, setPreviewDraftDirty] = useState(false)
   const [reauthContinuation] = useState(() =>
     consumeOIDCReauthContinuation(
       new URLSearchParams(location.search).get('oidc_reauth'),
@@ -105,8 +107,10 @@ export function AccountPage() {
     passwordDraftDirty ||
       oidcLink.isDraftDirty ||
       oidcUnlink.isDraftDirty ||
+      previewDraftDirty ||
       Boolean(securityDraftWarning),
     securityDraftWarning ||
+      (previewDraftDirty ? 'You have unsaved article preview preferences. Leave without saving them?' : null) ||
       (oidcLink.isDraftDirty || oidcUnlink.isDraftDirty
         ? 'You have an unfinished SSO identity change. Leave without completing it?'
         : 'You have an unfinished password change. Leave without updating it?'),
@@ -215,6 +219,7 @@ export function AccountPage() {
             unlinkController={oidcUnlink}
             onRetryStatus={() => void oidcStatusQuery.refetch()}
           />
+          <ArticlePreviewPreferences onDirtyChange={setPreviewDraftDirty} />
         </div>
 
         <PasswordManagementSection

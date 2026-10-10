@@ -60,6 +60,12 @@ export function ExportFormatPanel({ capabilities, controller }: ExportFormatPane
           </div>
         </fieldset>
 
+        {(format === 'stix' || format === 'misp') && (
+          <p role="note" className="rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+            Raw extracted values; review before enabling detections. Team verdicts and suppressions are not applied.
+          </p>
+        )}
+
         {capability && (
           <fieldset>
             <legend className="text-xs font-bold uppercase text-slate dark:text-slate-300">Included data</legend>

@@ -7,6 +7,7 @@ import argparse
 import hashlib
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import uuid
 
@@ -65,10 +66,20 @@ def verify_image(kind: str, image: str, reference: Path) -> list[str]:
                     if expected.get(path) != actual.get(path)
                 )
     finally:
-        subprocess.run(
-            ["docker", "rm", "--force", container],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,
-        )
+        original_error = sys.exc_info()[1]
+        try:
+            subprocess.run(
+                ["docker", "rm", "--force", container],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,
+                check=True,
+            )
+        except (OSError, subprocess.SubprocessError) as cleanup_error:
+            if original_error is None:
+                raise
+            original_error.add_note(
+                f"Owned artifact container cleanup failed for {container}: "
+                f"{type(cleanup_error).__name__}"
+            )
     return mismatches
 
 

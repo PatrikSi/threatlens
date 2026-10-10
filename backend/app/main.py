@@ -2,7 +2,6 @@ import hashlib
 import json
 import logging
 import time
-import uuid
 from copy import deepcopy
 from contextlib import asynccontextmanager
 from typing import Any
@@ -29,11 +28,23 @@ from app.core.logging_config import (
 )
 from app.db import session as db_session
 from app.services.export_transport import ExportTransferDeadlineMiddleware
+from app.services.mcp_transport import MCPTransportMiddleware
+from app.core.request_ids import normalize_request_id as _normalize_request_id
 from app.api.routes import (
     access_reviews,
     action_approvals,
     ai,
     ai_providers,
+    ai_quota_groups,
+    team_hunt_worklist,
+    indicator_publications,
+    team_hunt_workflow,
+    publication_consumers,
+    ai_qualification,
+    automation_receivers,
+    team_integrations,
+    ai_article_continuation,
+    team_ai_governance,
     ai_provider_usage,
     alerts,
     audit,
@@ -47,16 +58,22 @@ from app.api.routes import (
     health,
     iam,
     integrations,
+    indicator_assessments,
     investigations,
     items,
     lifecycle,
+    mcp,
+    mcp_oauth,
     notifications,
+    webhook_automation,
+    automation_executions,
     oidc,
     operations,
     reports,
     service_accounts,
     stats,
     teams,
+    team_assessments,
     tagging,
     tags,
     temporary_elevations,
@@ -74,9 +91,6 @@ from app.version import get_app_version
 settings = get_settings()
 configure_logging(settings)
 logger = logging.getLogger("threatlens.api")
-_REQUEST_ID_ALLOWED_CHARS = frozenset(
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._"
-)
 API_VERSION = "v1"
 API_SERVICE_PREFIX = f"/{API_VERSION}"
 WEB_PROXY_API_PREFIX = f"/api/{API_VERSION}"
@@ -108,7 +122,13 @@ SAVED_VIEW_QUERY_SCHEMA = "SavedViewQueryPayload"
 SAVED_VIEW_QUERY_INPUT_SCHEMA = "SavedViewQueryPayload-Input"
 SAVED_VIEW_QUERY_OUTPUT_SCHEMA = "SavedViewQueryPayload-Output"
 API_ROUTERS: tuple[APIRouter, ...] = (
+    mcp.router,
+    mcp_oauth.router,
     teams.router,
+    team_assessments.router,
+    indicator_assessments.router,
+    webhook_automation.router,
+    automation_executions.router,
     auth.router,
     auth_security.router,
     oidc.router,
@@ -130,6 +150,16 @@ API_ROUTERS: tuple[APIRouter, ...] = (
     notifications.router,
     ai.router,
     ai_providers.router,
+    ai_quota_groups.router,
+    team_hunt_worklist.router,
+    indicator_publications.router,
+    team_hunt_workflow.router,
+    publication_consumers.router,
+    ai_qualification.router,
+    automation_receivers.router,
+    team_integrations.router,
+    ai_article_continuation.router,
+    team_ai_governance.router,
     ai_provider_usage.router,
     stats.router,
     lifecycle.router,
@@ -229,6 +259,10 @@ if settings.allowed_hosts:
 
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
+    if getattr(request.state, "mcp_transport_owned", False):
+        # The outer MCP boundary correlates admission through final transfer and
+        # cleanup. Logging here would report headers as a completed download.
+        return await call_next(request)
     request_id = _normalize_request_id(request.headers.get("x-request-id"))
     request.state.request_id = request_id
     context_token = set_log_context(
@@ -265,6 +299,7 @@ async def request_logging_middleware(request: Request, call_next):
 
 
 app.add_middleware(ExportTransferDeadlineMiddleware)
+app.add_middleware(MCPTransportMiddleware)
 
 
 def _request_log_fields(
@@ -294,32 +329,18 @@ def _request_completion_log_level(status_code: int, duration_ms: float) -> int:
     return logging.INFO
 
 
-def _normalize_request_id(raw_request_id: str | None) -> str:
-    generated = str(uuid.uuid4())
-    if not raw_request_id:
-        return generated
-
-    candidate = raw_request_id.strip()
-    if not candidate:
-        return generated
-
-    sanitized = "".join(char for char in candidate if char in _REQUEST_ID_ALLOWED_CHARS)
-    if not sanitized:
-        return generated
-
-    return sanitized[:128]
-
-
 def _mount_api_routers(application: FastAPI, *, include_legacy_aliases: bool) -> None:
     for router in API_ROUTERS:
         application.include_router(router, prefix=API_SERVICE_PREFIX)
-        if include_legacy_aliases:
+        if include_legacy_aliases and router is not mcp.router:
             application.include_router(router, include_in_schema=False)
 
 
 _mount_api_routers(
     app, include_legacy_aliases=_should_mount_legacy_api_aliases(settings)
 )
+app.include_router(mcp_oauth.discovery_router)
+
 DATA_POLICY_ROUTE_GOVERNANCE_ATTESTATION = validate_route_governance_manifest(app)
 install_route_governance_attestation(DATA_POLICY_ROUTE_GOVERNANCE_ATTESTATION)
 

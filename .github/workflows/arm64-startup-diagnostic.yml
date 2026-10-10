@@ -1,0 +1,659 @@
+name: Bounded ARM64 Beat startup diagnostic
+
+on:
+  push:
+    branches:
+      - review/arm64-startup-diagnostic-20261009
+    paths:
+      - .github/workflows/arm64-startup-diagnostic.yml
+      - scripts/operations/diagnose_beat_startup.py
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-startup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      THREATLENS_RUNTIME_SOURCE: 1251826fa113aca4e084f0dd7239d056d97be3b2
+      THREATLENS_DEV_IMAGE_TAG: dev
+      THREATLENS_SMOKE_ARCH: arm64
+      THREATLENS_SMOKE_PLATFORM: linux/arm64
+      COMPOSE_PROJECT_NAME: threatlens-armdiag-${{ github.run_id }}
+      BOOTSTRAP_ADMIN_EMAIL: admin@example.com
+      BOOTSTRAP_ADMIN_PASSWORD: 'ci-bootstrap-$literal-${not_expanded}-''single''-"double"-\ # end'
+    steps:
+      - name: Checkout external diagnostic source
+        uses: actions/checkout@v6
+
+      - name: Preserve code-only diagnostic outside runtime build contexts
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "threatlens-beat-diagnostic"
+          root.mkdir(mode=0o755)
+          root.chmod(0o755)
+          code = root / "bin"
+          code.mkdir(mode=0o755)
+          code.chmod(0o755)
+          source = Path("scripts/operations/diagnose_beat_startup.py")
+          target = code / "celery"
+          shutil.copyfile(source, target)
+          target.chmod(0o755)
+          assert [path.name for path in code.iterdir()] == ["celery"]
+          evidence = root / "evidence"
+          evidence.mkdir(mode=0o700)
+          evidence.chmod(0o700)
+          record = {
+              "schema_version": 1,
+              "diagnostic_source_revision": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD"], text=True).strip(),
+              "runtime_source_revision": os.environ["THREATLENS_RUNTIME_SOURCE"],
+              "launcher_sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+              "launcher_mode": oct(target.stat().st_mode & 0o777),
+              "scope": "One opt-in diagnostic attempt; original runtime source, watchdog command, grace and resource limits unchanged",
+          }
+          (evidence / "source.json").write_text(json.dumps(record, sort_keys=True, indent=2) + "\n")
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write(f"THREATLENS_BEAT_DIAGNOSTIC_ROOT={root}\n")
+          PY
+
+      - name: Checkout frozen runtime source
+        uses: actions/checkout@v6
+        with:
+          ref: 1251826fa113aca4e084f0dd7239d056d97be3b2
+          clean: true
+
+      - name: Verify frozen runtime source
+        run: |
+          test "$(git rev-parse HEAD)" = "$THREATLENS_RUNTIME_SOURCE"
+          git diff --exit-code
+          git diff --cached --exit-code
+
+      - name: Set up ARM64 emulation
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+
+      - name: Generate isolated Compose environment
+        env:
+          ADMIN_EMAIL: ${{ env.BOOTSTRAP_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ env.BOOTSTRAP_ADMIN_PASSWORD }}
+        run: |
+          umask 077
+          timeout 3m ./bootstrap.sh --force
+
+      - name: Validate original Compose configuration
+        run: timeout 1m docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
+
+      - name: Prepare unchanged restrictive ARM64 build context
+        run: |
+          restricted_context="$(mktemp -d "${RUNNER_TEMP}/threatlens-web-armdiag.XXXXXX")"
+          (
+            umask 077
+            git archive --format=tar HEAD web docker/web.Dockerfile |
+              tar --no-same-permissions -xf - -C "$restricted_context"
+          )
+          python3 - "$restricted_context" <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          root.joinpath("docker/web.Dockerfile").replace(root / "web/Dockerfile.smoke")
+          for relative in (
+              "web/nginx/nginx.conf", "web/nginx/default.conf.template",
+              "web/public/theme-init.js", "web/compliance/LICENSE",
+          ):
+              assert root.joinpath(relative).stat().st_mode & 0o077 == 0, relative
+          names = subprocess.check_output([
+              "docker", "compose", "-f", "docker-compose.yml", "-f",
+              "docker-compose.build.yml", "config", "--services",
+          ], text=True, timeout=60).splitlines()
+          services = {
+              name: {"platform": os.environ["THREATLENS_SMOKE_PLATFORM"]}
+              for name in names if name not in {"db", "redis"}
+          }
+          for name, service in services.items():
+              if name.startswith("worker") or name == "beat":
+                  service["healthcheck"] = {
+                      "interval": "90s", "timeout": "180s",
+                      "retries": 2, "start_period": "120s",
+                  }
+          services["web"]["build"] = {
+              "context": str(root / "web"), "dockerfile": "Dockerfile.smoke",
+          }
+          override = root / "build-context.json"
+          override.write_text(json.dumps({"services": services}))
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write(f"THREATLENS_WEB_SMOKE_OVERRIDE={override}\n")
+          PY
+
+      - name: Build frozen ARM64 runtime images
+        env:
+          BUILD_DATE: 1970-01-01T00:00:00Z
+          VCS_REF: 1251826fa113aca4e084f0dd7239d056d97be3b2
+        run: |
+          set +e
+          THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout 30m docker compose -f docker-compose.yml -f docker-compose.build.yml -f "$THREATLENS_WEB_SMOKE_OVERRIDE" build --pull
+          build_exit=$?
+          python3 - "$build_exit" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          path = Path(os.environ["THREATLENS_BEAT_DIAGNOSTIC_ROOT"]) / "evidence/build-status.json"
+          path.write_text(json.dumps({"original_build_exit_code": int(sys.argv[1])}) + "\n")
+          PY
+          capture_exit=$?
+          if [[ "$build_exit" -ne 0 ]]; then
+            exit "$build_exit"
+          fi
+          exit "$capture_exit"
+
+      - name: Verify original console and install Beat-only code mount
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          root = Path(os.environ["THREATLENS_BEAT_DIAGNOSTIC_ROOT"])
+          evidence = root / "evidence"
+          name = os.environ["COMPOSE_PROJECT_NAME"] + "-console-proof"
+          expected_path = "/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          def run(args):
+              return subprocess.run(args, check=True, capture_output=True, text=True, timeout=30).stdout
+          image = json.loads(run(["docker", "image", "inspect", "threatlens-backend:dev"]))[0]
+          assert image["Architecture"] == "arm64"
+          assert image["Config"]["Labels"]["org.opencontainers.image.revision"] == os.environ["THREATLENS_RUNTIME_SOURCE"]
+          paths = [value[5:] for value in image["Config"]["Env"] if value.startswith("PATH=")]
+          assert paths == [expected_path]
+          created = False
+          try:
+              run(["docker", "create", "--name", name, "--platform", "linux/arm64",
+                   "--network", "none", "--label", "io.threatlens.diagnostic.kind=beat-console-proof",
+                   "--label", "com.docker.compose.project=" + os.environ["COMPOSE_PROJECT_NAME"],
+                   "--label", "com.docker.compose.service=diagnostic-console-proof",
+                   "threatlens-backend:dev", "true"])
+              created = True
+              console = root / "original-celery-console"
+              run(["docker", "cp", name + ":/usr/local/bin/celery", str(console)])
+              content = console.read_bytes()
+              assert len(content) <= 65536
+              assert content.splitlines()[0] == b"#!/usr/local/bin/python3.12"
+              assert b"from celery.__main__ import main" in content
+              assert (root / "bin/celery").read_bytes().splitlines()[0] == content.splitlines()[0]
+          finally:
+              if created:
+                  run(["docker", "rm", name])
+          code = root / "bin"
+          assert [path.name for path in code.iterdir()] == ["celery"]
+          record = {
+              "original_console_sha256": hashlib.sha256(content).hexdigest(),
+              "original_interpreter": "/usr/local/bin/python3.12",
+              "original_console_argv0": "/usr/local/bin/celery",
+              "original_path": expected_path,
+              "launcher_sha256": hashlib.sha256((code / "celery").read_bytes()).hexdigest(),
+              "backend_image_id": image["Id"],
+              "runtime_source_revision": os.environ["THREATLENS_RUNTIME_SOURCE"],
+              "scratch_container_removed": True,
+          }
+          (evidence / "console-proof.json").write_text(json.dumps(record, sort_keys=True, indent=2) + "\n")
+          override = root / "beat-code-only.json"
+          override.write_text(json.dumps({"services": {"beat": {
+              "environment": {"PATH": "/opt/threatlens-beat-diagnostic/bin:" + paths[0]},
+              "volumes": [{"type": "bind", "source": str(code),
+                          "target": "/opt/threatlens-beat-diagnostic/bin", "read_only": True}],
+          }}}))
+          PY
+
+      - name: Prepare bounded numeric observer
+        run: |
+          cat > "$THREATLENS_BEAT_DIAGNOSTIC_ROOT/observe.py" <<'PY'
+          import json
+          import os
+          import subprocess
+          import time
+          from pathlib import Path
+
+          root = Path(os.environ["THREATLENS_BEAT_DIAGNOSTIC_ROOT"])
+          evidence = root / "evidence"
+          project = os.environ["COMPOSE_PROJECT_NAME"]
+          started = time.monotonic_ns()
+          errors = []
+          samples = 0
+          present_samples = 0
+          cgroup_samples = 0
+          cgroup_command = (
+              "for name in cpu.stat cpu.max memory.current memory.max memory.events memory.peak; do "
+              "if [ -r /sys/fs/cgroup/$name ]; then printf '__TL_%s__\\n' \"$name\"; "
+              "head -c 4096 /sys/fs/cgroup/$name; printf '\\n'; fi; done"
+          )
+          fields = {
+              "cpu.stat": {"usage_usec", "user_usec", "system_usec", "nr_periods", "nr_throttled", "throttled_usec"},
+              "memory.events": {"low", "high", "max", "oom", "oom_kill", "oom_group_kill"},
+          }
+          def run(command, limit=65536):
+              result = subprocess.run(command, check=True, capture_output=True, text=True, timeout=10)
+              if len(result.stdout.encode()) > limit:
+                  raise ValueError("observer output bound")
+              return result.stdout
+          def collect(trigger):
+              global samples, present_samples, cgroup_samples
+              samples += 1
+              record = {"sample_index": samples - 1, "elapsed_ns": time.monotonic_ns() - started,
+                        "trigger": trigger, "owned_beat_present": False}
+              try:
+                  ids = run(["docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=" + project,
+                             "--filter", "label=com.docker.compose.service=beat"]).splitlines()
+                  if len(ids) > 1:
+                      raise ValueError("owned Beat count")
+                  if ids:
+                      present_samples += 1
+                      data = json.loads(run(["docker", "inspect", ids[0]], 1048576))[0]
+                      labels = data["Config"]["Labels"]
+                      if labels.get("com.docker.compose.project") != project or labels.get("com.docker.compose.service") != "beat":
+                          raise ValueError("owned Beat identity")
+                      state, config = data["State"], data["HostConfig"]
+                      health = state.get("Health", {}).get("Status", "absent")
+                      if state["Status"] not in {"created", "running", "restarting", "exited", "dead", "paused", "removing"} or health not in {"absent", "starting", "healthy", "unhealthy"}:
+                          raise ValueError("owned Beat status")
+                      record.update(owned_beat_present=True, status=state["Status"], health=health,
+                          running=bool(state["Running"]), oom_killed=bool(state["OOMKilled"]),
+                          exit_code=int(state["ExitCode"]), restart_count=int(data["RestartCount"]),
+                          original_watchdog_command_preserved=data["Config"]["Cmd"] == ["python", "-m", "app.tasks.beat_watchdog"],
+                          limits={key: int(config[key]) for key in ["NanoCpus", "Memory", "MemorySwap", "PidsLimit", "CpuShares"]},
+                          readonly_root=bool(config["ReadonlyRootfs"]), privileged=bool(config["Privileged"]))
+                      expected_limits = {"NanoCpus": 500000000, "Memory": 402653184,
+                                         "MemorySwap": 402653184, "PidsLimit": 96, "CpuShares": 1024}
+                      grace = [value.split("=", 1)[1] for value in data["Config"]["Env"]
+                               if value.startswith("BEAT_WATCHDOG_STARTUP_GRACE_SECONDS=")]
+                      if not record["original_watchdog_command_preserved"] or record["limits"] != expected_limits or grace not in ([], ["240"]):
+                          raise ValueError("original watchdog command/grace/resource mismatch")
+                      if not record["readonly_root"] or record["privileged"]:
+                          raise ValueError("original runtime isolation mismatch")
+                      if state["Running"]:
+                          text = run(["docker", "exec", ids[0], "sh", "-c", cgroup_command], 32768)
+                          numeric, current = {}, None
+                          for line in text.splitlines():
+                              if line.startswith("__TL_") and line.endswith("__"):
+                                  current = line[5:-2]
+                                  numeric[current] = {"available": True}
+                              elif current and line.strip():
+                                  parts = line.split()
+                                  if current in fields and len(parts) == 2 and parts[0] in fields[current] and parts[1].isdigit():
+                                      numeric[current][parts[0]] = int(parts[1])
+                                  elif current in {"memory.current", "memory.max", "memory.peak"} and len(parts) == 1:
+                                      if parts[0].isdigit():
+                                          numeric[current]["bytes"] = int(parts[0])
+                                      elif parts[0] == "max":
+                                          numeric[current]["unlimited"] = True
+                                  elif current == "cpu.max" and len(parts) == 2 and parts[1].isdigit():
+                                      numeric[current]["period_us"] = int(parts[1])
+                                      if parts[0].isdigit():
+                                          numeric[current]["quota_us"] = int(parts[0])
+                                      elif parts[0] == "max":
+                                          numeric[current]["unlimited"] = True
+                          record["cgroup"] = {name: numeric.get(name, {"available": False}) for name in
+                                              ["cpu.stat", "cpu.max", "memory.current", "memory.max", "memory.events", "memory.peak"]}
+                          if any(not record["cgroup"][name]["available"] for name in ["cpu.stat", "memory.current", "memory.events"]):
+                              raise ValueError("required cgroup capture absent")
+                          if not {"usage_usec", "nr_periods", "nr_throttled", "throttled_usec"} <= set(record["cgroup"]["cpu.stat"]) or "bytes" not in record["cgroup"]["memory.current"] or not {"oom", "oom_kill"} <= set(record["cgroup"]["memory.events"]):
+                              raise ValueError("required numeric cgroup fields absent")
+                          cgroup_samples += 1
+              except Exception as error:
+                  record["capture_error_type"] = type(error).__name__
+                  if len(errors) < 20:
+                      errors.append({"sample_index": samples - 1, "error_type": type(error).__name__})
+              with (evidence / "beat-observations.jsonl").open("a") as output:
+                  output.write(json.dumps(record, sort_keys=True) + "\n")
+          next_due = 0
+          while not (root / "stop-observer").exists() and time.monotonic_ns() - started < 620_000_000_000:
+              elapsed = (time.monotonic_ns() - started) / 1e9
+              if elapsed >= next_due:
+                  if samples >= 11:
+                      errors.append({"phase": "sample_bound", "error_type": "ValueError"})
+                      break
+                  collect("periodic")
+                  next_due += 60
+              time.sleep(0.2)
+          collect("up_exit")
+          if not present_samples:
+              errors.append({"phase": "owned_beat_capture", "error_type": "ValueError"})
+          if not cgroup_samples:
+              errors.append({"phase": "numeric_cgroup_capture", "error_type": "ValueError"})
+          passed = not errors and (root / "stop-observer").exists()
+          (evidence / "observer-status.json").write_text(json.dumps({
+              "status": "passed" if passed else "failed", "samples": samples,
+              "owned_beat_samples": present_samples, "numeric_cgroup_samples": cgroup_samples, "errors": errors,
+              "scope": "Own Beat numeric state and cgroup observations; no environment, command strings, query data or other container scope emitted",
+          }, sort_keys=True) + "\n")
+          raise SystemExit(0 if passed else 2)
+          PY
+
+      - name: Start unchanged ARM64 stack with concurrent bounded observations
+        run: |
+          umask 077
+          root="$THREATLENS_BEAT_DIAGNOSTIC_ROOT"
+          touch "$root/up-started"
+          python3 "$root/observe.py" &
+          observer_pid=$!
+          stop_observer() {
+            touch "$root/stop-observer"
+            wait "$observer_pid"
+          }
+          trap 'touch "$root/stop-observer"' EXIT
+          set +e
+          THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout 10m docker compose -f docker-compose.yml -f docker-compose.build.yml -f "$THREATLENS_WEB_SMOKE_OVERRIDE" -f "$root/beat-code-only.json" up -d --no-build --wait --wait-timeout 480 > "$root/startup.log" 2>&1
+          startup_exit=$?
+          stop_observer
+          observer_exit=$?
+          python3 - "$startup_exit" "$observer_exit" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          root = Path(os.environ["THREATLENS_BEAT_DIAGNOSTIC_ROOT"])
+          source = root / "startup.log"
+          with source.open("rb") as stream:
+              stream.seek(max(0, source.stat().st_size - 262144))
+              root.joinpath("evidence/startup-tail.log").write_bytes(stream.read(262144))
+          root.joinpath("evidence/start-status.json").write_text(json.dumps({
+              "original_start_exit_code": int(sys.argv[1]),
+              "observer_exit_code": int(sys.argv[2]),
+              "original_up_outer_timeout_seconds": 600,
+              "original_compose_wait_timeout_seconds": 480,
+              "original_watchdog_startup_grace_seconds": 240,
+          }) + "\n")
+          PY
+          capture_exit=$?
+          if [[ "$startup_exit" -ne 0 ]]; then
+            exit "$startup_exit"
+          fi
+          if [[ "$observer_exit" -ne 0 ]]; then
+            exit "$observer_exit"
+          fi
+          exit "$capture_exit"
+
+      - name: Verify actual ARM64 images and readiness
+        run: |
+          test "$(docker image inspect threatlens-backend:dev --format '{{.Architecture}}')" = arm64
+          test "$(docker image inspect threatlens-web:dev --format '{{.Architecture}}')" = arm64
+          readiness_url="http://localhost:3000/api/v1/health"
+          for attempt in {1..24}; do
+            if curl --fail --silent --show-error --connect-timeout 5 --max-time 10 "$readiness_url" > /dev/null; then
+              break
+            fi
+            if [[ "$attempt" -eq 24 ]]; then
+              exit 1
+            fi
+            sleep 5
+          done
+          test "$(curl --fail --silent --show-error --connect-timeout 5 --max-time 60 http://localhost:3000/api/openapi.json | jq -r '.info.version')" = "$(cat VERSION)"
+
+      - name: Capture bounded own-scope final state and Beat traces
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+          root = Path(os.environ["THREATLENS_BEAT_DIAGNOSTIC_ROOT"])
+          evidence = root / "evidence"
+          evidence.mkdir(mode=0o700, exist_ok=True)
+          project = os.environ["COMPOSE_PROJECT_NAME"]
+          rows, errors = [], []
+          markers = {name: 0 for name in [
+              "beat_startup_diagnostic_armed", "beat_startup_diagnostic_console_imported",
+              "beat_startup_diagnostic_arm_failed", "beat_startup_diagnostic_cancel_failed",
+          ]}
+          trace_complete = False
+          def run(command):
+              return subprocess.run(command, check=True, capture_output=True, timeout=15).stdout
+          try:
+              ids = run(["docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=" + project]).decode().splitlines()
+              if len(ids) > 12:
+                  raise ValueError("owned service count")
+              for container in ids:
+                  data = json.loads(run(["docker", "inspect", container]))[0]
+                  labels = data["Config"]["Labels"]
+                  service = labels.get("com.docker.compose.service")
+                  if labels.get("com.docker.compose.project") != project or service not in {
+                      "api", "db", "redis", "web", "migrate", "beat", "worker",
+                      "worker-ai", "worker-exports", "worker-maintenance", "worker-notifications",
+                      "diagnostic-console-proof",
+                  }:
+                      raise ValueError("owned service identity")
+                  state, config = data["State"], data["HostConfig"]
+                  rows.append({"service": service, "status": state["Status"],
+                      "health": state.get("Health", {}).get("Status", "absent"),
+                      "oom_killed": bool(state["OOMKilled"]), "exit_code": int(state["ExitCode"]),
+                      "restart_count": int(data["RestartCount"]),
+                      "limits": {key: int(config[key]) for key in ["NanoCpus", "Memory", "MemorySwap", "PidsLimit", "CpuShares"]}})
+                  if service == "beat":
+                      record = subprocess.run(["docker", "logs", "--timestamps", "--tail", "1200", container],
+                                              capture_output=True, timeout=15)
+                      raw = record.stdout + record.stderr
+                      (evidence / "beat-traces-tail.log").write_bytes(raw[-524288:])
+                      if record.returncode:
+                          raise ValueError("Beat trace read failed")
+                      lines = raw.splitlines()
+                      trace_complete = len(lines) < 1200 and len(raw) < 524288
+                      for line in lines:
+                          timestamp, separator, body = line.partition(b" ")
+                          if separator and re.fullmatch(rb"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z", timestamp):
+                              for marker in markers:
+                                  if body == marker.encode():
+                                      markers[marker] += 1
+          except Exception as error:
+              errors.append({"phase": "final_owned_capture", "error_type": type(error).__name__})
+          if (root / "up-started").exists() and not any(row["service"] == "beat" for row in rows):
+              errors.append({"phase": "final_owned_beat_absent", "error_type": "ValueError"})
+          marker_passed = trace_complete and markers["beat_startup_diagnostic_armed"] > 0 and markers["beat_startup_diagnostic_console_imported"] > 0 and not markers["beat_startup_diagnostic_arm_failed"] and not markers["beat_startup_diagnostic_cancel_failed"]
+          if (root / "up-started").exists() and not marker_passed:
+              errors.append({"phase": "beat_trace_markers", "error_type": "ValueError"})
+          (evidence / "beat-marker-counts.json").write_text(json.dumps({
+              "status": "passed" if marker_passed else "failed", "counts": markers,
+              "trace_within_retained_bounds": trace_complete,
+              "scope": "Exact marker lines after Docker timestamp prefix from the owned Beat container only",
+          }, sort_keys=True) + "\n")
+          (evidence / "final-owned-state.json").write_text(json.dumps({"services": rows, "errors": errors}, sort_keys=True, indent=2) + "\n")
+          for path in evidence.iterdir():
+              if path.is_file():
+                  path.chmod(0o600)
+          if errors:
+              raise SystemExit(2)
+          PY
+
+      - name: Remove all owned Compose resources
+        if: always()
+        run: |
+          umask 077
+          cleanup_down_ok=0
+          cleanup_containers_count=-1
+          cleanup_volumes_count=-1
+          cleanup_networks_count=-1
+          record_cleanup() {
+            cleanup_exit=$?
+            trap - EXIT
+            set +e
+            python3 - "$cleanup_exit" "$cleanup_down_ok" "$cleanup_containers_count" "$cleanup_volumes_count" "$cleanup_networks_count" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          values = [int(value) for value in sys.argv[1:]]
+          status, down, containers, volumes, networks = values
+          root = Path(os.environ.get("THREATLENS_BEAT_DIAGNOSTIC_ROOT", os.environ["RUNNER_TEMP"] + "/threatlens-beat-diagnostic"))
+          evidence = root / "evidence"
+          evidence.mkdir(mode=0o700, parents=True, exist_ok=True)
+          record = {"status": "passed" if status == 0 and down == 1 and containers == volumes == networks == 0 else "failed",
+                    "cleanup_exit_code": status, "compose_down_succeeded": down == 1,
+                    "owned_scope_only": True,
+                    "resource_probes": {name: {"queried": count >= 0, "remaining": count if count >= 0 else None}
+                                       for name, count in [("containers", containers), ("volumes", volumes), ("networks", networks)]}}
+          output = evidence / "cleanup-attestation.json"
+          output.write_text(json.dumps(record, sort_keys=True, indent=2) + "\n")
+          output.chmod(0o600)
+          if record["status"] != "passed" and status == 0:
+              raise SystemExit(2)
+          PY
+            cleanup_capture_exit=$?
+            if [[ "$cleanup_exit" -ne 0 ]]; then
+              exit "$cleanup_exit"
+            fi
+            exit "$cleanup_capture_exit"
+          }
+          trap record_cleanup EXIT
+          touch "$THREATLENS_BEAT_DIAGNOSTIC_ROOT/stop-observer"
+          files=(-f docker-compose.yml -f docker-compose.build.yml)
+          if [[ -n "${THREATLENS_WEB_SMOKE_OVERRIDE:-}" && -f "$THREATLENS_WEB_SMOKE_OVERRIDE" ]]; then
+            files+=(-f "$THREATLENS_WEB_SMOKE_OVERRIDE")
+          fi
+          if [[ -f "$THREATLENS_BEAT_DIAGNOSTIC_ROOT/beat-code-only.json" ]]; then
+            files+=(-f "$THREATLENS_BEAT_DIAGNOSTIC_ROOT/beat-code-only.json")
+          fi
+          timeout 5m docker compose "${files[@]}" down -v --remove-orphans
+          cleanup_down_ok=1
+          scratch="${COMPOSE_PROJECT_NAME}-console-proof"
+          if timeout 15s docker container inspect "$scratch" > /dev/null 2>&1; then
+            test "$(timeout 15s docker container inspect "$scratch" --format '{{index .Config.Labels "io.threatlens.diagnostic.kind"}}')" = beat-console-proof
+            test "$(timeout 15s docker container inspect "$scratch" --format '{{index .Config.Labels "com.docker.compose.project"}}')" = "$COMPOSE_PROJECT_NAME"
+            timeout 15s docker rm "$scratch"
+          fi
+          remaining_containers="$(timeout 15s docker ps -aq --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME")"
+          cleanup_containers_count=0
+          if [[ -n "$remaining_containers" ]]; then
+            cleanup_containers_count="$(printf '%s\n' "$remaining_containers" | wc -l)"
+          fi
+          test -z "$remaining_containers"
+          remaining_volumes="$(timeout 15s docker volume ls -q --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME")"
+          cleanup_volumes_count=0
+          if [[ -n "$remaining_volumes" ]]; then
+            cleanup_volumes_count="$(printf '%s\n' "$remaining_volumes" | wc -l)"
+          fi
+          test -z "$remaining_volumes"
+          remaining_networks="$(timeout 15s docker network ls -q --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME")"
+          cleanup_networks_count=0
+          if [[ -n "$remaining_networks" ]]; then
+            cleanup_networks_count="$(printf '%s\n' "$remaining_networks" | wc -l)"
+          fi
+          test -z "$remaining_networks"
+
+      - name: Encrypt raw diagnostic logs before artifact upload
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          root = Path(os.environ.get("THREATLENS_BEAT_DIAGNOSTIC_ROOT", os.environ["RUNNER_TEMP"] + "/threatlens-beat-diagnostic"))
+          evidence = root / "evidence"
+          evidence.mkdir(mode=0o700, parents=True, exist_ok=True)
+          recipient = root / "artifact-recipient.pem"
+          certificate = """-----BEGIN CERTIFICATE-----
+          MIIEPzCCAqegAwIBAgIUXqguR5R3wnCL6SYvN0e0+ohZhPgwDQYJKoZIhvcNAQEL
+          BQAwLzEtMCsGA1UEAwwkVGhyZWF0TGVucyBib3VuZGVkIGRpYWdub3N0aWMgcmV2
+          aWV3MB4XDTI2MTAwOTA3MTUzOFoXDTI2MTEwODA3MTUzOFowLzEtMCsGA1UEAwwk
+          VGhyZWF0TGVucyBib3VuZGVkIGRpYWdub3N0aWMgcmV2aWV3MIIBojANBgkqhkiG
+          9w0BAQEFAAOCAY8AMIIBigKCAYEAmba+pu1omkgvWT8hpp1Fy+wPILU2Jh63ANmb
+          tuhfGlJX1EXeJzuUOIDwuKyDNYJC9f0QSvsQSkWlJw9owcRDzv3oSWLZuk0VlfSk
+          LQ+IDLmzpb5ri3mD50o1zMh1DKuKIr4eEXVlpT3eaeSvFhLraJhF83u4XfMaTEK/
+          reWQqC43Vbhjt9w7cryIhHk3iyP7Rm+A6pBlRVvRz4UFg9uXoCiAmueWGwSpEYnP
+          zMhTnJaTyx8AhR7ErfgWF/lE4rkXrleZZ+xkxtr0SCicjN18Hn0shkpIrPKK0MVg
+          aldQEDBjYWGJgLrzAm9YzNc+50Ys82Atkp6OW71ofqXmxsVAbmvxyy0FdjmVPtrb
+          d1bsd7a7AYTiu8GxhCKPQ8YXIq02cUl0Pr0Bkf1yEiFnYvg7mjddQocws11z+8qJ
+          PlJcsO6FnsOcsODuGlenYNpQltphksLD3fV/EWeFMKWnCdyNjXYzbOOLr78zgmcf
+          5q3eAjjYg4wPBa1D83zt1Q2fV/1HAgMBAAGjUzBRMB0GA1UdDgQWBBSIx3CE0KN4
+          nBCapGWBPcArRips0TAfBgNVHSMEGDAWgBSIx3CE0KN4nBCapGWBPcArRips0TAP
+          BgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBgQBoBds1jZ5YCepqUn4a
+          CrR6ORaWA9g0l3KJCUbSQzkkqHYWoDNZM0HCOiKC7ZmmqSEVWXjiRcmIuztbHs44
+          Z866A/b1YmyGtN7z9qIRPeCPHLM+WkqgW6LRPBoqs6PBcl4EPmXrzpsWuSQqoTnH
+          xiulHcTAKtVb4j+My/M4PWQGkPtbOT0sNMrmKfXPh73H9dclCxTPWXvVoSxQSapt
+          dFtRhTz33uS7y7n33x5D55phY78tzBKLCr1Uu6hYYV/wF/F0b9Nu77xLbbhDOIJ1
+          toJCKKGoyuG6w502UkYCgvz90kokhIcUZc0Z4T9DUkPOaX3YiJPwpBIz/X8R0WJ/
+          xZW70gM5uVhRY3auFdSjNEXuyx7sv8heLCgTEV83pJFkJWu7B1sTXZ1lUWyiOvgO
+          HZ6Mr3/2+L9ui4D+IInmvOXXXl3Oj2qO8huJuNHYN9lBAN6pACapeb5WqSDldb5c
+          lC02bEQdUw3GWq7tIGQS9OOVozu5C/nq8cHEhNneqDEdekE=
+          -----END CERTIFICATE-----
+          """
+          expected_recipient_sha256 = "d69c0e627529a5a7c125d99b56c5d5f5c20b07655714bd23bc76190c47dcf5a2"
+          recipient.write_text(certificate)
+          recipient.chmod(0o644)
+          rows, errors = [], []
+          limits = {"startup-tail.log": 262144, "beat-traces-tail.log": 524288}
+          def digest(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+          try:
+              if digest(recipient) != expected_recipient_sha256:
+                  raise ValueError("recipient identity")
+              sources = sorted(evidence.glob("*.log"))
+              if len(sources) > len(limits) or any(source.name not in limits for source in sources):
+                  raise ValueError("raw log allowlist")
+              for source in sources:
+                  target = source.with_name(source.name + ".cms")
+                  temporary = source.with_name(source.name + ".cms.tmp")
+                  phase = "raw_log_bound"
+                  try:
+                      if source.is_symlink() or not source.is_file() or source.stat().st_size > limits[source.name]:
+                          raise ValueError("raw log bound")
+                      raw_size, raw_sha = source.stat().st_size, digest(source)
+                      phase = "raw_log_encrypt"
+                      subprocess.run(["openssl", "cms", "-encrypt", "-binary", "-aes-256-cbc",
+                                      "-in", str(source), "-out", str(temporary), "-outform", "DER", str(recipient)],
+                                     check=True, capture_output=True, timeout=30)
+                      encrypted_size = temporary.stat().st_size
+                      if temporary.is_symlink() or not temporary.is_file() or not 0 < encrypted_size <= limits[source.name] + 16384:
+                          raise ValueError("encrypted log bound")
+                      temporary.chmod(0o600)
+                      temporary.replace(target)
+                      encrypted_sha = digest(target)
+                      source.unlink()
+                      rows.append({"raw_filename": source.name, "raw_bytes": raw_size, "raw_sha256": raw_sha,
+                                   "encrypted_filename": target.name, "encrypted_bytes": encrypted_size,
+                                   "encrypted_sha256": encrypted_sha, "raw_bound_bytes": limits[source.name]})
+                  except Exception as error:
+                      errors.append({"phase": phase, "error_type": type(error).__name__})
+                  finally:
+                      temporary.unlink(missing_ok=True)
+          except Exception as error:
+              errors.append({"phase": "raw_log_encryption_setup", "error_type": type(error).__name__})
+          manifest = evidence / "raw-log-encryption.json"
+          manifest.write_text(json.dumps({"schema_version": 1, "status": "failed" if errors else "passed",
+              "recipient_certificate_sha256": expected_recipient_sha256, "encryption": "OpenSSL CMS AES-256-CBC DER",
+              "maximum_raw_files": 2, "maximum_encryption_seconds_per_file": 30,
+              "raw_logs_excluded_from_upload_unconditionally": True, "encrypted_logs": rows, "errors": errors},
+              sort_keys=True, indent=2) + "\n")
+          manifest.chmod(0o600)
+          if errors:
+              raise SystemExit(2)
+          PY
+
+      - name: Retain diagnostic evidence including failures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: arm64-startup-diagnostic
+          path: |
+            ${{ runner.temp }}/threatlens-beat-diagnostic/evidence/
+            !${{ runner.temp }}/threatlens-beat-diagnostic/evidence/*.log
+            !${{ runner.temp }}/threatlens-beat-diagnostic/evidence/*.log.cms.tmp
+          if-no-files-found: error
+          retention-days: 14

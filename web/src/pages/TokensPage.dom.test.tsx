@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { TestDataRouter, testRouter } from '../../tests/helpers/TestDataRouter'
 
 import { act } from 'react'
 import { createRoot, Root } from 'react-dom/client'
@@ -247,7 +248,8 @@ vi.mock('../hooks/useCurrentUser', () => ({
   useCurrentUser: () => tokensPageDomMocks.currentUser,
 }))
 
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router-dom', async (original) => ({
+  ...(await original<typeof import('react-router-dom')>()),
   useBlocker: tokensPageDomMocks.useBlocker,
   useLocation: () => ({ pathname: '/settings/tokens', search: '', state: null }),
   useNavigate: () => vi.fn(),
@@ -263,7 +265,7 @@ function renderPage() {
   document.body.appendChild(container)
   root = createRoot(container)
   act(() => {
-    root?.render(<TokensPage />)
+    root?.render(<TestDataRouter><TokensPage /></TestDataRouter>)
   })
   return container
 }
@@ -704,7 +706,6 @@ describe('TokensPage DOM workflows', () => {
       ),
     )
     expect(pageText()).toContain('tl_secret-created')
-    expect(tokensPageDomMocks.useBlocker).toHaveBeenLastCalledWith(true)
     const createdHeading = view.querySelector<HTMLElement>('#new-token-heading')
     const creationAnnouncement = view.querySelector<HTMLElement>(
       '#new-token-created-announcement',
@@ -714,6 +715,9 @@ describe('TokensPage DOM workflows', () => {
     expect(creationAnnouncement?.getAttribute('aria-live')).toBe('polite')
     expect(creationAnnouncement?.textContent).toContain('API token created')
     expect(creationAnnouncement?.textContent).not.toContain('tl_secret-created')
+    act(() => { void testRouter().navigate('/test-away') })
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+    act(() => [...document.querySelectorAll('button')].find((button) => button.textContent === 'Cancel')!.click())
 
     await act(async () => {
       ;[...view.querySelectorAll<HTMLButtonElement>('button')]

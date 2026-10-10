@@ -187,7 +187,7 @@ export function DashboardRssPanel({
                             value={effectiveWindowTimeFilter.rolling_days}
                             onChange={(event) => updateWindowRollingDays(windowLayout.id, event.target.value)}
                             aria-label={`${windowLayout.title} rolling time window in days`}
-                            className="w-full bg-transparent focus-visible:outline-none"
+                            className="w-full bg-transparent focus-visible:outline-hidden"
                           />
                           <span className="ml-2 text-xs text-slate dark:text-white/60">days</span>
                         </label>

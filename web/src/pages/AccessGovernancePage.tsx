@@ -473,7 +473,7 @@ function GovernanceOverview({
   const attentionLoading = attentionStates.some((state) => state === 'loading')
 
   return (
-    <div className="grid gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+    <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
       <section className="tl-surface rounded-xl p-3 sm:p-4" aria-labelledby="governance-posture-heading">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -558,11 +558,11 @@ function GovernanceOverview({
         )}
       </section>
 
-      <section className="tl-surface rounded-xl p-3 sm:p-4 xl:col-span-2" aria-labelledby="governance-attention-heading">
+      <section className="tl-surface rounded-xl p-3 sm:p-4 xl:col-span-2">
         <h2 id="governance-attention-heading" className="font-display text-xl">
           Items needing attention
         </h2>
-        <div className="mt-2 overflow-x-auto rounded border border-slate/20 dark:border-white/10">
+        <div role="region" aria-labelledby="governance-attention-heading" tabIndex={0} className="mt-2 overflow-x-auto rounded border border-slate/20 dark:border-white/10">
           <table className="min-w-[760px] w-full text-left text-sm">
             <thead className="bg-slate/5 text-xs text-slate dark:bg-white/[0.04] dark:text-slate-300">
               <tr>
@@ -604,10 +604,10 @@ function GovernanceOverview({
 function Metric({ label, value, detail }: { label: string; value: number | string; detail: string }) {
   return (
     <div className="flex items-start justify-between gap-3 border-t border-slate/15 py-2 dark:border-white/10">
-      <div className="min-w-0">
-        <dt className="text-sm font-semibold text-ink dark:text-slate-100">{label}</dt>
-        <dd className="mt-0.5 text-xs text-slate dark:text-slate-400">{detail}</dd>
-      </div>
+      <dt className="min-w-0">
+        <span className="block text-sm font-semibold text-ink dark:text-slate-100">{label}</span>
+        <span className="mt-0.5 block text-xs text-slate dark:text-slate-400">{detail}</span>
+      </dt>
       <dd className="shrink-0 font-display text-xl text-ink dark:text-white">{value}</dd>
     </div>
   )

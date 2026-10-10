@@ -1,0 +1,228 @@
+{
+  "schema": "threatlens.login_navigation_controls_public_projection.v2",
+  "status": "passed",
+  "before_application_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+  "after_application_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "source_applicability": {
+    "after_commit_file_hashes_verified": true,
+    "backend_tree_unchanged_from_before": true,
+    "backend_tree_object": "35235809474183c095174b54dd0e09699e0f109a"
+  },
+  "source": {
+    "path": "web/src/pages/LoginPage.tsx",
+    "before_sha256": "7240fa6be2feb0f69c0e0f2e3b09df37f7bfdd703da23b561ed36a08da66a122",
+    "after_sha256": "8fcb920bc08b5ac583b57e779ae735134c1b291abfcab95e41f6cc12789639d2",
+    "exact_two_navigation_options_only": true,
+    "successful_paths": [
+      "password",
+      "MFA"
+    ],
+    "mark_authenticated_order_preserved": true
+  },
+  "new_regression": {
+    "path": "web/src/pages/LoginNavigation.dom.test.tsx",
+    "sha256": "0ab2da203a1beb32150fbb5e12bfe927f369b5df5ab652da313d69beb99a0275",
+    "lines": 228,
+    "test_cases": 2
+  },
+  "problem": "Successful local authentication retired the session cache before the deferred router update committed, briefly mounting a fresh credential form. The eventual protected destination still succeeded.",
+  "resulting_behavior": "Successful password and MFA authentication retains markAuthenticated first and synchronously commits replacement navigation. The integrated ordinary-login regression records no fresh credential-form commit, while previous-session cache, identity, lease and late-mutation protection remain intact.",
+  "before": {
+    "passed": 1,
+    "failed": 1,
+    "errors": 0,
+    "skipped": 0,
+    "credential_form_fresh_session_versions": [
+      1
+    ],
+    "final_verified_destination_succeeded": true,
+    "auth_fence_control": "passed"
+  },
+  "after": {
+    "passed": 2,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "credential_form_fresh_session_versions": [],
+    "final_verified_destination_succeeded": true,
+    "auth_fence_control": "passed"
+  },
+  "relevant_tests": {
+    "files": 9,
+    "passed": 50,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "files_and_cases_scope": [
+      "src/pages/LoginNavigation.dom.test.tsx",
+      "src/pages/LoginPage.dom.test.tsx",
+      "src/components/AuthContext.test.tsx",
+      "src/components/SessionQueryProvider.test.tsx",
+      "src/components/ProtectedRoute.dom.test.tsx",
+      "src/components/SessionIdentity.dom.test.tsx",
+      "src/components/SessionVerificationBoundary.test.tsx",
+      "src/pages/authSessionModel.test.ts",
+      "src/hooks/useCurrentUser.test.tsx"
+    ]
+  },
+  "other_checks": {
+    "scoped_lint": "passed",
+    "TypeScript_build_graph_noEmit": "passed",
+    "source_size": "root reported passed",
+    "diff_check": "passed"
+  },
+  "timing_and_resources": [
+    {
+      "phase": "before",
+      "workload_exit_code": 1,
+      "wrapper_exit_code": 1,
+      "guardian_wall_seconds": 66.333,
+      "vitest_total_seconds": 5.21,
+      "junit_test_seconds": 0.317530585,
+      "sampled_owned_rss_peak_bytes": 343871488,
+      "watchdog_failure": null,
+      "cleanup_errors": 0
+    },
+    {
+      "phase": "after",
+      "workload_exit_code": 0,
+      "wrapper_exit_code": 0,
+      "guardian_wall_seconds": 2.514,
+      "vitest_total_seconds": 1.91,
+      "junit_test_seconds": 0.269038106,
+      "sampled_owned_rss_peak_bytes": 350310400,
+      "watchdog_failure": null,
+      "cleanup_errors": 0
+    },
+    {
+      "phase": "focused-bundle",
+      "workload_exit_code": 0,
+      "wrapper_exit_code": 0,
+      "guardian_wall_seconds": 12.878,
+      "vitest_total_seconds": 11.15,
+      "junit_test_seconds": 1.173570145,
+      "sampled_owned_rss_peak_bytes": 359235584,
+      "watchdog_failure": null,
+      "cleanup_errors": 0
+    },
+    {
+      "phase": "lint",
+      "workload_exit_code": 0,
+      "wrapper_exit_code": 0,
+      "guardian_wall_seconds": 2.617,
+      "sampled_owned_rss_peak_bytes": 230293504,
+      "watchdog_failure": null,
+      "cleanup_errors": 0
+    },
+    {
+      "phase": "typecheck",
+      "workload_exit_code": 0,
+      "wrapper_exit_code": 0,
+      "guardian_wall_seconds": 22.305,
+      "sampled_owned_rss_peak_bytes": 716206080,
+      "watchdog_failure": null,
+      "cleanup_errors": 0
+    }
+  ],
+  "bounds": {
+    "node_version": "v22.23.0",
+    "react_version": "19.2.5",
+    "router_version": "7.18.2",
+    "one_core_affinity": true,
+    "nice": 10,
+    "vitest_workers": 1,
+    "node_heap_mib": 640,
+    "sampled_owned_process_tree_rss_limit_bytes": 1073741824,
+    "sample_interval_ms": 100,
+    "wall_watchdog_seconds_per_command": 120,
+    "existing_termination_and_reap_grace_seconds": 5,
+    "memory_scope": "Sampled sum of owned process RSS; shared pages counted per process. No V8 virtual-address limit. No hard cgroup memory or host/application swap assertion."
+  },
+  "artifacts": {
+    "before": {
+      "result.json": {
+        "sha256": "b01d3eca292ed67933c3f19fef87e26e65e1edb494723f3a34a2888cf093960d",
+        "bytes": 1198
+      },
+      "vitest.log": {
+        "sha256": "22b26347291d1dc713713ff3351de986c7dadbc846ade72ac5f50123591bab4f",
+        "bytes": 2124
+      },
+      "junit.xml": {
+        "sha256": "77f4ea0963702f71dc65a2c81efde44dbcd024df17d4f81a5102014fe56e9af8",
+        "bytes": 1133
+      }
+    },
+    "after": {
+      "result.json": {
+        "sha256": "a64fd29645101ea57fe3945fa6baa1f71b2057298a6d9851c11866ed9bd3a849",
+        "bytes": 1369
+      },
+      "vitest.log": {
+        "sha256": "e8cf8ce78946e811aed1e09af15094bdf912ecd4f92a4e01fd9a4698a6638d42",
+        "bytes": 971
+      },
+      "junit.xml": {
+        "sha256": "bc255f782bb72e32562dac38d8dde38aed41af045924ca481d185930d45526f1",
+        "bytes": 877
+      }
+    },
+    "focused-bundle": {
+      "result.json": {
+        "sha256": "a0352e331c2547cf2af16e246aeb14f1536129aaab8e166d2ba411fadca9a60c",
+        "bytes": 1371
+      },
+      "vitest.log": {
+        "sha256": "cd8d729bd59082a561a4fd21d7381992b982281090f3bb6f314e734fbcad695b",
+        "bytes": 9751
+      },
+      "junit.xml": {
+        "sha256": "3008681c0ef568d0bedbde1f33308e90b084884fbc3b20741824691fe142bc20",
+        "bytes": 12447
+      }
+    },
+    "lint": {
+      "result.json": {
+        "sha256": "2aa285039e5ae22e25e531e01f322f33791fc1613186c283a615b868a18efd7f",
+        "bytes": 1196
+      },
+      "lint.log": {
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      }
+    },
+    "typecheck": {
+      "result.json": {
+        "sha256": "be5ad220ec92c42ea6082bcd7e461850d5cbe5fa985b4f1d845d7a7e1a0b3242",
+        "bytes": 1197
+      },
+      "typecheck.log": {
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      }
+    }
+  },
+  "evidence_chain": {
+    "before_preparation_sha256": "8654c83866e84e96686268f29849b1f5a0b6a5782665c34a8de0812f8e92d8e6",
+    "after_preparation_sha256": "5e6b52094a0b0cdb06cc56be2814a0e16b66c3cfe54373428fd80d7ef8994920",
+    "before_controls_proof_sha256": "d2722efd1028ba41db3fa84b5df119ffb9a1ccd1336bedd222a86470cb071ef7",
+    "relevant_checks_plan_sha256": "a45cfa35418e93f50d5efbbcd18bc65077618f9c9e33b5c1f247cb57363c22d6",
+    "guardian_source_sha256": "ecdd89ee08018964a8c4ec8f944445c2bfa41ed5336fded537f2fe890f675073",
+    "runners": {
+      "run_login_navigation_before.py": "8ed38a38003c5e4d2969189a0fe43f41435b531243cb9071646c40534c491223",
+      "run_login_navigation_after.py": "13ca7e3b803c36c09d1199d087112700421f566e2000a9c71f13176f6178fef5",
+      "run_login_navigation_focused_bundle.py": "3ab36bd0bfd06c7c4c87914b9bf282832828530ee7c3b3cd9bdcefc43099dc4e",
+      "run_login_navigation_lint.py": "6f958ba347c4b2f13c7c8a79d00740e40d09495348d5043b3c2b2087149d830f",
+      "run_login_navigation_typecheck.py": "dd6015f593bc11975c5cef08311695ffc59da0dc87423c2514c74f6b6d20b875"
+    }
+  },
+  "preserved_original_combined_projection_sha256": "8694f9f71ee43a3491fe850b664324f2ca8b014a3b5bc0b6738c476db100299a",
+  "scope_limits": [
+    "Fixes the demonstrated transient credential-form remount only. Neither retained native WebKit timeout is attributed to this defect or declared resolved.",
+    "The focused native WebKit failure occurred before any auth submission; cold browser/tool responsiveness remains separately under investigation.",
+    "The new regression intentionally omits WorkspaceProvider and does not qualify workspace hydration or production browser timing.",
+    "Guardian wall, Vitest total and individual test durations are distinct retained accounting intervals; these are not product response-time or speedup measurements.",
+    "This is local focused qualification of the exact file hashes, not a fresh hosted full-suite or actual-image/browser qualification. Original failures remain preserved."
+  ],
+  "merge_version_deployment_clearance": false
+}

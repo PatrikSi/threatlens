@@ -272,7 +272,27 @@ Defined in `backend/app/services/ioc_extraction.py`.
 - MD5: `\b[a-fA-F0-9]{32}\b`
 - IPv4: `\b(?:\d{1,3}\.){3}\d{1,3}\b`
 - CVE: `\bCVE-\d{4}-\d{4,7}\b` (case-insensitive)
-- Domain: `\b(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)\.)+[A-Za-z]{2,24}\b`
+- IPv6 addresses, including compressed spellings.
+- Domains with bounded DNS labels and IDNA normalization.
+- Full HTTP(S) URLs and email addresses, including common defanged spellings
+  such as `hxxps://`, `[.]`, `(.)`, `[@]` and `[:]`.
+
+Network extraction lives in `ioc_network_extraction.py`; canonicalization and
+original-span mapping live in `ioc_normalization.py`. IoC URL normalization
+preserves the path, query and fragment because these may identify the threat.
+The article-deduplication URL rules below serve a different purpose.
+
+Article prose includes a bounded appendix of tables and code blocks. Matches
+retain original text, source offsets, surrounding passages and normalization
+steps. Extraction bounds and the policy for oversized inputs are documented in
+[Feeds](../pages/feeds.md). No extracted destination is requested by this parser.
+
+The processing transaction writes the IoC inventory, revision state and durable
+`intel.extraction.ready` / `intel.indicators.changed` events together. Unchanged
+indicator sets do not emit another change event. Successful current AI evidence
+can refine roles separately from extraction confidence and team verdicts.
+See [Intelligence automation](../pages/intelligence-automation.md) for event
+revisions, bounded payloads, subscriptions and delivery eligibility.
 
 ### IOC source sections
 

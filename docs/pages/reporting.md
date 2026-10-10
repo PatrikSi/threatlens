@@ -87,6 +87,19 @@ Reporting does not place the full corpus into one prompt. It:
 10. retries truncated structured output only within the exact unused context headroom for that call
 11. validates each evidence quote against its supplied batch and requires citations on narrative paragraphs, list items, table rows, and key points
 
+Fenced and indented code blocks also require an immediately adjacent, standalone
+`Source: [S1]` caption (or `Sources: [S1], [S2]`). Literal citation markers inside
+code do not become source links and cannot provide attribution. This applies to
+factual prose inside fences as well as genuine code examples; an unrelated cited
+paragraph elsewhere does not satisfy the requirement.
+
+Image descriptions remain visible when images are omitted. Generated descriptions
+must have a source citation outside the image syntax in the same paragraph or
+table data row, for example `![Observed infrastructure](https://example.test/chart.png) [S1]`.
+A literal `[S1]` inside the description is not a navigable source link and cannot
+provide attribution. Descriptions in headings and table headers also require a
+visible citation; placing a claim there does not exempt it from validation.
+
 New generations reject unknown citations and quotations absent from the exact
 bounded excerpt. Each finding must include `evidence_quotes` objects with a
 `citation` and an exact 12–2,000 character `quote`; whitespace differences are
@@ -104,6 +117,9 @@ missing findings. The report view displays checked finding/claim-block counts
 and incomplete synthesis. Existing reports remain readable without claiming
 these newer checks were performed. Optional context and findings compaction
 remain visible through coverage warnings.
+Section planning reserves input space for evidence before fitting optional
+metadata, so small contexts retain representative findings. Reductions in metric
+detail are disclosed too; verified quotations remain intact.
 
 If section prompt compaction removes every verified finding, that section gets
 an explicit context-budget warning and makes no provider request. Increase the
@@ -182,6 +198,10 @@ Administrators can schedule weekly or monthly reports with:
 - optional integration delivery and content mode
 
 A schedule editor keeps the resource version captured when editing starts.
+Open schedule drafts remain available when switching reporting tabs. Leaving the
+workspace or cancelling an edited schedule requires confirmation; cancelling the
+confirmation keeps the draft and keyboard focus available. A late report deletion
+or retry response cannot redirect a user who has left its originating view.
 Background list refreshes cannot advance that version underneath unsaved fields.
 If another administrator changes the schedule, the editor warns about the newer
 version, and the server rejects a stale save. The draft remains available after
@@ -203,6 +223,22 @@ Generation state and publication state are separate. A newly generated manual re
 The owner or an administrator can edit, submit, and publish. A user with current report write permission and access to all report evidence can approve or return a review to draft. Self-review is supported for single-admin installations and explicitly recorded as self-review; mandatory independent-reviewer policies are not yet configurable. These permissions are checked again at each command, including token expiration/revocation and current evidence access.
 
 Approval pins the exact retained content and evidence revision. Editing after submission requires returning to draft, which clears prior approval. Stale versions receive a conflict with instructions to refresh; refreshing an open editor preserves its draft and baseline. Fields are disabled during submission. Published reports are immutable; create a new report for a revised publication. Changing underlying live articles does not change retained report evidence, and removing a live item link does not invalidate an otherwise unchanged historical snapshot.
+
+Use **Read retained evidence** beside each source to inspect the actual passage
+saved for the report. The evidence dialog pages through bounded excerpts and
+pins both the report revision and source text revision. If either changes,
+refresh the report before continuing the review. **Open current publisher page**
+is a separate action; it may show newer content or an unavailable page. Legacy
+reports with no saved passage disclose that limitation explicitly. Each evidence
+page rechecks current report access, and closing the dialog clears its page cache.
+
+Integrators can read the same bounded passages from
+`GET /api/v1/reports/{report_id}/sources/{citation_key}/evidence` with
+`editorial_version`, an optional `limit` (at most 16,000 characters), and `offset`.
+Continue with the returned `next_offset` and `source_revision`. A changed report
+or source revision returns `409`; offset pages without a source revision return
+`422`. The endpoint requires `read:reports` and current access to the retained
+report's source envelope.
 
 Requested email/webhook delivery starts only after publication. Both event routing and the final external delivery validate the published revision, while holding the report authorization lock. A changed published snapshot is blocked from delivery. Drafts remain visible to users with the existing report evidence permissions, and downloads prominently disclose their unpublished state. Publication is an editorial/distribution gate, not a separate confidentiality boundary. Reviewers must check factual support themselves; source-reference checks do not prove a claim is true.
 

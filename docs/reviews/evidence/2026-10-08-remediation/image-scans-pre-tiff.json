@@ -1,0 +1,58 @@
+{
+  "candidate_sha": "46871e5681c62e7efdf2b689cef27955073f46d4",
+  "version": "2.1.0",
+  "platform": "linux/amd64",
+  "scanner": "aquasec/trivy:0.70.0",
+  "threshold": {
+    "scanners": "vuln",
+    "severity": [
+      "HIGH",
+      "CRITICAL"
+    ],
+    "ignore_unfixed": true,
+    "exit_code": 1
+  },
+  "database_origin": "fresh mirror.gcr.io/aquasec/trivy-db:2 download",
+  "images": {
+    "backend": {
+      "image_id": "sha256:ee5e1d2641f2dd0577d32a42084f5d1c4712fa9c8425e85087d578b1e124aef0",
+      "exit_code": 0,
+      "counts": {
+        "HIGH": 0,
+        "CRITICAL": 0
+      },
+      "findings": []
+    },
+    "web": {
+      "image_id": "sha256:983f105b86d279f4404e22eca828575b575aca1feea8fecaa23379cb0fb42fb8",
+      "exit_code": 1,
+      "counts": {
+        "HIGH": 1,
+        "CRITICAL": 0
+      },
+      "findings": [
+        {
+          "id": "CVE-2026-4775",
+          "package": "tiff",
+          "installed": "4.7.1-r0",
+          "fixed": "4.7.2-r0",
+          "severity": "HIGH"
+        }
+      ]
+    }
+  },
+  "started_at": "2026-10-08T18:23:00.524627+00:00",
+  "status": "failed",
+  "scanner_image_id": "sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e",
+  "database": {
+    "Version": 2,
+    "NextUpdate": "2026-10-09T15:33:46.578790805Z",
+    "UpdatedAt": "2026-10-08T15:33:46.578791096Z",
+    "DownloadedAt": "2026-10-08T18:23:06.817143498Z"
+  },
+  "cleanup": {
+    "completed": true,
+    "remaining_owned_containers": []
+  },
+  "finished_at": "2026-10-08T18:23:13.482568+00:00"
+}

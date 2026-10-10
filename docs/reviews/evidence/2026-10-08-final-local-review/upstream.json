@@ -1,0 +1,18 @@
+{
+  "ahead": 179,
+  "application_source_revision": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+  "behind": 0,
+  "input_evidence": [
+    {
+      "artifact": "upstream-final-result.json",
+      "sha256": "9d6ffd7fe91a2908722ffcfcbead8da9f55062d83616b6abd4b47dfc6e8ce57c"
+    }
+  ],
+  "kind": "read_only_upstream_snapshot",
+  "observed_at_utc": "2026-10-08T22:27:01.808960+00:00",
+  "origin_main_is_ancestor": true,
+  "origin_main_revision": "4ccd249b713b98241f78c7592be9c57d3f941b8d",
+  "push_merge_tag_performed": false,
+  "read_only_fetch_exit_code": 0,
+  "schema_version": 1
+}

@@ -21,6 +21,16 @@ All API paths on this page are relative to the published `/api/v1` base. Dashboa
   - delete views
   - thumbnail previews of saved window layouts with window-type counts
 
+## Article details on small screens
+
+Every article has a visible **Open article details** action, including read
+articles in compact mode. The title and original-preview action remain separate.
+On narrow screens, details open as a managed dialog: focus moves inside, the
+background is isolated, Escape closes the top dialog, and closing returns to the
+article action. Nested review confirmations use the same dialog stack. An open
+inspector keeps its initial inline or dialog presentation until it closes, so
+resizing the window cannot discard a local evidence-review draft.
+
 ## Window System
 
 ### Window types
@@ -100,8 +110,14 @@ workspace defaults finish loading, so initialization cannot overwrite a first ed
 
 Original previews block external resources in the browser by default. Select
 **Load external resources for this preview** to allow publisher images, styles,
-and other permitted resources; that choice resets when selecting another article
-or reopening the preview. Scripts, forms, and nested frames remain blocked.
+and other permitted resources. To remember this choice for your account, enable
+**Always load external resources in original article previews** under
+**Settings → My account → Article previews** and save. The default remains off
+until you explicitly change it. Loading external resources exposes your browser's
+IP address and viewing activity to the publisher and any third-party hosts.
+The per-preview switch overrides your saved default for that preview only; it
+resets to your account preference when selecting another article or reopening
+the preview. Scripts, forms, and nested frames remain blocked.
 Opening the preview still fetches the publisher page from the backend; the
 consent control governs subsequent requests from the analyst's browser.
 

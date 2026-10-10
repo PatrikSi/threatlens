@@ -168,7 +168,7 @@ export function OverviewTab({
 
         <div className="grid gap-3 xl:grid-cols-2">
           <Panel title="Per-model usage" subtitle="Requests, success rate, latency, and token footprint by model.">
-            <div className="space-y-2 sm:hidden" aria-label="Per-model AI usage records">
+            <div className="space-y-2 sm:hidden" role="group" aria-label="Per-model AI usage records">
               {overview.per_model.map((row) => (
                 <article key={row.model} className="rounded-lg border border-slate/15 bg-slate/5 p-3 dark:border-cyan-900/30 dark:bg-white/[0.03]">
                   <div className="flex items-start justify-between gap-3">

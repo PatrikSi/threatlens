@@ -91,6 +91,8 @@ def test_coverage_gate_reports_ai_request_runtime_regression(tmp_path, capsys):
     [
         "app/db/budgets.py",
         "app/services/data_access_retention.py",
+        "app/services/export_download_budget.py",
+        "app/services/export_download_capacity.py",
         "app/services/lifecycle_dependencies.py",
         "app/services/lifecycle_execution.py",
         "app/services/lifecycle_permission_pruning.py",
@@ -101,6 +103,9 @@ def test_coverage_gate_reports_ai_request_runtime_regression(tmp_path, capsys):
         "app/services/processing_queries.py",
         "app/services/processing_recovery.py",
         "app/services/processing_worker.py",
+        "app/services/report_evidence_reads.py",
+        "app/services/report_quality_reads.py",
+        "app/services/team_hunt_snapshot.py",
         "app/tasks/lifecycle_tasks.py",
         "app/tasks/processing_tasks.py",
     ],

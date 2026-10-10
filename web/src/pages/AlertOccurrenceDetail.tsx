@@ -59,7 +59,7 @@ export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurre
         ref={panelRef}
         tabIndex={-1}
         aria-busy="true"
-        className="border-t border-slate/15 px-3 py-5 outline-none dark:border-white/10 xl:border-l xl:border-t-0 xl:px-4"
+        className="border-t border-slate/15 px-3 py-5 outline-hidden dark:border-white/10 xl:border-l xl:border-t-0 xl:px-4"
       >
         <p role="status" className="text-sm text-slate dark:text-slate-300">
           Loading occurrence details...
@@ -73,7 +73,7 @@ export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurre
       <aside
         ref={panelRef}
         tabIndex={-1}
-        className="border-t border-slate/15 outline-none dark:border-white/10 xl:border-l xl:border-t-0"
+        className="border-t border-slate/15 outline-hidden dark:border-white/10 xl:border-l xl:border-t-0"
       >
         <AlertOccurrencePageError
           error={detailQuery.error}
@@ -103,7 +103,7 @@ export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurre
       ref={panelRef}
       tabIndex={-1}
       aria-labelledby="alert-occurrence-detail-heading"
-      className="min-w-0 border-t border-slate/15 outline-none dark:border-white/10 xl:border-l xl:border-t-0"
+      className="min-w-0 border-t border-slate/15 outline-hidden dark:border-white/10 xl:border-l xl:border-t-0"
     >
       {detailQuery.isError && (
         <AlertOccurrenceRefreshWarning

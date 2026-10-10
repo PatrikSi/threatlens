@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { TestDataRouter } from '../../tests/helpers/TestDataRouter'
 
 import { act } from 'react'
 import { createRoot, Root } from 'react-dom/client'
@@ -218,7 +219,7 @@ function renderPage() {
   document.body.appendChild(container)
   root = createRoot(container)
   act(() => {
-    root?.render(<NotificationsPage />)
+    root?.render(<TestDataRouter><NotificationsPage /></TestDataRouter>)
   })
   return container
 }
@@ -396,7 +397,7 @@ describe('NotificationsPage DOM workflows', () => {
     })
 
     expect(pageText()).toContain('Discard unsaved changes?')
-    expect(pageText()).toContain('Discard unsaved webhook changes?')
+    expect(pageText()).toContain('Discard unsaved webhook or credential changes?')
     expect(pageText()).not.toContain('Delete webhook?')
 
     const discardChangesButton = Array.from(document.querySelectorAll('button')).find((button) =>

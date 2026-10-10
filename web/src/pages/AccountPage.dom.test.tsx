@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { TestDataRouter, testRouter } from '../../tests/helpers/TestDataRouter'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act } from 'react'
@@ -37,7 +38,8 @@ const accountPageDomMocks = vi.hoisted(() => ({
   })),
 }))
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../api/client')>(),
   apiFetch: accountPageDomMocks.apiFetch,
   buildApiUrl: (path: string) => `/api/v1${path}`,
 }))
@@ -59,7 +61,8 @@ vi.mock('../hooks/useCurrentUser', () => ({
   }),
 }))
 
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router-dom', async (original) => ({
+  ...(await original<typeof import('react-router-dom')>()),
   useNavigate: () => accountPageDomMocks.navigate,
   useLocation: () => ({
     pathname: '/settings/account',
@@ -100,7 +103,7 @@ function renderPage() {
   act(() => {
     root?.render(
       <QueryClientProvider client={queryClient!}>
-        <AccountPage />
+        <TestDataRouter><AccountPage /></TestDataRouter>
       </QueryClientProvider>,
     )
   })
@@ -405,7 +408,8 @@ describe('AccountPage DOM workflows', () => {
       setInputValue(currentPasswordInput!, 'current-password')
     })
 
-    expect(accountPageDomMocks.useBlocker).toHaveBeenCalledWith(true)
+    act(() => { void testRouter().navigate('/test-away') })
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
   })
 
   it('shows a linked OIDC identity with a protected unlink control', async () => {

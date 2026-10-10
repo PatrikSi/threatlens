@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { TestDataRouter } from '../../tests/helpers/TestDataRouter'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act } from 'react'
@@ -43,6 +44,7 @@ vi.mock('../hooks/useCurrentUser', () => ({
 vi.mock('react-router-dom', async (importOriginal) => ({
   ...(await importOriginal<typeof import('react-router-dom')>()),
   useNavigate: () => reportingPageMocks.navigate,
+  useLocation: () => ({ key: 'reporting-test' }),
   useBlocker: () => ({ state: 'unblocked', proceed: vi.fn(), reset: vi.fn() }),
   useParams: () => ({ reportId: reportingPageMocks.routeReportId }),
 }))
@@ -236,7 +238,7 @@ function renderPage() {
   act(() => {
     root?.render(
       <QueryClientProvider client={queryClient!}>
-        <ReportingPage />
+        <TestDataRouter><ReportingPage /></TestDataRouter>
       </QueryClientProvider>,
     )
   })
@@ -247,7 +249,7 @@ function rerenderPage() {
   act(() => {
     root?.render(
       <QueryClientProvider client={queryClient!}>
-        <ReportingPage />
+        <TestDataRouter><ReportingPage /></TestDataRouter>
       </QueryClientProvider>,
     )
   })
@@ -1264,6 +1266,7 @@ it.each(['resource_version', 'updated_at'] as const)(
     expect((view.querySelector('form textarea') as HTMLTextAreaElement).value).toBe('Original shared instructions')
 
     act(() => rowButton(rowByName(view, 'Original schedule'), 'Cancel').click())
+    act(() => [...document.querySelectorAll('button')].find((button) => button.textContent === 'Discard changes')!.click())
     act(() => rowButton(rowByName(view, 'Original schedule'), 'Edit').click())
     expect((view.querySelector('form textarea') as HTMLTextAreaElement).value).toBe('Another administrator updated this')
     await act(async () => {
@@ -1276,3 +1279,32 @@ it.each(['resource_version', 'updated_at'] as const)(
     expect(view.querySelector('form')).toBeNull()
   },
 )
+
+
+it('retains schedule drafts across reporting tabs and confirms explicit cancellation', async () => {
+  reportingPageMocks.routeReportId = undefined
+  reportingPageMocks.userRole = 'admin'
+  reportingPageMocks.apiFetch.mockImplementation((path: string) => {
+    if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+    if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
+    if (path === '/reports/schedules') return Promise.resolve([reportSchedule('schedule-1', 'Weekly report')])
+    if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], next_cursor: null })
+    return Promise.reject(new Error(`Unexpected request: ${path}`))
+  })
+  const view = renderPage()
+  await openReportingTab(view, 'Schedules')
+  act(() => rowButton(rowByName(view, 'Weekly report'), 'Edit').click())
+  const input = view.querySelector('form input') as HTMLInputElement
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Unsaved schedule')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await openReportingTab(view, 'Templates')
+  expect(input.isConnected).toBe(true)
+  expect(input.closest('[hidden]')).not.toBeNull()
+  await openReportingTab(view, 'Schedules')
+  expect(input.closest('[hidden]')).toBeNull()
+  expect(input.value).toBe('Unsaved schedule')
+  act(() => rowButton(rowByName(view, 'Weekly report'), 'Cancel').click())
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Discard unsaved report schedule changes?')
+})

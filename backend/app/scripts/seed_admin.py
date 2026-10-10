@@ -1,3 +1,4 @@
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -6,15 +7,24 @@ from app.core.config import get_settings
 from app.core.security import get_password_hash
 from app.db.session import SessionLocal
 from app.models.user import User
+from app.schemas.auth import LoginRequest
 from app.services.audit import record_audit
 from app.services.user_access import revoke_user_credentials_with_counts
 
 
 def seed_admin() -> None:
     settings = get_settings()
+    try:
+        credentials = LoginRequest(email=settings.admin_email, password=settings.admin_password)
+    except ValidationError as error:
+        if any(detail["loc"] == ("email",) for detail in error.errors(include_input=False)):
+            raise ValueError("ADMIN_EMAIL must be a valid login email address") from None
+        raise ValueError("ADMIN_PASSWORD must be between 1 and 256 characters") from None
+    if "\r" in credentials.password or "\n" in credentials.password:
+        raise ValueError("ADMIN_PASSWORD must be a single-line login password") from None
+    email = credentials.email.lower()
     db = SessionLocal()
     try:
-        email = settings.admin_email.lower()
         existing = db.scalar(
             select(User)
             .where(User.email == email)
@@ -29,16 +39,16 @@ def seed_admin() -> None:
                 is_active=True,
             )
             db.add(admin)
-            db.flush()
-            record_audit(
-                db,
-                actor_user_id=None,
-                action="system.seed_admin.create",
-                resource_type="user",
-                resource_id=str(admin.id),
-                metadata={"email": email},
-            )
             try:
+                db.flush()
+                record_audit(
+                    db,
+                    actor_user_id=None,
+                    action="system.seed_admin.create",
+                    resource_type="user",
+                    resource_id=str(admin.id),
+                    metadata={"email": email},
+                )
                 db.commit()
                 return
             except IntegrityError:

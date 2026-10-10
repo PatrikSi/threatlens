@@ -127,6 +127,8 @@ test('inspects AI trends with the keyboard, preserves measurement gaps, and fits
   await trends.screenshot({ path: info.outputPath('ai-statistics-trends-desktop.png') })
 
   await page.setViewportSize({ width: 390, height: 844 })
+  const mobileAccessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
+  expect(mobileAccessibility.violations).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await data.focus()
   await expect(data).toBeFocused()

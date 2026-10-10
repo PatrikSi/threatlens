@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { MemoryRouter } from 'react-router-dom'
+import { TestDataRouter } from '../../tests/helpers/TestDataRouter'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -31,7 +31,9 @@ let root: Root | undefined
 let client: QueryClient
 let host: HTMLDivElement
 function input(label: string) {
-  const field = [...host.querySelectorAll('label')].find((node) => node.textContent?.startsWith(label))
+  const named = host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)
+  if (named) return named
+  const field = [...host.querySelectorAll('label')].find((node) => node.querySelector(':scope > span')?.textContent === label)
   return field!.querySelector('input')!
 }
 function change(label: string, value: string) {
@@ -75,11 +77,13 @@ describe('saved AI settings with a real query cache', () => {
     host = document.createElement('div')
     document.body.appendChild(host)
     root = createRoot(host)
-    act(() => root!.render(<QueryClientProvider client={client}><MemoryRouter><AiSettingsPage /></MemoryRouter></QueryClientProvider>))
+    act(() => root!.render(<QueryClientProvider client={client}><TestDataRouter><AiSettingsPage /></TestDataRouter></QueryClientProvider>))
     await settle()
     act(() => button('Configuration').click())
     await settle()
     act(() => {
+      input('Evidence-backed extraction').click()
+      input('Suggested hunt cards').click()
       change('Model', 'model-after-save')
       change('Default completion tokens', '16000')
       change('Model Context Window', '65536')
@@ -98,6 +102,7 @@ describe('saved AI settings with a real query cache', () => {
     await settle()
     expect(writes).toHaveLength(1)
     expect(writes[0]).toMatchObject({
+      structured_extraction_enabled: true, hunt_suggestions_enabled: true,
       temperature: null, request_dialect: 'chat_completions_modern', reasoning_effort: 'low',
       structured_output_mode: 'json_object', model_context_window_tokens: 65536, model_max_output_tokens: 16384,
       max_concurrent_requests: 2, hourly_token_budget: 100000,

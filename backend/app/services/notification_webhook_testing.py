@@ -18,6 +18,7 @@ from app.services.daily_brief_notifications import (
     get_latest_daily_brief_notification_context,
 )
 from app.services.data_access_policy import DataAccessContext
+from app.services.export_job_contracts import ExportAuthorizationSnapshot
 from app.services.notification_webhook_contexts import (
     build_alert_match_context_for_item,
     build_sample_feed_for_event as _build_sample_feed_for_event,
@@ -38,6 +39,7 @@ from app.services.notification_webhook_templates import (
 from app.services.notification_webhook_test_policy import (
     NotificationWebhookTestPolicyError,
     NotificationWebhookTestPolicyUnavailable,
+    NotificationWebhookTestCredentialChanged,
     NotificationWebhookTestReplayConflict,
     NotificationWebhookTestReplayUnsafe,
     NotificationWebhookTestSourceRefs,
@@ -67,7 +69,22 @@ def test_notification_webhook(
     data_access: DataAccessContext | None = None,
     authorization: AuthorizationContext | None = None,
     operation_id: str | None = None,
+    credential_snapshot: ExportAuthorizationSnapshot | None = None,
 ) -> NotificationWebhookTestResponse:
+    from app.services.webhook_article_text import uses_snapshot_context
+    requires_item_read = uses_snapshot_context(payload)
+    if requires_item_read and authorization is not None and not authorization.has("read:items"):
+        raise NotificationWebhookTestCredentialChanged(
+            "Webhook article content requires read:items permission."
+        )
+    if payload.event_type == "article.ai.ready":
+        raise ValueError(
+            "AI article notifications require a stored-event preview; synthetic AI sample sends are disabled"
+        )
+    if payload.payload_mode == "automation_v1":
+        raise ValueError(
+            "Automation webhooks require a stored-event preview; sample test sends are disabled to avoid starting a synthetic hunt"
+        )
     feed, item = _resolve_sample_feed_and_item(
         db,
         payload=payload,
@@ -133,6 +150,8 @@ def test_notification_webhook(
                 ],
             )
 
+    from app.services.webhook_article_text import article_text_for_item
+
     rendered = render_notification_request(
         payload,
         user=user,
@@ -142,6 +161,7 @@ def test_notification_webhook(
         alert_context=alert_context,
         failed_webhook_context=failed_webhook_context,
         digest_context=digest_context,
+        article_text=article_text_for_item(db, item=item, payload=payload),
     )
     try:
         validate_notification_actor_for_delivery(user)
@@ -169,6 +189,7 @@ def test_notification_webhook(
         return _execute_fenced_notification_webhook_test(
             db,
             user=user,
+            credential_profile_id=payload.credential_profile_id,
             rendered=rendered,
             logical_request={
                 "webhook": payload.model_dump(mode="json"),
@@ -180,6 +201,7 @@ def test_notification_webhook(
                 ),
             },
             source_refs=NotificationWebhookTestSourceRefs(
+                required_permissions=("read:items",) if requires_item_read else (),
                 feed_id=feed.id if isinstance(feed, Feed) else None,
                 item_id=item.id if isinstance(item, Item) else None,
                 daily_brief_id=daily_brief_id,
@@ -187,9 +209,20 @@ def test_notification_webhook(
             data_access=data_access,
             authorization=authorization,
             operation_id=operation_id,
+            credential_snapshot=credential_snapshot,
         )
 
-    result = notification_webhook_http.send_rendered_notification_request(rendered)
+    from app.services.webhook_credentials import credential_request_callback
+
+    callback = credential_request_callback(
+        db,
+        profile_id=payload.credential_profile_id,
+        user_id=user.id,
+        event_id=str(uuid.uuid4()),
+        attempt_id=str(uuid.uuid4()),
+    )
+    with notification_webhook_http.notification_request_credentials(callback):
+        result = notification_webhook_http.send_rendered_notification_request(rendered)
     return _redact_notification_test_response(result)
 
 
@@ -203,6 +236,8 @@ def _execute_fenced_notification_webhook_test(
     data_access: DataAccessContext,
     authorization: AuthorizationContext,
     operation_id: str,
+    credential_profile_id: uuid.UUID | None = None,
+    credential_snapshot: ExportAuthorizationSnapshot | None = None,
 ) -> NotificationWebhookTestResponse:
     phase_one_error: NotificationWebhookTestPolicyError | None = None
     try:
@@ -212,8 +247,12 @@ def _execute_fenced_notification_webhook_test(
             authorization=authorization,
             data_access=data_access,
             source_refs=source_refs,
+            credential_snapshot=credential_snapshot,
         )
-    except NotificationWebhookTestPolicyUnavailable as exc:
+    except (
+        NotificationWebhookTestPolicyUnavailable,
+        NotificationWebhookTestCredentialChanged,
+    ) as exc:
         phase_one_error = exc
         snapshot = unavailable_notification_webhook_test_snapshot(
             authorization=authorization,
@@ -278,6 +317,7 @@ def _execute_fenced_notification_webhook_test(
             authorization=authorization,
             data_access=data_access,
             source_refs=source_refs,
+            credential_snapshot=credential_snapshot,
         )
         require_matching_notification_webhook_test_snapshot(snapshot, final_snapshot)
         final_policy_error = policy_error_from_snapshot(final_snapshot)
@@ -324,8 +364,38 @@ def _execute_fenced_notification_webhook_test(
         io_started = True
 
     try:
-        with notification_webhook_http.notification_delivery_external_io_marker(
-            _mark_io_started
+        from app.services.webhook_credentials import credential_request_callback
+
+        prepare_profile = credential_request_callback(
+            db,
+            profile_id=credential_profile_id,
+            user_id=user.id,
+            event_id=str(reservation.receipt_id),
+            attempt_id=str(uuid.uuid4()),
+        )
+
+        def callback(request) -> None:
+            prepare_profile(request)
+            current_snapshot = authorize_notification_webhook_test(
+                db,
+                user=user,
+                authorization=authorization,
+                data_access=data_access,
+                source_refs=source_refs,
+                credential_snapshot=credential_snapshot,
+            )
+            require_matching_notification_webhook_test_snapshot(
+                snapshot, current_snapshot
+            )
+            current_error = policy_error_from_snapshot(current_snapshot)
+            if current_error is not None:
+                raise current_error
+
+        with (
+            notification_webhook_http.notification_request_credentials(callback),
+            notification_webhook_http.notification_delivery_external_io_marker(
+                _mark_io_started
+            ),
         ):
             raw_result = notification_webhook_http.send_rendered_notification_request(
                 rendered
@@ -352,6 +422,8 @@ def _execute_fenced_notification_webhook_test(
                 error_code=(
                     NotificationWebhookTestReplayUnsafe.code
                     if io_started
+                    else exc.code
+                    if isinstance(exc, NotificationWebhookTestPolicyError)
                     else NotificationWebhookTestPolicyUnavailable.code
                 ),
             )

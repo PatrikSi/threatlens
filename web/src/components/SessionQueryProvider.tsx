@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { captureSessionLease } from '../api/sessionLifecycle'
 import { useAuth } from './AuthContext'
+import { HuntDraftUnloadGuard } from './HuntDraftUnloadGuard'
 
 export function SessionQueryProvider({ children }: { children: React.ReactNode }) {
   const { sessionVersion } = useAuth()
@@ -25,5 +26,5 @@ function SessionCache({ children }: { children: React.ReactNode }) {
     void client.cancelQueries()
     client.clear()
   }, [client])
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  return <QueryClientProvider client={client}><HuntDraftUnloadGuard />{children}</QueryClientProvider>
 }

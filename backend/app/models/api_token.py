@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, UniqueConstraint, Uuid, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, UniqueConstraint, Uuid, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,3 +33,13 @@ class ApiToken(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+# Short-lived MCP grants use a fixed prefix and terminal-time cleanup without
+# scanning the ordinary API credential inventory.
+Index(
+    "ix_api_tokens_mcp_terminal",
+    func.coalesce(func.least(ApiToken.expires_at, ApiToken.revoked_at), ApiToken.created_at),
+    ApiToken.id,
+    postgresql_where=text("token_prefix LIKE 'tlmcp_%'"),
+)

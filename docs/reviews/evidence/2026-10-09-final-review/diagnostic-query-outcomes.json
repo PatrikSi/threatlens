@@ -1,0 +1,55 @@
+{
+  "changes_are_local_only": true,
+  "combined_observer_sha256": "31e842526da6e3f9a536474e7cf7db222e892f9bd6526c94e4016cec2c7855f0",
+  "controls": [
+    "Counter retains exception type names only; no exception message, SQL, bind parameters or database PID.",
+    "Counter dictionary is protected by existing RLock; at most32 distinct types with names at most128 characters.",
+    "Type-bound exhaustion raises into guarded observer handling; capture fails closed.",
+    "handle_error separately guards workload failure counting and failed query timing, so counting faults do not discard the failed timing token.",
+    "Failed query_end never adds the successful fence history; safe recognized query category/status retained.",
+    "Recorder finish status assesses capture integrity independently from workload recovery.",
+    "Original nonzero pytest workload exit is preserved; complete capture cannot change it to success.",
+    "Existing observer, coverage, identity, drop and output-write failures remain failed capture and change an otherwise successful pytest exit to nonzero.",
+    "New hook-level controls invoke the registered SQLAlchemy handle_error callback for passing, failing, and counter-capture-fault cases; core limit test verifies32-type bound and privacy sentinel.",
+    "No application SQL, authorization fence, workload, comparator, threshold or resource budget edits in this reviewed diff."
+  ],
+  "core_plugin_tests_source_review": "approved",
+  "frozen_hosted_b06_observer_changed": false,
+  "kind": "independent_read_only_handled_workload_query_contract_review",
+  "limits": [
+    "Read review plus implementing-agent targeted tests is not a new benchmark or full source qualification.",
+    "The correcting observer digest differs from b06; do not substitute it for that hosted trace identity.",
+    "Acquisition-history lifetimes remain inferred due to unobserved savepoint/raw transaction releases."
+  ],
+  "regression_log_sha256": {
+    "after": "d29d2deba7ee4358dd492e8b2144cf8fd31895309657441363b4d81d4aa43af6",
+    "before": "0a2474f1e0d6fd6e276326270dfa09bebd1c755944d647f88ff5312864711a6d"
+  },
+  "reviewed_file_sha256": {
+    "scripts/operations/capacity_diagnostics.py": "f3796416913df27ea72069ead23c991ba06bd8349fc1a20760f18b7a56c0b764",
+    "scripts/operations/capacity_diagnostics_plugin.py": "22d56d2ef8b3326129ead4c32827408719cf43e13c2f361af3ba1424f352ddbe",
+    "tests/operations/test_capacity_diagnostics.py": "a5f11eeba94030718994ecbf0cfc43ccf70e15cb5ff12de08c1aa8241a3e4d8c"
+  },
+  "reviewer_tests_workloads_dispatch_commits": 0,
+  "separate_parent_owned_verifier_followup": {
+    "finding": "Standalone verifier checks capture status but ignores workload_exit_code; new complete capture with workload_exit_code1 could pass it. Normal supervisor still returns nonzero.",
+    "frozen_hosted_applicability": "No change to ongoing b06 snapshot; current diagnostics branch is applicable if full traces contain zero query_execute errors.",
+    "function": "verify_reference",
+    "path": "scripts/operations/run_capacity_diagnostic.py",
+    "recommended": "When this command verifies a successful reference, require type(workload_exit_code) is int and workload_exit_code==0; preserve the failed-workload record. Add existing helper control."
+  },
+  "test_evidence_reported_by_implementing_agent": {
+    "after": {
+      "passed": 24,
+      "seconds": 0.2
+    },
+    "before": {
+      "failed": 4,
+      "passed": 20,
+      "seconds": 0.33
+    },
+    "diff_check": "passed",
+    "independently_rerun": false,
+    "ruff": "passed"
+  }
+}

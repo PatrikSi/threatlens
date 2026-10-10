@@ -1,0 +1,126 @@
+{
+  "all_original_failures_preserved": true,
+  "allowlisted_error_calllog": [
+    "page.screenshot: Timeout 30000ms exceeded.",
+    "Call log:",
+    "- taking page screenshot"
+  ],
+  "application_source_facts": [
+    "Escape sets preview state null; conditional drawer including iframe unmounts",
+    "OriginalArticleFrame has one5s loading-status timer with unmount cleanup; no polling/font loop",
+    "Resize listeners are added only during pointer resize, not used in this workflow, and cleaned on end/unmount",
+    "Focus schedules one RAF and cancels/restores on unmount",
+    "Team selection updates SPA query; team assessment component does not render publisher iframe",
+    "Five app fonts are same-origin local assets with font-display swap",
+    "Header blur and card transitions exist; no source-evidenced connection to this timeout"
+  ],
+  "await_interpretation": "Only taking-page-screenshot marker is consistent with preparatory all-frame utility evaluation or scheduling not completing before normal font logs; it does not identify the stalled frame, resource, app action, or browser layer. Driver does not set test-only font bypass; actual inherited image environment is not serialized in this record.",
+  "capture_stage_inference": "First article-preview capture completed; source and missing second image are consistent with failure of the later team-assessment screenshot after team and reader assertions",
+  "cause": "unassigned; no actionable application or harness defect confirmed",
+  "comparison_limits": [
+    "Valid image dimensions1440x1019 show no enormous output extent; they do not bound all renderer/compositor memory or CPU",
+    "Preceding Firefoxdark access case23.11s vs light2.93s contains route, idle, Axe and capture; no per-stage attribution retained",
+    "No browser cgroup/process timeline was captured during this original qualifier",
+    "31 complete audited surface records with0violations; failed case audits are incomplete because action details were never returned"
+  ],
+  "document_route_category": "Dashboard with SPA assessment selection; exact final URI/query not recorded",
+  "error_text_sha256": "a65b58f43966d9534f7a237ddd035a6b672c467356e5cdf1ba2a7f9662b5c367",
+  "failed_operation": "page.screenshot",
+  "failed_second_team_assessment_capture_missing": true,
+  "locked_playwright": "1.63.0",
+  "new_browser_or_application_calls": 0,
+  "observed_missing_markers": [
+    "waiting for fonts to load",
+    "fonts loaded",
+    "disabled all CSS animations",
+    "not visible",
+    "not stable",
+    "intercepted",
+    "detached",
+    "closed",
+    "pending navigation"
+  ],
+  "operation_deadline_ms": 30000,
+  "proposed_nonqualifying_diagnostic": {
+    "assertion_deadline_ms": 5000,
+    "attempts": 1,
+    "caps": {
+      "cpus": 2,
+      "memory_bytes": 3221225472,
+      "memory_swap_bytes": 3221225472,
+      "pids": 768,
+      "shm_bytes": 268435456
+    },
+    "engine": "firefox",
+    "interpretation": "One perturbed targeted capture can improve stage/resource localization but cannot clear prior failure or prove intermittent cause; no full33 unchanged retry or timeout/case waiver",
+    "outer_deadline_seconds": 900,
+    "preserved_pre_target_sequence": "Original Firefoxlight login/access/article/publication/mobile; Firefoxdark login/access/article, ending after target",
+    "real_workflow_and_axe_assertions_unchanged": true,
+    "requested_cases": 8,
+    "safe_observer": "Coherent per-stage driver clock; synchronous client frame counts and route categories; bounded numeric whole-container CPU/throttle/memory/OOM/process telemetry; no raw IDs, arguments, credentials, SQL or content",
+    "screenshot_deadline_ms": 30000,
+    "themes": [
+      "light",
+      "dark"
+    ]
+  },
+  "retained_driver_sha256": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c",
+  "retained_images": [
+    {
+      "bytes": 349094,
+      "capture_category": "article-preview",
+      "height": 1019,
+      "sha256": "acbefaa1b62ee7faafc10540023cf030347f4f0b0405d483943883a429456b24",
+      "theme": "light",
+      "width": 1440
+    },
+    {
+      "bytes": 127871,
+      "capture_category": "article-team-assessment",
+      "height": 1019,
+      "sha256": "7c78320875c2e12056c395f3f2d6e7c3f54e0f46b73ff99c298ce348bc0c50bf",
+      "theme": "light",
+      "width": 1440
+    },
+    {
+      "bytes": 339743,
+      "capture_category": "article-preview",
+      "height": 1019,
+      "sha256": "f39b7ec3db56438bf2e0ce5274ec2a2984aa8d0c3f6274538b7b17a8c9cbdd28",
+      "theme": "dark",
+      "width": 1440
+    },
+    {
+      "bytes": 129361,
+      "capture_category": "article-preview-and-team-assessment-navigation-failure",
+      "height": 1019,
+      "sha256": "4eae6519fc4ab0312e36e9cec65486746e956d55a4b640d26de18b8156fbf55c",
+      "theme": "dark",
+      "width": 1440
+    }
+  ],
+  "retained_native_result_sha256": "397c7e89516f759bfb67fed8edd8b004760262500662b01165d293dfdaf38e33",
+  "schema": "threatlens-native-screenshot-read-only-adjudication-v1",
+  "screenshot_sdk_order": [
+    "Per-page screenshot queue admits task and logs taking page screenshot",
+    "Fixed context viewport is reused",
+    "Preparation awaits utility-world evaluation in every existing page frame",
+    "Normal font-ready wait logs waiting for fonts and fonts loaded",
+    "Full-page dimensions evaluated",
+    "Firefox Page.screenshot protocol capture awaited",
+    "Page cleanup evaluations run"
+  ],
+  "sdk_core_bundle_sha256": "549070af3acabb3efcc4f55bfe6210f9f7c2fcf633cf7eaa59bfe60719969171",
+  "source_hashes": {
+    "web/src/hooks/useArticlePreviewFocus.ts": "6144ef6eb1214552d3e442465c3d95922e8a356baa205442d758a3a6fba6656e",
+    "web/src/index.css": "6dd9830ad640b59c3996d411bf33a1efb8b086d1bfae5425cf70dff2b24c9ccd",
+    "web/src/pages/ArticleTeamAssessment.tsx": "a95f3c54dbb43fdb49e31561d07bdb6ceb38b755c6ac5da3592c37df76c28b2a",
+    "web/src/pages/DashboardPageComponents.tsx": "3bc83a604cb9013d54368625a63a0ed75f1e72a92bb6384f930a771e482e77cd",
+    "web/src/pages/DashboardRssItem.tsx": "3e88a0ec7e49d419443e827ba4c48533cf3fbee42b49ae824be84cd3aa601713",
+    "web/src/pages/OriginalArticleFrame.tsx": "7a210eec66b488beb80c164ee2bc3759b6520a1c656e2bf0180dcd586ce4a3e9",
+    "web/src/pages/useArticlePreview.ts": "4282448682cef1e376a29d0abfe8ff5c8aa1bfe03fc82dc3978a99837fbbdaf0"
+  },
+  "source_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "whole_case_allocation": "Includes workflow actions, failed surface screenshot, fallback screenshot and page recovery; cannot assign157.93s to one operation",
+  "whole_case_elapsed_seconds": 157.93
+}

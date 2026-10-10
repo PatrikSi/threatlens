@@ -1,0 +1,13 @@
+{
+  "measured_at": "2026-09-27T09:08:25.227501+00:00",
+  "opensearch_version": "3.8.0",
+  "scope": "disposable_loopback_vendor_contract",
+  "production_qualified": false,
+  "matched_documents": 1,
+  "distinct_actions": 2,
+  "external_launches": 2,
+  "external_search_id_persisted": true,
+  "lost_acceptance_response_recovered_by_explicit_binding": true,
+  "withdrawal_preserved_completed_history": true,
+  "source_documents_returned": false
+}

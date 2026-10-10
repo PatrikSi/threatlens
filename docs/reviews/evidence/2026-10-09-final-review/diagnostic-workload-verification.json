@@ -1,0 +1,43 @@
+{
+  "after": {
+    "deliberate_skip": "opt-in disposable source-loss reconstruction",
+    "duration_seconds": 0.989,
+    "exit_code": 0,
+    "new_verifier_negative_controls": 4,
+    "new_verifier_test_methods": 2,
+    "operations_tests_passed": 119,
+    "operations_tests_run": 120,
+    "operations_tests_skipped": 1
+  },
+  "before": {
+    "exit_code": 1,
+    "failing_negative_controls": 4,
+    "passed_test_methods": 12,
+    "rejected_conditions_expected": [
+      "workload_exit_1",
+      "workload_exit_bool_true",
+      "workload_exit_missing",
+      "measurement_status_failed"
+    ],
+    "test_methods": 14
+  },
+  "checks": {
+    "git_diff_check": "passed",
+    "ruff": "passed"
+  },
+  "frozen_hosted_workflow_head_unchanged": "b06b364d41fee438f854a5fe9a13a8d8183a5a2e",
+  "kind": "capacity_diagnostic_successful_reference_verifier_proof",
+  "log_hashes": {
+    "capacity-diagnostic-workload-verifier-after.log": "af0062ce9da5de38b9ab4952419fa9e72a4a3e832d4cb9aa55d53af044835c7e",
+    "capacity-diagnostic-workload-verifier-before.log": "ef5468eae51bdedc459e72d55869337e3356694bb6c460cc9ab548f3a5306a50"
+  },
+  "remote_write_or_workload_run_performed": false,
+  "runtime_workload_budgets_comparison_cleanup_unchanged": true,
+  "schema_version": 1,
+  "source_after_sha256": "91aee260744f5b27e5744f02e7ef042af91c2d3950c2b717cf69317a38a4e857",
+  "source_before_git_revision": "b06b364d41fee438f854a5fe9a13a8d8183a5a2e",
+  "source_before_sha256": "1f78dc509a7bcaf9d1fde62f79ee4242dc5dba0b4b967b4fc6f62765683f903e",
+  "source_path": "scripts/operations/run_capacity_diagnostic.py",
+  "test_path": "tests/operations/test_capacity_diagnostic.py",
+  "test_sha256": "b55241efa7e1a88bd9d6e74208b1ac686b22ae2b3d24a2f8196002f3beae3a8c"
+}

@@ -1,0 +1,36 @@
+{
+  "samples": [
+    {
+      "seconds": 0,
+      "active_incidents": 0,
+      "events": []
+    },
+    {
+      "seconds": 60,
+      "active_incidents": 1,
+      "events": [
+        {
+          "code": "container_restarted",
+          "state": "opened"
+        }
+      ]
+    },
+    {
+      "seconds": 120,
+      "active_incidents": 0,
+      "events": [
+        {
+          "code": "container_restarted",
+          "state": "resolved"
+        }
+      ]
+    },
+    {
+      "seconds": 180,
+      "active_incidents": 0,
+      "events": []
+    }
+  ],
+  "active_duration_seconds": 60,
+  "bundled_alert_for_seconds": 120
+}

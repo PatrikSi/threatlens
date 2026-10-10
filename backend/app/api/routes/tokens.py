@@ -6,12 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.orm import Session
 
+from app.api.credential_verification import credential_verification_context
+from app.services.credential_verification import (
+    enforce_browser_token_step_up,
+    enforce_delegable_token_scopes,
+)
 from app.api.deps import (
-    get_authorization_context,
-    get_current_auth_session_id,
-    is_cookie_session_auth,
     require_permissions,
-    resolve_client_ip,
 )
 from app.core.api_errors import ApiHTTPException
 from app.core.config import get_settings
@@ -20,14 +21,12 @@ from app.core.security import (
     extract_api_token_prefix,
     generate_api_token,
     hash_api_token,
-    verify_password,
 )
 from app.core.token_scopes import (
     DEFAULT_API_TOKEN_SCOPES,
     SCOPE_READ_TOKENS,
     SCOPE_WRITE_TOKENS,
     missing_delegable_scopes,
-    missing_role_token_scopes,
     has_required_scope,
 )
 from app.db.session import get_db
@@ -40,38 +39,16 @@ from app.schemas.token import (
     ApiTokenResponse,
 )
 from app.services.audit import record_audit
-from app.services.auth_sessions import lock_exact_auth_session, lock_user_auth_states
-from app.services.auth_rate_limit import (
-    check_password_verification_throttle,
-    clear_password_verification_failures,
-    record_password_verification_failure,
-)
-from app.services.local_mfa import MFAError, MFAInvalidCodeError, mfa_status
-from app.services.mfa_action_verification import (
-    MFASensitiveActionRateLimitError,
-    MFASensitiveActionThrottleUnavailableError,
-    verify_sensitive_mfa_code,
-)
-from app.services.recent_auth import (
-    auth_session_has_configured_oidc_mfa_assurance,
-    recent_authentication_error_context,
-    recent_authentication_state,
-)
+from app.services.auth_sessions import lock_user_auth_states
 
 router = APIRouter(prefix="/tokens", tags=["tokens"])
 
-SESSION_TOKEN_STEP_UP_REQUIRED_DETAIL = (
-    "Browser sessions must confirm the current password before creating API tokens"
-)
 API_TOKEN_CHILD_MAX_LIFETIME = timedelta(hours=1)
 API_TOKEN_CHILD_SCOPE_DETAIL = (
     "API tokens cannot mint child tokens with write:tokens scope"
 )
 API_TOKEN_CHILD_EXPIRED_DETAIL = (
     "Parent API token is too close to expiry to mint a child token"
-)
-SESSION_TOKEN_SCOPE_DETAIL = (
-    "Requested token scopes exceed your current durable permissions"
 )
 
 
@@ -174,8 +151,13 @@ def create_token(
             detail="Account security changed. Sign in again.",
             error_code="account_security_changed",
         )
-    credential_verification = _enforce_browser_session_step_up(
-        request, payload, user, db
+    verification_context = credential_verification_context(request)
+    credential_verification = enforce_browser_token_step_up(
+        db,
+        context=verification_context,
+        user=user,
+        current_password=payload.current_password,
+        mfa_code=payload.code,
     )
 
     token_value, token_prefix, token_hash = generate_api_token()
@@ -184,7 +166,7 @@ def create_token(
         if "scopes" in payload.model_fields_set
         else list(DEFAULT_API_TOKEN_SCOPES)
     )
-    _enforce_requested_token_scopes_authorized(request, user, scopes)
+    enforce_delegable_token_scopes(verification_context, user, scopes)
     parent_token_scopes = getattr(request.state, "token_scopes", None)
     parent_api_token = _resolve_authenticated_parent_api_token(
         request, db, user_id=user.id
@@ -242,164 +224,6 @@ def create_token(
     return ApiTokenCreateResponse(
         token=token_value, token_prefix=token_prefix, expires_at=expires_at
     )
-
-
-def _enforce_browser_session_step_up(
-    request: Request,
-    payload: ApiTokenCreateRequest,
-    user: User,
-    db: Session,
-) -> str | None:
-    if not is_cookie_session_auth(request):
-        return None
-    action = "api_token_create"
-    session_id = get_current_auth_session_id(request)
-    session_token = request.cookies.get(get_settings().auth_cookie_name)
-    if session_id is None or not session_token:
-        raise ApiHTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This legacy browser session cannot create API tokens. Sign out, sign in again, and retry.",
-            error_code="opaque_session_required",
-            error_context=recent_authentication_error_context(None, action=action),
-        )
-    session = lock_exact_auth_session(
-        db,
-        token=session_token,
-        expected_session_id=session_id,
-        user_id=user.id,
-        auth_token_version=int(user.auth_token_version or 0),
-    )
-    if session is None:
-        raise ApiHTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="The current browser session is no longer active. Sign in again.",
-            error_code="session_inactive",
-        )
-    if session.auth_method == "oidc":
-        recent = recent_authentication_state(session)
-        if not recent.valid:
-            raise ApiHTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    "Reauthenticate with the identity provider before creating an "
-                    "API token."
-                ),
-                error_code="oidc_reauthentication_required",
-                error_context=recent_authentication_error_context(
-                    session,
-                    action=action,
-                ),
-            )
-        if not auth_session_has_configured_oidc_mfa_assurance(session):
-            raise ApiHTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    "The identity provider did not assert the configured MFA assurance. "
-                    "Complete MFA during identity-provider reauthentication before "
-                    "creating an API token."
-                ),
-                error_code="oidc_mfa_assurance_required",
-                error_context=recent_authentication_error_context(
-                    session,
-                    action=action,
-                ),
-            )
-        return "oidc_recent_authentication"
-    if session.auth_method != "local" or not user.password_login_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Browser API token creation requires an account with local password authentication",
-        )
-    if not payload.current_password:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=SESSION_TOKEN_STEP_UP_REQUIRED_DETAIL,
-        )
-    client_ip = resolve_client_ip(request)
-    throttle = check_password_verification_throttle(user.email, client_ip)
-    if throttle.blocked:
-        detail = (
-            "Too many failed current password verification attempts. Try again later."
-        )
-        headers = (
-            {"Retry-After": str(throttle.retry_after_seconds)}
-            if throttle.retry_after_seconds
-            else None
-        )
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=detail,
-            headers=headers,
-        )
-    if not verify_password(payload.current_password, user.password_hash):
-        record_password_verification_failure(user.email, client_ip)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Current password is incorrect",
-        )
-    clear_password_verification_failures(
-        user.email,
-        client_ip,
-        observed_failure_version=throttle.failure_version,
-    )
-    mfa_enabled, _confirmed_at, _remaining = mfa_status(db, user_id=user.id)
-    if not mfa_enabled:
-        return "local_password"
-    if not payload.code:
-        raise ApiHTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Enter a current authenticator or recovery code before creating an API token.",
-            error_code="mfa_verification_required",
-        )
-    try:
-        verification = verify_sensitive_mfa_code(
-            db,
-            user=user,
-            code=payload.code,
-            client_ip=client_ip,
-        )
-    except MFASensitiveActionRateLimitError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=str(exc),
-            headers=(
-                {"Retry-After": str(exc.retry_after_seconds)}
-                if exc.retry_after_seconds
-                else None
-            ),
-        ) from exc
-    except MFAInvalidCodeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
-    except MFASensitiveActionThrottleUnavailableError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Shared MFA verification throttling is temporarily unavailable. No MFA code was checked; try again shortly.",
-            headers={"Retry-After": "5"},
-        ) from exc
-    except MFAError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="MFA verification is temporarily unavailable. Try again later.",
-        ) from exc
-    return f"local_password_{verification.method}"
-
-
-def _enforce_requested_token_scopes_authorized(
-    request: Request, user: User, scopes: list[str]
-) -> None:
-    authorization = get_authorization_context(request)
-    disallowed_scopes = (
-        missing_delegable_scopes(authorization.durable_grants, scopes)
-        if authorization is not None
-        else missing_role_token_scopes(user.role, scopes)
-    )
-    if disallowed_scopes:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"{SESSION_TOKEN_SCOPE_DETAIL}: {', '.join(disallowed_scopes)}",
-        )
 
 
 def _resolve_authenticated_parent_api_token(

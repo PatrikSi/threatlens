@@ -36,6 +36,7 @@ from app.services.data_access_policy import (
 )
 from app.services.data_policy_audit import record_data_policy_decision
 from app.services.notification_webhook_requests import RenderedNotificationRequest
+from app.services.export_job_contracts import ExportAuthorizationSnapshot
 
 
 NOTIFICATION_WEBHOOK_TEST_RECEIPT_ACTION = "notifications.webhook.test.receipt"
@@ -69,6 +70,11 @@ class NotificationWebhookTestPolicyUnavailable(NotificationWebhookTestPolicyErro
     code = "notification_webhook_test_policy_unavailable"
 
 
+class NotificationWebhookTestCredentialChanged(NotificationWebhookTestPolicyError):
+    status_code = 403
+    code = "notification_webhook_test_credential_changed"
+
+
 class NotificationWebhookTestReplayConflict(NotificationWebhookTestPolicyError):
     code = "notification_webhook_test_replay_conflict"
 
@@ -82,6 +88,7 @@ class NotificationWebhookTestSourceRefs:
     feed_id: uuid.UUID | None = None
     item_id: uuid.UUID | None = None
     daily_brief_id: uuid.UUID | None = None
+    required_permissions: tuple[str, ...] = ()
 
     @property
     def data_access_governed(self) -> bool:
@@ -92,12 +99,11 @@ class NotificationWebhookTestSourceRefs:
 
     def as_metadata(self) -> dict[str, list[str]]:
         return {
+            **({"required_permissions": list(self.required_permissions)} if self.required_permissions else {}),
             "feed_ids": [str(self.feed_id)] if self.feed_id is not None else [],
             "item_ids": [str(self.item_id)] if self.item_id is not None else [],
             "daily_brief_ids": (
-                [str(self.daily_brief_id)]
-                if self.daily_brief_id is not None
-                else []
+                [str(self.daily_brief_id)] if self.daily_brief_id is not None else []
             ),
         }
 
@@ -127,9 +133,7 @@ class NotificationWebhookTestPolicySnapshot:
             "data_policy_mode": self.data_policy_mode,
             "source_ids": self.source_refs.as_metadata(),
             "feed_ids": [str(value) for value in self.feed_ids],
-            "handling_label_ids": [
-                str(value) for value in self.handling_label_ids
-            ],
+            "handling_label_ids": [str(value) for value in self.handling_label_ids],
             "policy_decision": self.decision,
         }
 
@@ -148,6 +152,7 @@ def authorize_notification_webhook_test(
     authorization: AuthorizationContext,
     data_access: DataAccessContext,
     source_refs: NotificationWebhookTestSourceRefs,
+    credential_snapshot: ExportAuthorizationSnapshot | None = None,
 ) -> NotificationWebhookTestPolicySnapshot:
     try:
         fence_authorization_context(db, authorization)
@@ -157,6 +162,27 @@ def authorize_notification_webhook_test(
             "Webhook test authorization changed. Retry the request before sending."
         ) from exc
 
+    if credential_snapshot is not None:
+        from app.services.export_job_access import ExportJobAccessDenied
+        from app.services.webhook_request_authority import (
+            reauthorize_webhook_test_credential,
+        )
+
+        try:
+            authorization, data_access = reauthorize_webhook_test_credential(
+                db,
+                authorization=authorization,
+                data_access=data_access,
+                snapshot=credential_snapshot,
+                required_permissions=(SCOPE_WRITE_NOTIFICATIONS, *source_refs.required_permissions),
+            )
+        except ExportJobAccessDenied as exc:
+            raise NotificationWebhookTestCredentialChanged(
+                "Webhook test credentials expired, were revoked, or lost required access"
+                + (f" ({', '.join(source_refs.required_permissions)})" if source_refs.required_permissions else "")
+                + ". Refresh your session before retrying."
+            ) from exc
+
     if (
         authorization.principal_type != "user"
         or authorization.principal_id != user.id
@@ -165,6 +191,10 @@ def authorize_notification_webhook_test(
     ):
         raise NotificationWebhookTestPolicyUnavailable(
             "Webhook test authorization does not match the current actor."
+        )
+    if not all(authorization.has(permission) for permission in source_refs.required_permissions):
+        raise NotificationWebhookTestCredentialChanged(
+            "Webhook article content requires current read:items permission. Refresh your credentials before retrying."
         )
 
     locked_user = db.scalar(
@@ -199,10 +229,7 @@ def authorize_notification_webhook_test(
                 "Webhook test source provenance is no longer available."
             )
         feed_ids.add(item_row.feed_id)
-        if (
-            source_refs.feed_id is not None
-            and source_refs.feed_id != item_row.feed_id
-        ):
+        if source_refs.feed_id is not None and source_refs.feed_id != item_row.feed_id:
             raise NotificationWebhookTestPolicyUnavailable(
                 "Webhook test source provenance changed before outbound delivery."
             )
@@ -269,9 +296,7 @@ def authorize_notification_webhook_test(
                 "Webhook test source provenance references an inactive handling label."
             )
 
-    restricted_label_ids = handling_label_ids.difference(
-        data_access.allowed_label_ids
-    )
+    restricted_label_ids = handling_label_ids.difference(data_access.allowed_label_ids)
     decision: NotificationWebhookTestPolicyDecision = "allowed"
     if not data_access.principal_eligible:
         decision = "egress_not_served"
@@ -297,9 +322,7 @@ def unavailable_notification_webhook_test_snapshot(
     data_access: DataAccessContext,
     source_refs: NotificationWebhookTestSourceRefs,
 ) -> NotificationWebhookTestPolicySnapshot:
-    feed_ids = (
-        (source_refs.feed_id,) if source_refs.feed_id is not None else ()
-    )
+    feed_ids = (source_refs.feed_id,) if source_refs.feed_id is not None else ()
     return NotificationWebhookTestPolicySnapshot(
         iam_revision=authorization.policy_revision,
         data_policy_revision=data_access.policy_revision,
@@ -410,10 +433,7 @@ def record_notification_webhook_test_policy_decision(
 ) -> AuditLog | None:
     if snapshot.decision == "allowed":
         return None
-    if (
-        snapshot.decision == "egress_not_served"
-        and context.mode == "disabled"
-    ):
+    if snapshot.decision == "egress_not_served" and context.mode == "disabled":
         return None
     return record_data_policy_decision(
         db,
@@ -618,8 +638,8 @@ def _lock_test_operation(
 ) -> None:
     if db.get_bind().dialect.name != "postgresql":
         return
-    material = (
-        f"notification-webhook-test:{actor_user_id}:{operation_id}".encode("utf-8")
+    material = f"notification-webhook-test:{actor_user_id}:{operation_id}".encode(
+        "utf-8"
     )
     unsigned = int.from_bytes(hashlib.sha256(material).digest()[:8], "big")
     lock_id = unsigned if unsigned < 2**63 else unsigned - 2**64

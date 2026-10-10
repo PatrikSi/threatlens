@@ -1,3 +1,8 @@
+import { useState } from 'react'
+import { DialogSurface } from '../components/ConfirmDialog'
+import { ArticleExtractionPanel } from './ArticleExtractionPanel'
+import { ArticleTeamAssessment } from './ArticleTeamAssessment'
+import { ArticleIndicatorsPanel } from './ArticleIndicatorsPanel'
 import { resolveApiErrorMessage } from '../api/errors'
 import { sanitizeHref } from './dashboardContent'
 import { RichContent } from './DashboardPageComponents'
@@ -10,7 +15,6 @@ import {
   itemStatusTone,
 } from './dashboardPageUtils'
 import {
-  resolveRssItemDetailClassName,
   selectVisibleItemTags,
 } from './dashboardPanelPresentation'
 import {
@@ -92,7 +96,10 @@ return (
                 'sm:bg-white sm:px-2 sm:font-normal sm:text-inherit sm:hover:border-cyan',
                 'dark:sm:border-cyan-900/40 dark:sm:bg-[#041612]',
               ].join(' ')}
-              onClick={() =>
+              onClick={(event) => {
+                // Safari does not focus pointer-activated buttons by default.
+                // Establish the real opener before the preview moves focus.
+                event.currentTarget.focus()
                 handleOpenArticlePreview(
                   {
                     itemId: item.id,
@@ -102,7 +109,7 @@ return (
                   },
                   item.is_read,
                 )
-              }
+              }}
             >
               <span className="sm:hidden">Preview</span>
               <span className="hidden sm:inline">Preview Original</span>
@@ -112,11 +119,16 @@ return (
       </div>
       <button
         type="button"
-        className="tl-dashboard-rss-toggle mt-1 w-full text-left text-slate-900 dark:text-slate-100"
-        onClick={() => handleToggleItem(windowLayout.id, item.id, item.is_read)}
+        className="tl-dashboard-rss-toggle mt-1 min-h-11 w-full text-left text-slate-900 dark:text-slate-100"
+        onClick={(event) => {
+          event.currentTarget.focus()
+          handleToggleItem(windowLayout.id, item.id, item.is_read)
+        }}
+        aria-label={`${expanded ? "Close" : "Open"} article details: ${item.title}`}
         aria-expanded={expanded}
         aria-controls={`rss-item-detail-${item.id}`}
       >
+        <span className="mb-1 block text-xs font-semibold text-cyan">{expanded ? "Close article details" : "Open article details"}</span>
         <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate sm:gap-2 dark:text-slate-300">
           <span className="hidden sm:inline">Published {formatPublishedAt(item.published_at)}</span>
           {item.status !== 'content_fetched' && (
@@ -166,39 +178,38 @@ function DashboardRssItemDetail({
   item: ItemListEntry
 }) {
   const { detailQueriesByWindowId, handleToggleItem, isWideLayout } = controller
+  // A breakpoint change must not remount local evidence/review editors or their
+  // nested dialogs. Choose the presentation when opening and keep it until close.
+  const [modalPresentation] = useState(() => !isWideLayout)
   const detailQuery = detailQueriesByWindowId[windowLayout.id]
   const detail = detailQuery?.data ?? null
 
-  return (
-      <div
-        id={`rss-item-detail-${item.id}`}
-        className={resolveRssItemDetailClassName(isWideLayout)}
-      >
-        <div className="sticky top-0 z-10 -mx-3 mb-3 flex items-center gap-3 border-b border-slate/20 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#03130f] lg:hidden">
-            <button
-              type="button"
-              className="shrink-0 rounded border border-slate/20 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
-              onClick={() => handleToggleItem(windowLayout.id, item.id, true)}
-            >
-              Back
-            </button>
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase text-slate dark:text-slate-300">RSS item</p>
-              <p className="truncate text-sm font-semibold">{item.title}</p>
-            </div>
-          </div>
-        {detailQuery?.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading article content...</p>}
-        {detailQuery?.isError && (
-          <p className="text-sm text-red-600">
-            {resolveApiErrorMessage(detailQuery.error, 'Article details could not be loaded')}
-          </p>
-        )}
-
-        {detail && detail.id === item.id && (
-          <DashboardRssItemDetailContent controller={controller} detail={detail} />
-        )}
-      </div>
+  const content = (
+    <>
+      {detailQuery?.isLoading && <p role="status" className="text-sm text-slate dark:text-slate-300">Loading article content...</p>}
+      {detailQuery?.isError && (
+        <p role="alert" className="text-sm text-red-600">
+          {resolveApiErrorMessage(detailQuery.error, 'Article details could not be loaded')}
+        </p>
+      )}
+      {detail && detail.id === item.id && (
+        <DashboardRssItemDetailContent controller={controller} detail={detail} />
+      )}
+    </>
   )
+  if (modalPresentation) {
+    return (
+      <DialogSurface
+        open title={item.title} eyebrow="Article details" closeLabel="Back to articles"
+        describeBody={false} panelClassName="tl-mobile-rss-detail max-w-4xl"
+        onClose={() => handleToggleItem(windowLayout.id, item.id, true)}
+      >
+        <div id={`rss-item-detail-${item.id}`}>{content}</div>
+      </DialogSurface>
+    )
+  }
+  return <div id={`rss-item-detail-${item.id}`} className="tl-rss-item-detail mt-3 border-t border-slate/20 pt-3 dark:border-cyan-900/40">{content}</div>
+
 }
 
 function DashboardRssItemDetailContent({
@@ -213,6 +224,9 @@ function DashboardRssItemDetailContent({
       <DashboardRssItemActions controller={controller} detail={detail} />
       <DashboardRssItemSummary detail={detail} />
       <DashboardRssItemAiInsight controller={controller} detail={detail} />
+      <ArticleExtractionPanel detail={detail} />
+      <ArticleIndicatorsPanel itemId={detail.id} />
+      <ArticleTeamAssessment itemId={detail.id} />
       <DashboardRssItemArticle controller={controller} detail={detail} />
       <DashboardRssItemNotes controller={controller} detail={detail} />
     </>
@@ -311,7 +325,7 @@ function DashboardRssItemSummary({ detail }: { detail: ItemDetail }) {
                                           ({Math.round(detail.classification.confidence * 100)}% confidence)
                                         </p>
                                       )}
-                                      <div className="tl-rss-detail-reader rss-reader tl-reader-surface mt-2 rounded p-3">
+                                      <div role="region" aria-label={`RSS summary text for ${detail.title}`} tabIndex={0} className="tl-rss-detail-reader rss-reader tl-reader-surface mt-2 rounded p-3">
                                         <RichContent content={detail.summary || 'No summary.'} itemId={detail.id} section="summary" />
                                       </div>
                                     </div>
@@ -394,7 +408,7 @@ function DashboardRssItemArticle({
                                         </p>
                                       )}
                                       {detail.article?.text ? (
-                                        <div className="tl-rss-detail-reader rss-reader tl-reader-surface mt-2 rounded p-3">
+                                        <div role="region" aria-label={`Full article text for ${detail.title}`} tabIndex={0} className="tl-rss-detail-reader rss-reader tl-reader-surface mt-2 rounded p-3">
                                           <RichContent content={detail.article.text} itemId={detail.id} section="article" />
                                         </div>
                                       ) : detail.article?.content_purged_at ? (

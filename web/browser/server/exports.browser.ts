@@ -1,6 +1,6 @@
 import type { APIRequestContext, Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
-import { test, expect, control, signIn } from './fixtures'
+import { test, expect, control, signIn, fixtureFeedEdit } from './fixtures'
 
 async function queueExport(page: Page, request: APIRequestContext) {
   const item = await control(request, 'export-item')
@@ -22,7 +22,7 @@ test('real background export survives navigation, downloads content and rejects 
   await signIn(page, identity)
   const { item, job } = await queueExport(page, request)
   await page.goto('/feeds')
-  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible()
+  await expect(fixtureFeedEdit(page)).toBeVisible()
   expect(await control(request, `run-export/${job.id}`)).toMatchObject({ status: 'ready', job_id: job.id })
   await page.goto('/export')
   const jobs = page.getByRole('region', { name: 'Background exports' })

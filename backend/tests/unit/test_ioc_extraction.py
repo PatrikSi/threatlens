@@ -1,9 +1,11 @@
+from pathlib import Path
 import subprocess
 import sys
 
 import pytest
 
 from app.services.ioc_extraction import extract_iocs
+from tests.unit.ioc_capacity_test_support import untraced_child_environment
 
 
 def test_hash_lengths_boundaries_and_repeated_occurrences_are_preserved():
@@ -29,7 +31,8 @@ text = ' '.join(f'{index:064x}' for index in range(25000))
 matches = extract_iocs(title='', summary=None, article_text=text)
 assert len(matches) == 25000
 assert len({match.value_norm for match in matches}) == 25000
-"""], timeout=15, capture_output=True, text=True)
+"""], timeout=15, capture_output=True, text=True, cwd=Path(__file__).resolve().parents[2],
+        env=untraced_child_environment())
     assert result.returncode == 0, result.stderr
 
 

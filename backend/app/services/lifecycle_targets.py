@@ -21,6 +21,7 @@ from app.models.alert_occurrence import (
 from app.models.article import Article
 from app.models.audit_log import AuditLog
 from app.models.auth_session import AuthSession
+from app.models.automation_execution import AutomationExecution
 from app.models.integration import (
     IntegrationDelivery,
     IntegrationDeliveryMetric,
@@ -33,6 +34,7 @@ from app.models.item_state import ItemState
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.report_source_item import ReportSourceItem
 from app.models.report import Report
+from app.models.team_item_assessment import TeamItemAssessment
 from app.models.system_health_sample import SystemHealthSample
 from app.models.tag import TagFeedbackEvent
 from app.services.data_access_envelopes import (
@@ -307,6 +309,7 @@ def _candidate_query(
                 _unresolved_ai_provider_receipt(AIProviderAttemptReceipt),
             )
             .exists(),
+            ~select(TeamItemAssessment.id).where(TeamItemAssessment.task_run_id == AITaskRun.id).exists(),
             ~_retained_action_approval_run_reference(AITaskRun.id),
         )
         return _CandidateQuery(AITaskRun, AITaskRun.finished_at, predicate)
@@ -372,6 +375,7 @@ def _candidate_query(
             and_(
                 IntegrationEvent.routing_state.in_(("routed", "dead_letter")),
                 IntegrationEvent.created_at < cutoff,
+                ~exists(select(AutomationExecution.id).where(AutomationExecution.event_id == IntegrationEvent.id)),
                 ~exists(
                     select(IntegrationDelivery.id).where(
                         IntegrationDelivery.event_id == IntegrationEvent.id
@@ -958,6 +962,7 @@ def _delete_ai_task_history(
             _unresolved_ai_provider_receipt(AIProviderAttemptReceipt),
         )
         .exists(),
+        ~select(TeamItemAssessment.id).where(TeamItemAssessment.task_run_id == AITaskRun.id).exists(),
         ~_retained_action_approval_run_reference(AITaskRun.id),
     )
     task_count = _delete_ai_history_with_envelopes(

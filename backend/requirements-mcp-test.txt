@@ -1,0 +1,3 @@
+# Isolated protocol interoperability tests; never included in runtime requirements.
+mcp==2.2.0
+pytest==8.4.1

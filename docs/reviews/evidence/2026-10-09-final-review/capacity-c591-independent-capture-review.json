@@ -1,0 +1,68 @@
+{
+  "schema": "threatlens-capacity-independent-local-capture-review-v1",
+  "run_id": 38070244407,
+  "actual_candidate_revision": "c591c3a8e30a6ef1fc38956317f0b0b41a12285b",
+  "workflow_head_revision": "00e6034e9c1f65eb160b3e2772046252485020fe",
+  "baseline_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+  "public_projection_sha256": "d1e5b7e7c5a4c44897b662b63518d6e08220d03fa468f193b4add7425bfbf308",
+  "capture_metadata_sha256": "c9225576ce851f5331aabfb773016fa8de7e4e8b471c9cd4f6aabd034c689849",
+  "run_job_artifact_ownership_verified": true,
+  "actual_input_and_checkout_log_verified": true,
+  "artifact_advertised_digest_and_nine_members_verified": true,
+  "original_reference_zero_exit_proved_by_successful_bash_e_measure_step": true,
+  "both_measurements_passed": true,
+  "both_independent_cleanups_passed": true,
+  "remaining_owned_containers": 0,
+  "diagnostics_enabled": false,
+  "duration_seconds_per_ref": 600,
+  "regression_threshold_percent": 20,
+  "required_sample_counts": {
+    "baseline": {
+      "export:succeeded": 286,
+      "ai_connection:succeeded": 301,
+      "governance": 300,
+      "deadline:dns": 6,
+      "deadline:headers": 6
+    },
+    "candidate": {
+      "export:succeeded": 292,
+      "ai_connection:succeeded": 301,
+      "governance": 300,
+      "deadline:dns": 6,
+      "deadline:headers": 6
+    }
+  },
+  "comparison_compatible_and_conclusive": true,
+  "regressions": [],
+  "insufficient_required_samples": [],
+  "independent_default_comparator_replay_matches": true,
+  "bounded_transport": {
+    "run.json": {
+      "original_exit": 0,
+      "bytes": 12023
+    },
+    "jobs.json": {
+      "original_exit": 0,
+      "bytes": 2683
+    },
+    "artifacts.json": {
+      "original_exit": 0,
+      "bytes": 760
+    },
+    "job.log": {
+      "original_exit": 0,
+      "bytes": 112675
+    },
+    "artifact.zip": {
+      "original_exit": 0,
+      "bytes": 626559
+    }
+  },
+  "prior_capacity_run_retained": 37914335157,
+  "new_candidate_applicability_claimed": false,
+  "capacity_candidate_relabelled": false,
+  "network_calls": 0,
+  "docker_calls": 0,
+  "browser_calls": 0,
+  "release_clearance": false
+}

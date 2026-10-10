@@ -10,6 +10,7 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 import httpx
 
 from app.core.config import get_settings
+from app.core.outbound_headers import BLOCKED_REQUEST_HEADERS
 from app.schemas.notification import (
     NotificationWebhookField,
     NotificationWebhookTestResponse,
@@ -43,21 +44,20 @@ _delivery_redirect_chain_started: ContextVar[bool | None] = ContextVar(
     "notification_delivery_redirect_chain_started",
     default=None,
 )
-BLOCKED_REQUEST_HEADERS = frozenset(
-    {
-        "connection",
-        "content-length",
-        "expect",
-        "host",
-        "proxy-authenticate",
-        "proxy-authorization",
-        "proxy-connection",
-        "te",
-        "trailer",
-        "transfer-encoding",
-        "upgrade",
-    }
+_request_credentials: ContextVar[Callable[[httpx.Request], None] | None] = ContextVar(
+    "webhook_request_credentials", default=None
 )
+
+
+@contextmanager
+def notification_request_credentials(
+    callback: Callable[[httpx.Request], None] | None,
+) -> Iterator[None]:
+    token = _request_credentials.set(callback)
+    try:
+        yield
+    finally:
+        _request_credentials.reset(token)
 
 
 class RenderedNotificationRequestLike(Protocol):
@@ -183,11 +183,15 @@ def send_rendered_notification_request(
 
     try:
         _renew_notification_operation_lease(rendered.timeout_seconds)
-        with outbound_deadline(rendered.timeout_seconds), build_safe_http_client(
-            timeout=timeout,
-            headers={"User-Agent": settings.fetch_user_agent},
-            allow_private_network=settings.allow_private_network_webhooks,
-        ) as client:
+        with (
+            outbound_deadline(rendered.timeout_seconds),
+            build_safe_http_client(
+                timeout=timeout,
+                headers={"User-Agent": settings.fetch_user_agent},
+                allow_private_network=settings.allow_private_network_webhooks,
+                private_network_only=urlsplit(rendered.url).scheme.lower() == "http",
+            ) as client,
+        ):
             response = send_request_with_redirects(
                 client,
                 method=rendered.method,
@@ -369,15 +373,25 @@ def send_request_with_redirects(
                 allow_private_network=settings.allow_private_network_webhooks,
             )
             request_url = _merge_request_url(current_url, current_params)
+            request_headers = httpx.Headers(headers)
+            request_content = current_raw_body
+            if current_form_body is not None:
+                # HTTPX treats a sequence passed as data= as a byte stream;
+                # encode explicitly to retain duplicate fields and empty values.
+                request_content = urlencode(current_form_body).encode("utf-8")
+                request_headers.setdefault(
+                    "Content-Type", "application/x-www-form-urlencoded"
+                )
             request = client.build_request(
                 current_method,
                 request_url,
-                headers=headers,
+                headers=request_headers,
                 json=current_json_body,
-                data=current_form_body
-                if current_form_body is not None
-                else current_raw_body,
+                content=request_content,
             )
+            prepare_credentials = _request_credentials.get()
+            if prepare_credentials is not None:
+                prepare_credentials(request)
             _mark_notification_external_io_started()
             response = client.send(request, stream=True, follow_redirects=False)
         except (SafeFetchError, httpx.HTTPError, ValueError) as exc:

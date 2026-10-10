@@ -2,6 +2,8 @@ from bs4 import BeautifulSoup
 from readability import Document
 import trafilatura
 
+from app.services.article_appendices import MAX_HTML_CHARS, separate_appendices
+
 
 def extract_canonical_url(html: str) -> str | None:
     soup = BeautifulSoup(html, "lxml")
@@ -17,22 +19,28 @@ def extract_plain_text(html_or_text: str) -> str:
 
 
 def extract_readable_text(html: str) -> dict[str, str | int | None]:
-    trafilatura_text = trafilatura.extract(html, include_tables=False, include_images=False)
+    if len(html) > MAX_HTML_CHARS:
+        return {"text": None, "method": "none", "title": None, "language": None,
+                "word_count": None, "error": "article_extraction_size_limit"}
+    appendices = separate_appendices(html)
+    prose_html = appendices.prose_html
+    trafilatura_text = trafilatura.extract(prose_html, include_tables=False, include_images=False)
     if trafilatura_text:
+        article_text = _join_evidence(trafilatura_text, appendices.text)
         return {
-            "text": trafilatura_text,
+            "text": article_text,
             "method": "trafilatura",
             "title": None,
             "language": None,
-            "word_count": len(trafilatura_text.split()),
+            "word_count": len(article_text.split()),
             "error": None,
         }
 
     try:
-        doc = Document(html)
+        doc = Document(prose_html)
         title = doc.short_title()
         summary_html = doc.summary()
-        text = extract_plain_text(summary_html)
+        text = _join_evidence(extract_plain_text(summary_html), appendices.text)
         if text:
             return {
                 "text": text,
@@ -43,6 +51,9 @@ def extract_readable_text(html: str) -> dict[str, str | int | None]:
                 "error": None,
             }
     except Exception as exc:
+        if appendices.text:
+            return {"text": appendices.text, "method": "structured_html", "title": None,
+                    "language": None, "word_count": len(appendices.text.split()), "error": None}
         return {
             "text": None,
             "method": "none",
@@ -60,3 +71,7 @@ def extract_readable_text(html: str) -> dict[str, str | int | None]:
         "word_count": None,
         "error": "no_extractor_succeeded",
     }
+
+
+def _join_evidence(prose: str, appendix: str) -> str:
+    return "\n\n".join(value for value in (prose.strip(), appendix.strip()) if value)

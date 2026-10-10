@@ -69,6 +69,14 @@ def test_openapi_operations_preserve_required_token_scope_extensions():
     ] == ["write:feeds"]
 
 
+def test_mcp_documents_its_bearer_only_protocol_contract():
+    operation = app.openapi()["paths"]["/v1/mcp"]["post"]
+    assert operation["security"] == [{"ApiTokenBearer": []}]
+    assert operation["x-threatlens-required-token-scopes"] == ["read:mcp"]
+    assert operation["x-threatlens-error-format"] == "mcp-jsonrpc"
+    assert operation["responses"]["401"]["content"]["application/json"]["schema"] == {"type": "object"}
+
+
 def test_openapi_errors_match_the_runtime_envelope_and_declare_iam_conflicts():
     schema = app.openapi()
     schemas = schema["components"]["schemas"]

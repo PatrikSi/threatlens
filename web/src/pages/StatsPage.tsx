@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
+import { useIngestionStatisticsScope } from './useIngestionStatisticsScope'
 import { AiStatisticsWorkspace } from './AiStatisticsWorkspace'
+import { ActivityHeatmapPanel } from './ActivityHeatmapPanel'
 import { PermissionRoute } from '../components/PermissionRoute'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
@@ -74,8 +76,7 @@ function StatisticsSections() {
 }
 
 function IngestionStatistics() {
-  const [days, setDays] = useState(30)
-  const [selectedFeedIds, setSelectedFeedIds] = useState<string[]>([])
+  const { days, setDays, selectedFeedIds, setSelectedFeedIds } = useIngestionStatisticsScope()
   const [showAllFeedRows, setShowAllFeedRows] = useState(false)
   const [mobileFeedFiltersOpen, setMobileFeedFiltersOpen] = useState(false)
 
@@ -171,16 +172,12 @@ function IngestionStatistics() {
   const allFeedIds = useMemo(() => feedsQuery.data?.map((feed) => feed.id) ?? [], [feedsQuery.data])
   const selectedFeedLabel = selectedFeedIds.length ? `${selectedFeedIds.length} selected` : 'All feeds selected'
 
-  useEffect(() => {
-    if (!feedsQuery.data) {
-      return
-    }
-    const availableFeedIds = new Set(feedsQuery.data.map((feed) => feed.id))
-    setSelectedFeedIds((current) => {
-      const next = current.filter((feedId) => availableFeedIds.has(feedId))
-      return next.length === current.length ? current : next
-    })
-  }, [feedsQuery.data])
+  // Preserve an explicit scope when a selected feed disappears or loses access.
+  // Removing its last ID would otherwise silently widen a shared URL to all feeds.
+  const availableFeeds = feedsQuery.data
+  const missingSelectedFeeds = availableFeeds
+    ? selectedFeedIds.filter((id) => !availableFeeds.some((feed) => feed.id === id)).length
+    : 0
 
   const toggleFeedSelection = (feedId: string) => {
     setSelectedFeedIds((current) => {
@@ -240,6 +237,14 @@ function IngestionStatistics() {
           className={`${mobileFeedFiltersOpen ? 'block' : 'hidden'} mt-2 rounded-lg border border-slate/20 bg-white/45 p-3 sm:mt-4 sm:block dark:border-cyan-900/40 dark:bg-white/[0.02]`}
         >
           <legend className="px-1 text-xs font-bold uppercase text-slate dark:text-slate-300">Feeds</legend>
+          <button type="button" className="rounded border px-2 py-1 text-sm font-semibold disabled:opacity-50"
+            disabled={selectedFeedIds.length === 0} onClick={() => setSelectedFeedIds([])}>
+            Use all accessible feeds
+          </button>
+          <p className="mt-1 text-xs text-slate dark:text-slate-300">All feeds includes newly added feeds. Choose individual feeds below to limit the statistics. Clearing the selection restores all accessible feeds.</p>
+          {missingSelectedFeeds > 0 && <p role="status" className="mt-2 text-sm text-amber-800 dark:text-amber-200">
+            {missingSelectedFeeds} selected feeds are unavailable. The explicit scope is preserved; clear the filter deliberately to include all accessible feeds.
+          </p>}
           <div className="mt-1 flex flex-wrap items-center justify-end gap-2 text-xs text-slate dark:text-slate-300">
             <span>{selectedFeedLabel}</span>
             <button type="button" className="underline text-slate-700 dark:text-slate-100" onClick={() => setSelectedFeedIds(allFeedIds)}>
@@ -422,7 +427,7 @@ function IngestionStatistics() {
 
           <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
             <h3 className="font-display text-lg">Feed Contribution</h3>
-            <div className="mt-3 space-y-2 sm:hidden" aria-label="Feed contribution records">
+            <div className="mt-3 space-y-2 sm:hidden" role="group" aria-label="Feed contribution records">
               {visibleFeedBreakdown.map((feed) => (
                 <article key={feed.feed_id} className="rounded-lg border border-slate/20 bg-white/70 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-white/[0.03]">
                   <div className="flex items-start justify-between gap-3">
@@ -730,159 +735,6 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
   )
 }
 
-function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) {
-  const panelRef = useRef<HTMLDivElement | null>(null)
-  const maxCount = Math.max(1, data.max_count)
-  const isHourly = data.bucket_unit === 'hour'
-  const columnCount = Math.max(1, data.bucket_labels.length || data.rows[0]?.counts.length || 1)
-  const bucketLabels =
-    data.bucket_labels.length === columnCount
-      ? data.bucket_labels
-      : Array.from({ length: columnCount }, (_, index) => `Bucket ${index + 1}`)
-  const calendar = isHourly ? null : buildDailyCalendar(data.rows)
-  const calendarWeekCount = Math.max(1, calendar?.weekCount ?? 1)
-  const [hovered, setHovered] = useState<{
-    label: string
-    count: number
-    intensityPct: number
-    x: number
-    y: number
-  } | null>(null)
-  const panelWidth = panelRef.current?.clientWidth ?? 560
-  const panelHeight = panelRef.current?.clientHeight ?? (isHourly ? 300 : 380)
-  const heatmapTooltipPosition = hovered
-    ? positionTooltipNearCursor(hovered.x, hovered.y, panelWidth, panelHeight, 220, 116)
-    : null
-
-  return (
-    <div ref={panelRef} className="relative mt-3 space-y-4" onMouseLeave={() => setHovered(null)}>
-      {hovered && heatmapTooltipPosition && (
-        <div
-          className="pointer-events-none absolute z-10 min-w-48 rounded border border-slate/25 bg-white/95 p-2 text-xs shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]/95"
-          style={{ left: heatmapTooltipPosition.left, top: heatmapTooltipPosition.top }}
-        >
-          <p className="font-semibold">Activity</p>
-          <p className="mt-0.5">{hovered.label}</p>
-          <div className="mt-1 flex items-center justify-between gap-4">
-            <span className="text-slate dark:text-slate-300">Posts</span>
-            <span className="font-semibold">{hovered.count}</span>
-          </div>
-          <div className="mt-0.5 flex items-center justify-between gap-4">
-            <span className="text-slate dark:text-slate-300">Intensity</span>
-            <span className="font-semibold">{hovered.intensityPct.toFixed(1)}%</span>
-          </div>
-        </div>
-      )}
-      <div>
-        <p className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
-          Last {data.window_days} Days ({isHourly ? 'Hourly' : 'Daily'})
-        </p>
-        <div className="mt-1 rounded border border-slate/20 bg-white/70 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70">
-          {isHourly ? (
-            <>
-              <div className="mb-1 grid items-center gap-2 text-[10px] text-slate dark:text-slate-300" style={{ gridTemplateColumns: '82px minmax(0, 1fr)' }}>
-                <span />
-                <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}>
-                  {bucketLabels.map((bucketLabel, index) => (
-                    <span key={`${bucketLabel}-${index}`} className="text-center">
-                      {index % 3 === 0 ? bucketLabel.slice(0, 2) : ''}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="max-h-[520px] space-y-1 overflow-auto pr-1">
-                {data.rows.map((row) => (
-                  <div key={row.day} className="grid items-center gap-2" style={{ gridTemplateColumns: '82px minmax(0, 1fr)' }}>
-                    <span className="font-mono text-[11px] text-slate dark:text-slate-300">{formatDateOnly(row.day).slice(0, 5)}</span>
-                    <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}>
-                      {row.counts.slice(0, columnCount).map((count, bucketIndex) => (
-                        <div
-                          key={`${row.day}-${bucketIndex}`}
-                          className="h-4 rounded"
-                          style={heatCellStyle(count, maxCount)}
-                          onMouseMove={(event) => {
-                            const bounds = panelRef.current?.getBoundingClientRect()
-                            if (!bounds) return
-                            const bucketLabel = bucketLabels[bucketIndex] ?? `Bucket ${bucketIndex + 1}`
-                            setHovered({
-                              label: `${formatDateOnly(row.day)} ${bucketLabel}`,
-                              count,
-                              intensityPct: (count / maxCount) * 100,
-                              x: event.clientX - bounds.left,
-                              y: event.clientY - bounds.top,
-                            })
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="pb-1">
-              <div className="grid items-start gap-2" style={{ gridTemplateColumns: '82px minmax(0, 1fr)' }}>
-                <div className="mt-5 grid grid-rows-7 gap-1 text-[10px] text-slate dark:text-slate-300">
-                  <span className="h-4 leading-4" />
-                  <span className="h-4 leading-4">Mon</span>
-                  <span className="h-4 leading-4" />
-                  <span className="h-4 leading-4">Wed</span>
-                  <span className="h-4 leading-4" />
-                  <span className="h-4 leading-4">Fri</span>
-                  <span className="h-4 leading-4" />
-                </div>
-
-                <div className="min-w-0 space-y-1">
-                  <div className="grid gap-1 text-[10px] text-slate dark:text-slate-300" style={{ gridTemplateColumns: `repeat(${calendarWeekCount}, minmax(0, 1fr))` }}>
-                    {Array.from({ length: calendarWeekCount }, (_, weekIndex) => (
-                      <span key={`month-${weekIndex}`} className="h-3 overflow-visible leading-3">
-                        {calendar?.monthLabels.get(weekIndex) ?? ''}
-                      </span>
-                    ))}
-                  </div>
-
-                  <div className="grid grid-flow-col grid-rows-7 gap-1" style={{ gridTemplateColumns: `repeat(${calendarWeekCount}, minmax(0, 1fr))` }}>
-                    {(calendar?.cells ?? []).map((cell, index) => {
-                      if (!cell) {
-                        return <div key={`pad-${index}`} className="h-4 rounded bg-transparent" />
-                      }
-                      return (
-                        <div
-                          key={cell.day}
-                          className="h-4 rounded"
-                          style={heatCellStyle(cell.count, maxCount)}
-                          onMouseMove={(event) => {
-                            const bounds = panelRef.current?.getBoundingClientRect()
-                            if (!bounds) return
-                            setHovered({
-                              label: formatDateOnly(cell.day),
-                              count: cell.count,
-                              intensityPct: (cell.count / maxCount) * 100,
-                              x: event.clientX - bounds.left,
-                              y: event.clientY - bounds.top,
-                            })
-                          }}
-                        />
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2 text-[11px] text-slate dark:text-slate-300">
-        <span>Low</span>
-        <div className="h-2 w-28 rounded" style={{ background: 'linear-gradient(90deg, rgba(6,182,212,0.1), rgba(6,182,212,0.95))' }} />
-        <span>High</span>
-      </div>
-    </div>
-  )
-}
-
 function SignalRadarChart({ data }: { data: StatsSignalRadarResponse }) {
   const radarRef = useRef<HTMLDivElement | null>(null)
   const [hoveredCategory, setHoveredCategory] = useState<string | null>(null)
@@ -1047,65 +899,6 @@ function SignalRadarChart({ data }: { data: StatsSignalRadarResponse }) {
       </div>
     </div>
   )
-}
-
-interface DailyCalendarCell {
-  day: string
-  count: number
-}
-
-interface DailyCalendarLayout {
-  cells: Array<DailyCalendarCell | null>
-  weekCount: number
-  monthLabels: Map<number, string>
-}
-
-function buildDailyCalendar(rows: StatsActivityHeatmapResponse['rows']): DailyCalendarLayout {
-  const dayCells: DailyCalendarCell[] = rows.map((row) => ({
-    day: row.day,
-    count: row.counts[0] ?? 0,
-  }))
-
-  if (!dayCells.length) {
-    return { cells: [], weekCount: 0, monthLabels: new Map() }
-  }
-
-  const firstDate = parseIsoDay(dayCells[0].day)
-  const leadingEmpty = firstDate.getUTCDay()
-  const cells: Array<DailyCalendarCell | null> = [...Array.from({ length: leadingEmpty }, () => null), ...dayCells]
-  const weekCount = Math.ceil(cells.length / 7)
-  const trailingEmpty = weekCount * 7 - cells.length
-  if (trailingEmpty > 0) {
-    cells.push(...Array.from({ length: trailingEmpty }, () => null))
-  }
-
-  const monthLabels = new Map<number, string>()
-  let lastMonthKey = ''
-  for (let weekIndex = 0; weekIndex < weekCount; weekIndex += 1) {
-    const weekStart = weekIndex * 7
-    const candidate = cells.slice(weekStart, weekStart + 7).find((entry): entry is DailyCalendarCell => Boolean(entry))
-    if (!candidate) continue
-    const candidateDate = parseIsoDay(candidate.day)
-    const monthKey = `${candidateDate.getUTCFullYear()}-${candidateDate.getUTCMonth()}`
-    if (monthKey === lastMonthKey) continue
-    monthLabels.set(weekIndex, new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' }).format(candidateDate))
-    lastMonthKey = monthKey
-  }
-
-  return { cells, weekCount, monthLabels }
-}
-
-function parseIsoDay(value: string): Date {
-  return new Date(`${value}T00:00:00Z`)
-}
-
-function heatCellStyle(count: number, maxCount: number) {
-  if (count <= 0) {
-    return { backgroundColor: 'rgba(148, 163, 184, 0.14)' }
-  }
-  const intensity = Math.min(1, count / Math.max(1, maxCount))
-  const alpha = 0.2 + intensity * 0.75
-  return { backgroundColor: `rgba(6, 182, 212, ${alpha.toFixed(3)})` }
 }
 
 function formatCategoryLabel(category: string) {

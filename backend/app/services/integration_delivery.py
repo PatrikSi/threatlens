@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.automation_executions import tracked_action_delivery
+
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -173,12 +175,12 @@ def claim_integration_delivery(
         side_effect_possible = interrupt_running_attempt(
             db, delivery=delivery, now=current_time
         )
-        if delivery.connector_type == "smtp" and side_effect_possible is not False:
+        if (delivery.connector_type == "smtp" or tracked_action_delivery(delivery)) and side_effect_possible is not False:
             _dead_letter_without_attempt(
                 delivery,
                 code="unknown_delivery_outcome",
                 message=(
-                    "The SMTP worker stopped after delivery began, so message acceptance "
+                    "The delivery worker stopped after delivery began, so receiver acceptance "
                     "is unknown. Replay the delivery explicitly to avoid an automatic duplicate."
                 ),
                 now=current_time,
@@ -503,7 +505,8 @@ def record_integration_delivery_unknown_outcome(
         else {}
     )
     marker = attempt_response.get("external_side_effect_possible")
-    known_pre_side_effect = delivery.connector_type == "smtp" and marker is False
+    requires_reconciliation = delivery.connector_type == "smtp" or tracked_action_delivery(delivery)
+    known_pre_side_effect = requires_reconciliation and marker is False
     external_side_effect_possible = not known_pre_side_effect
     return finalize_integration_delivery(
         db,
@@ -513,7 +516,7 @@ def record_integration_delivery_unknown_outcome(
         duration_ms=None,
         error_code=("worker_preflight_error" if known_pre_side_effect else error_code),
         error_message=error_message,
-        retryable=delivery.connector_type != "smtp" or known_pre_side_effect,
+        retryable=not requires_reconciliation or known_pre_side_effect,
         affect_circuit=False,
         response_json={
             "delivery_outcome": (
@@ -802,19 +805,21 @@ def ensure_webhook_delivery(
             if db.get(IntegrationDelivery, legacy_delivery.id) is None
             else uuid.uuid4()
         )
+        source_delivery_id = _generic_source_delivery_id(db, legacy_delivery)
+        source_delivery = db.get(IntegrationDelivery, source_delivery_id) if source_delivery_id else None
         delivery = IntegrationDelivery(
             id=delivery_id,
             integration_id=instance.id,
             subscription_id=subscription.id,
-            event_id=event_id,
+            event_id=event_id or (source_delivery.event_id if source_delivery else None),
             owner_user_id=legacy_delivery.user_id,
-            source_delivery_id=_generic_source_delivery_id(db, legacy_delivery),
+            source_delivery_id=source_delivery_id,
             connector_type="webhook",
             event_type=legacy_delivery.event_type_snapshot,
             delivery_kind=legacy_delivery.delivery_kind,
             state=legacy_delivery.delivery_state,
             idempotency_key=f"legacy-webhook-delivery:{legacy_delivery.id}",
-            payload_json={"legacy_webhook_delivery_id": str(legacy_delivery.id)},
+            payload_json={**(source_delivery.payload_json if source_delivery else {}), "legacy_webhook_delivery_id": str(legacy_delivery.id)},
             attempt_count=max(0, int(legacy_delivery.attempt_count or 0)),
             max_attempts=max(1, int(settings.notification_delivery_retry_max_attempts)),
             not_before=legacy_delivery.not_before,

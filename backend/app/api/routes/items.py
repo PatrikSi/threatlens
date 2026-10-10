@@ -40,6 +40,8 @@ from app.schemas.item import (
     StarUpdateRequest,
 )
 from app.services.audit import record_audit
+from app.services.ai_extraction import item_extraction_response
+from app.services.ai_extraction_sections import extraction_progress_response
 from app.services.article_preview import (
     article_preview_response_headers,
     ArticlePreviewFetchError,
@@ -346,6 +348,9 @@ def get_item(
     enrichment = db.scalar(
         select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item_id)
     )
+    structured_extraction, structured_extraction_stale = item_extraction_response(
+        enrichment, item=item, article=article,
+    )
     state = (
         db.scalar(
             select(ItemState).where(
@@ -423,6 +428,9 @@ def get_item(
             model=enrichment.model,
             generated_at=enrichment.generated_at,
             error=enrichment.error,
+            structured_extraction=structured_extraction,
+            structured_extraction_stale=structured_extraction_stale,
+            extraction_progress=extraction_progress_response(enrichment.extraction_progress_json),
         )
         if enrichment
         else None,
