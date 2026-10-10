@@ -78,7 +78,7 @@ function setInputValue(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
-async function mountLogin() {
+async function mountLogin(credentials = { email: 'next-user@example.com', password: 'isolated-password' }) {
   window.localStorage.clear()
   window.sessionStorage.clear()
   invalidateSession()
@@ -93,7 +93,7 @@ async function mountLogin() {
     const path = new URL(String(input), 'http://threatlens.local').pathname.replace(/^\/(?:api\/)?v1/, '')
     requests.push(path)
     if (path === '/auth/login' && options?.method === 'POST') {
-      expect(JSON.parse(String(options.body))).toEqual({ email: 'next-user@example.com', password: 'isolated-password' })
+      expect(JSON.parse(String(options.body))).toEqual(credentials)
       return abortAware(loginResponse.promise, options.signal).then(jsonResponse)
     }
     if (path === '/auth/me') {
@@ -158,14 +158,25 @@ async function mountLogin() {
   originalClient.setQueryData(['auth', 'me', 0], currentUser('previous-user'))
   originalClient.setQueryData(['private-work'], 'Previous session private work')
 
-  async function authenticate() {
+  async function submitCredentials(values = credentials) {
     act(() => {
-      setInputValue(container!.querySelector<HTMLInputElement>('#login-email')!, 'next-user@example.com')
-      setInputValue(container!.querySelector<HTMLInputElement>('#login-password')!, 'isolated-password')
+      setInputValue(container!.querySelector<HTMLInputElement>('#login-email')!, values.email)
+      setInputValue(container!.querySelector<HTMLInputElement>('#login-password')!, values.password)
     })
-    act(() => {
-      container!.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    const form = container!.querySelector('form')!
+    const submitted = vi.fn()
+    form.addEventListener('submit', submitted, { once: true })
+    await act(async () => {
+      container!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click()
+      await Promise.resolve()
     })
+    return {
+      constraintAdmitted: form.checkValidity(),
+      submitEvents: submitted.mock.calls.length,
+      loginRequests: requests.filter((path) => path === '/auth/login').length,
+    }
+  }
+  async function completeAuthentication() {
     await act(async () => {
       await vi.waitFor(() => expect(requests.filter((path) => path === '/auth/login')).toHaveLength(1))
       loginResponse.resolve({ token_type: 'session_cookie' })
@@ -176,16 +187,41 @@ async function mountLogin() {
       await vi.waitFor(() => expect(requests).toContain('/auth/me'))
     })
   }
+  async function authenticate() {
+    expect(await submitCredentials()).toEqual({ constraintAdmitted: true, submitEvents: 1, loginRequests: 1 })
+    await completeAuthentication()
+  }
   async function verifyNewIdentity() {
     await act(async () => {
       userResponse.resolve(currentUser('next-user'))
       await vi.waitFor(() => expect(container?.textContent).toContain('Verified destination /start: next-user'))
     })
   }
-  return { originalClient, loginMounts, protectedCommits, authenticate, verifyNewIdentity, currentClient: () => activeClient }
+  return { originalClient, loginMounts, protectedCommits, authenticate, submitCredentials, completeAuthentication, verifyNewIdentity, currentClient: () => activeClient }
 }
 
 describe('Login navigation with the production session boundary', () => {
+  it.each(['reviéw@example.com', 'review@éxample.com', '🔒@example.com'])(
+    'submits the backend-valid Unicode identity %s through the real credential form',
+    async (email) => {
+      const view = await mountLogin({ email, password: 'isolated-password' })
+      expect(await view.submitCredentials()).toEqual({ constraintAdmitted: true, submitEvents: 1, loginRequests: 1 })
+      await view.completeAuthentication()
+      expect(view.currentClient()).not.toBe(view.originalClient)
+      await view.verifyNewIdentity()
+      expect(router?.state.location.pathname).toBe('/start')
+      expect(view.currentClient().getQueryData(['private-work'])).toBeUndefined()
+    },
+  )
+
+  it.each(['email', 'password'] as const)('keeps an empty %s from submitting credentials', async (field) => {
+    const view = await mountLogin()
+    const credentials = { email: 'next-user@example.com', password: 'isolated-password', [field]: '' }
+    expect(await view.submitCredentials(credentials)).toEqual({ constraintAdmitted: false, submitEvents: 0, loginRequests: 0 })
+    expect(router?.state.location.pathname).toBe('/login')
+    expect(view.currentClient()).toBe(view.originalClient)
+  })
+
   it('does not commit a fresh credential form after successful authentication before the destination renders', async () => {
     const view = await mountLogin()
     expect(view.loginMounts.map((mount) => mount.sessionVersion)).toEqual([0])

@@ -68,7 +68,8 @@ Bootstrap escapes custom credentials for Compose, preserving literal dollar
 signs, quotes and backslashes. Keep the generated file private.
 Use a valid email address; special-use domains such as `.test` and `.invalid`
 cannot sign in. Administrator seeding validates and normalizes the address
-with the same email schema as login before opening a database session.
+with the same credential schema as login before opening a database session.
+Passwords must contain 1–256 characters without carriage returns or line feeds.
 
 For a production or internet-facing deployment, review `.env.example` and replace any local-only settings before first startup.
 

@@ -59,7 +59,7 @@
 | `EXPOSE_API_DOCS_IN_PRODUCTION` (`expose_api_docs_in_production`) | `false` | Keeps `/docs` and `/redoc` disabled by default in production. |
 | `EXPOSE_OPENAPI_SCHEMA_IN_PRODUCTION` (`expose_openapi_schema_in_production`) | `true` | Keeps the machine-readable OpenAPI contract available at `/openapi.json` by default. Set to `false` if the schema is distributed only as a checked-in artifact. |
 | `ADMIN_EMAIL` (`admin_email`) | `admin@example.com` | Seed admin identity. When seeding runs, the login email schema validates and normalizes it before database access; invalid or special-use domains fail with an actionable error. |
-| `ADMIN_PASSWORD` (`admin_password`) | `admin123` | Seed admin password. |
+| `ADMIN_PASSWORD` (`admin_password`) | `admin123` | Seed admin password; 1–256 characters with no carriage returns or line feeds. Seeding validates both login fields before opening a database session. |
 | `FETCH_USER_AGENT` (`fetch_user_agent`) | `ThreatLensBot/1.0 (+https://localhost)` | User-Agent for feed/article HTTP requests. |
 | `FEED_CONNECT_TIMEOUT_SECONDS` (`feed_connect_timeout_seconds`) | `5` | Feed HTTP connect timeout. |
 | `FEED_READ_TIMEOUT_SECONDS` (`feed_read_timeout_seconds`) | `15` | Feed HTTP read timeout. |
@@ -242,6 +242,9 @@ lifecycle**. Restarting with different environment values does not overwrite the
 catalog, and missing or partial rows fail closed instead of being recreated.
 
 ## Production Validation Rules
+
+Invalid settings block startup; validation messages identify failed fields and
+rules without printing the supplied settings dictionary.
 
 When `APP_ENV` is `production` or `prod`:
 
