@@ -1,0 +1,301 @@
+{
+  "failures": [],
+  "healthy_count": 10,
+  "http_checks": {
+    "/api/openapi.json": {
+      "content_type": "application/json",
+      "http_status": 200,
+      "response_bytes": 948606,
+      "semantic_check_passed": true,
+      "status": "passed"
+    },
+    "/api/v1/health/ready": {
+      "content_type": "application/json",
+      "http_status": 200,
+      "response_bytes": 11,
+      "semantic_check_passed": true,
+      "status": "passed"
+    }
+  },
+  "images": {
+    "backend": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+    "web": "sha256:5793441258dec702b2ff54c25d86dae35b2ef1cfa88e628eee0476f4f273a9a6"
+  },
+  "kind": "independent_resumed_current_point_in_time_readiness",
+  "manifest_guard_passed": true,
+  "manifest_sha256": "053fb03b46398b5db14705f43b1231bf23220475bbc093e54ca63cceab2ce71b",
+  "observed_at_utc": "2026-10-10T16:18:35.309339+00:00",
+  "running_count": 11,
+  "schema_version": 1,
+  "scope": "Read-only exact owned synthetic project, current selected state/resources and two independent bounded loopback reads. Historical seven Beat restarts remain preserved separately; this point-in-time observation does not erase that history.",
+  "service_count": 12,
+  "services": {
+    "api": {
+      "checks": {
+        "health": true,
+        "image": true,
+        "no_oom": true,
+        "resources": true,
+        "state": true,
+        "zero_restarts": true
+      },
+      "cpu_nanos": 500000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "oom_killed": false,
+      "pids_limit": 256,
+      "read_only": true,
+      "restarts": 0,
+      "running": true,
+      "status": "passed"
+    },
+    "beat": {
+      "checks": {
+        "health": true,
+        "image": true,
+        "no_oom": true,
+        "resources": true,
+        "state": true,
+        "zero_restarts": true
+      },
+      "cpu_nanos": 250000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+      "memory_bytes": 335544320,
+      "memory_swap_bytes": 335544320,
+      "oom_killed": false,
+      "pids_limit": 96,
+      "read_only": true,
+      "restarts": 0,
+      "running": true,
+      "status": "passed"
+    },
+    "db": {
+      "checks": {
+        "health": true,
+        "image": true,
+        "no_oom": true,
+        "resources": true,
+        "state": true,
+        "zero_restarts": true
+      },
+      "cpu_nanos": 500000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:b6ccf02e9b47eac0d67b5eaa0ef56fd59163bffa5506f64e96ceb5053130ec86",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "oom_killed": false,
+      "pids_limit": 256,
+      "read_only": true,
+      "restarts": 0,
+      "running": true,
+      "status": "passed"
+    },
+    "migrate": {
+      "checks": {
+        "health": true,
+        "image": true,
+        "no_oom": true,
+        "resources": true,
+        "state": true,
+        "zero_restarts": true
+      },
+      "cpu_nanos": 1000000000,
+      "exit_code": 0,
+      "health": null,
+      "image_id": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "oom_killed": false,
+      "pids_limit": 64,
+      "read_only": true,
+      "restarts": 0,
+      "running": false,
+      "status": "passed"
+    },
+    "redis": {
+      "checks": {
+        "health": true,
+        "image": true,
+        "no_oom": true,
+        "resources": true,
+        "state": true,
+        "zero_restarts": true
+      },
+      "cpu_nanos": 250000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
+      "memory_bytes": 134217728,
+      "memory_swap_bytes": 134217728,
+      "oom_killed": false,
+      "pids_limit": 128,
+      "read_only": true,
+      "restarts": 0,
+      "running": true,
+      "status": "passed"
+    },
+    "review-source": {
+      "checks": {
+        "health": true,
+        "image": true,
+        "no_oom": true,
+        "resources": true,
+        "state": true,
+        "zero_restarts": true
+      },
+      "cpu_nanos": 100000000,
+      "exit_code": 0,
+      "health": null,
+      "image_id": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+      "memory_bytes": 67108864,
+      "memory_swap_bytes": 67108864,
+      "oom_killed": false,
+      "pids_limit": 32,
+      "read_only": true,
+      "restarts": 0,
+      "running": true,
+      "status": "passed"
+    },
+    "web": {
+      "checks": {
+        "health": true,
+        "image": true,
+        "no_oom": true,
+        "resources": true,
+        "state": true,
+        "zero_restarts": true
+      },
+      "cpu_nanos": 250000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:5793441258dec702b2ff54c25d86dae35b2ef1cfa88e628eee0476f4f273a9a6",
+      "memory_bytes": 134217728,
+      "memory_swap_bytes": 134217728,
+      "oom_killed": false,
+      "pids_limit": 64,
+      "read_only": true,
+      "restarts": 0,
+      "running": true,
+      "status": "passed"
+    },
+    "worker": {
+      "checks": {
+        "health": true,
+        "image": true,
+        "no_oom": true,
+        "resources": true,
+        "state": true,
+        "zero_restarts": true
+      },
+      "cpu_nanos": 500000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "oom_killed": false,
+      "pids_limit": 256,
+      "read_only": true,
+      "restarts": 0,
+      "running": true,
+      "status": "passed"
+    },
+    "worker-ai": {
+      "checks": {
+        "health": true,
+        "image": true,
+        "no_oom": true,
+        "resources": true,
+        "state": true,
+        "zero_restarts": true
+      },
+      "cpu_nanos": 250000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "oom_killed": false,
+      "pids_limit": 128,
+      "read_only": true,
+      "restarts": 0,
+      "running": true,
+      "status": "passed"
+    },
+    "worker-exports": {
+      "checks": {
+        "health": true,
+        "image": true,
+        "no_oom": true,
+        "resources": true,
+        "state": true,
+        "zero_restarts": true
+      },
+      "cpu_nanos": 250000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "oom_killed": false,
+      "pids_limit": 128,
+      "read_only": true,
+      "restarts": 0,
+      "running": true,
+      "status": "passed"
+    },
+    "worker-maintenance": {
+      "checks": {
+        "health": true,
+        "image": true,
+        "no_oom": true,
+        "resources": true,
+        "state": true,
+        "zero_restarts": true
+      },
+      "cpu_nanos": 250000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "oom_killed": false,
+      "pids_limit": 128,
+      "read_only": true,
+      "restarts": 0,
+      "running": true,
+      "status": "passed"
+    },
+    "worker-notifications": {
+      "checks": {
+        "health": true,
+        "image": true,
+        "no_oom": true,
+        "resources": true,
+        "state": true,
+        "zero_restarts": true
+      },
+      "cpu_nanos": 250000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "oom_killed": false,
+      "pids_limit": 256,
+      "read_only": true,
+      "restarts": 0,
+      "running": true,
+      "status": "passed"
+    }
+  },
+  "source_contract_guard_passed": true,
+  "source_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "status": "passed"
+}
