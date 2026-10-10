@@ -993,7 +993,8 @@ function CreateUserForm({
             onChange((current) => ({ ...current, email: event.target.value }))
           }
           className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
-          type="email"
+          type="text"
+          inputMode="email"
           autoComplete="off"
           required
         />
