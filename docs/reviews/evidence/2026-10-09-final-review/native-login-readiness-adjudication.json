@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "application_revision_reviewed": "5f370197e96b944831c7837cb58f470cb004fbfb",
+  "original_driver_sha256": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c",
+  "corrected_driver_sha256": "f5746b89ab1fc074dc180538c6e5868522b3522bd9ab8895a19423bd648f5d1f",
+  "pure_control_source_sha256": "658fb9257d7751af8f547bf97060eaa059545323258579a1dadab82b2d2e1a19",
+  "pure_control_projection_sha256": "8c4bc3dff780197624cea2dc97a6b79872d63bb4905f896e9dd4d36f5d649405",
+  "source_file_sha256": {
+    "scripts/operations/native_ui_review.mjs": "f5746b89ab1fc074dc180538c6e5868522b3522bd9ab8895a19423bd648f5d1f",
+    "web/src/App.tsx": "cee1fd5352fc1fe931b03df9ffb864f51503d9bccdbc56941d5a5c15d101dfa5",
+    "web/src/pages/DashboardPage.tsx": "375c1c12a4bc197443a36b7dd6d12edfae9bd05e9d3ea2d8244fba623991853b",
+    "web/src/pages/DashboardPageView.tsx": "c59b76da4583223d727c88d9392b177e35e91aba3426eee0c0c3fd5863c7b520",
+    "web/src/pages/DashboardToolbar.tsx": "4032ee5c58b91c4c1584fd8fcd80236cbf2c2496843a4f24845ea59e7cd9bdb8",
+    "web/src/components/WorkspaceLandingRedirect.tsx": "f38586a8d5b926dee7897886fedf01fa15dfeff5d04a2670469f7c104240ff5a"
+  },
+  "semantic_readiness_evidence": {
+    "lazy_dashboard_requires_import_before_time_range_control_exists": true,
+    "time_range_control_disabled_until_dashboard_configuration_ready": true,
+    "role_locator_excludes_hidden_duplicate_select": true,
+    "fresh_review_admin_default_workspace_lands_on_dashboard": true,
+    "item_payload_completion_not_claimed": true
+  },
+  "pinned_playwright_lifecycle_evidence": {
+    "version": "1.63.0",
+    "current_document_already_loaded_can_resolve_networkidle_immediately": true,
+    "same_document_navigation_does_not_clear_lifecycle": true,
+    "inflight_requests_can_remove_networkidle_again": true,
+    "semantic_render_not_proved_by_url_or_lifecycle": true
+  },
+  "actual_prior_failure": {
+    "run_id": 38072575289,
+    "result_sha256": "735dd006f09e0a7a4f172a141549eb63b840ea2f03c861f801f857c1e6ac90ea",
+    "checks_passed": 33,
+    "checks_executed": 33,
+    "console_errors": 2,
+    "status": "failed",
+    "cause_proved": false
+  },
+  "scope": {
+    "modified_auxiliary_file_count": 1,
+    "application_files_modified": 0,
+    "workflow_or_source_bindings_modified": 0,
+    "browser_executions": 0,
+    "network_requests": 0,
+    "commits": 0,
+    "pushes": 0,
+    "existing_error_gate_unchanged": true,
+    "original_driver_unchanged_claim_valid_after_correction": false,
+    "requires_fresh_hosted_native_qualification": true
+  }
+}

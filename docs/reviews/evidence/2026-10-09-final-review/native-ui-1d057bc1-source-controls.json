@@ -1,0 +1,113 @@
+{
+  "application_image_source_groups": [
+    {
+      "application_object": "3edc4b2716dc5ec2110a410615bb898118ef63db",
+      "auxiliary_object": "3edc4b2716dc5ec2110a410615bb898118ef63db",
+      "identical": true,
+      "path": "backend/app"
+    },
+    {
+      "application_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "auxiliary_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "identical": true,
+      "path": "backend/alembic"
+    },
+    {
+      "application_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "auxiliary_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "identical": true,
+      "path": "backend/alembic.ini"
+    },
+    {
+      "application_object": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+      "auxiliary_object": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+      "identical": true,
+      "path": "backend/scripts"
+    },
+    {
+      "application_object": "529e143333d0075b32f4c5a51845ad0a0fb57abf",
+      "auxiliary_object": "529e143333d0075b32f4c5a51845ad0a0fb57abf",
+      "identical": true,
+      "path": "backend/compliance"
+    },
+    {
+      "application_object": "991a8472a31f63c8dcdfc22ee735e83b7d03dd26",
+      "auxiliary_object": "991a8472a31f63c8dcdfc22ee735e83b7d03dd26",
+      "identical": true,
+      "path": "backend/.dockerignore"
+    },
+    {
+      "application_object": "53c239ffd4679ce835cd86d122df93ba9a11862a",
+      "auxiliary_object": "53c239ffd4679ce835cd86d122df93ba9a11862a",
+      "identical": true,
+      "path": "backend/requirements-lock.txt"
+    },
+    {
+      "application_object": "73b8e55f452a248483fd118fe2265b09f8f034f1",
+      "auxiliary_object": "73b8e55f452a248483fd118fe2265b09f8f034f1",
+      "identical": true,
+      "path": "backend/requirements.txt"
+    },
+    {
+      "application_object": "9a2239a0ab18b40ff3298882650f30d7bc7d0d08",
+      "auxiliary_object": "9a2239a0ab18b40ff3298882650f30d7bc7d0d08",
+      "identical": true,
+      "path": "web"
+    },
+    {
+      "application_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "auxiliary_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "identical": true,
+      "path": "docker"
+    },
+    {
+      "application_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "auxiliary_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "identical": true,
+      "path": "docker-compose.yml"
+    },
+    {
+      "application_object": "15b1b8a21d80a46680fdf528635b216383285131",
+      "auxiliary_object": "15b1b8a21d80a46680fdf528635b216383285131",
+      "identical": true,
+      "path": "docker-compose.build.yml"
+    },
+    {
+      "application_object": "7ec1d6db40877765247db18e7f9a4e36a0def4ad",
+      "auxiliary_object": "7ec1d6db40877765247db18e7f9a4e36a0def4ad",
+      "identical": true,
+      "path": "VERSION"
+    },
+    {
+      "application_object": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab",
+      "auxiliary_object": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab",
+      "identical": true,
+      "path": "LICENSE"
+    }
+  ],
+  "application_revision": "1d057bc17529af724160c28479ca7d641b725d73",
+  "certificate_sha256": "bc51f6ba81d86302d3e5e911f9f533a1872b39b210b7f3514ffdd5aab3e38656",
+  "config_change_only_docstring": true,
+  "corrected_driver_sha256": "f5746b89ab1fc074dc180538c6e5868522b3522bd9ab8895a19423bd648f5d1f",
+  "driver_change_scope": "Semantic dashboard readiness after login and bounded passive diagnostic correlation. Original33checks, strict error gates, limits and cleanup remain unchanged.",
+  "driver_intentionally_changed": true,
+  "fresh_hosted_qualification_required": true,
+  "helper_changes_limited_to_source_pin_driver_hash_and_error_wording": true,
+  "native_browser_execution_by_controls": false,
+  "native_helpers_frozen_sha256": {
+    "native_ui_config.py": "16ad7af81836d72f2620b4bafeb12a9e5eb22d1c7b119fe0ba19ef659924d283",
+    "native_ui_review.mjs": "f5746b89ab1fc074dc180538c6e5868522b3522bd9ab8895a19423bd648f5d1f",
+    "run_native_ui_qualification.py": "7e2defa3ae18d075403b6439ecea5f33187e88658544311863d8834aa2b67990",
+    "seed_native_ui_review.py": "aa6a959fca9252b8ce8d9441e33f18bd3470874dc5e3af73310fbf2c8f8a6998"
+  },
+  "original_driver_sha256": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c",
+  "prior_console_failure_cause_assigned": false,
+  "prior_native_application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb",
+  "prior_native_result_remains_failed": true,
+  "prior_native_workflow_revision": "5ccb0d4d23aaa3667c2760e3c8b7fd2a7776c1bc",
+  "publisher_preflight_and_permission_correction_preserved": true,
+  "pure_driver_controls_sha256": "8c4bc3dff780197624cea2dc97a6b79872d63bb4905f896e9dd4d36f5d649405",
+  "resource_caps_and_assertion_timeouts_unchanged": true,
+  "schema": "threatlens-final-native-source-controls-v2",
+  "source_guard_count": 14
+}

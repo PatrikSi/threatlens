@@ -1,0 +1,669 @@
+{
+  "actual_disposable_recovery_drills": {
+    "log_sha256": "a925c6864960bd5ff1297bf3443d8892f1bb2b0df2382700c9d4b921e2839348",
+    "scope": "Actual disposable recovery4+source-loss1 cases; no artifact download or operator fault-domain qualification by this capture",
+    "test_summaries": [
+      {
+        "duration_seconds": 170.698,
+        "stage": "unittest",
+        "terminal_summary": "OK",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 4,
+        "tests_run": 4,
+        "tests_skipped": 0
+      },
+      {
+        "duration_seconds": 64.375,
+        "stage": "unittest",
+        "terminal_summary": "OK",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 1,
+        "tests_run": 1,
+        "tests_skipped": 0
+      }
+    ]
+  },
+  "all_quality_checkout_revisions_match_immutable_merge": true,
+  "application_image_revision": "5f370197e96b944831c7837cb58f470cb004fbfb",
+  "backend": {
+    "conclusion": "success",
+    "critical_module_floor_count": 58,
+    "job_id": 114275152833,
+    "log_sha256": "4fcab1bb4afc28a0d48ae3dc1ed33bbb9a39455c890067790eb3b4501152fdf6",
+    "reported_overall_coverage_percent": 87.08,
+    "reported_reporting_coverage_percent": 87.21,
+    "steps": {
+      "Audit Python runtime dependencies": "success",
+      "Checkout repository": "success",
+      "Compile backend": "success",
+      "Complete job": "success",
+      "Enforce critical backend coverage floors": "success",
+      "Enforce source size and backend complexity": "success",
+      "Initialize containers": "success",
+      "Install backend dependencies": "success",
+      "Post Checkout repository": "success",
+      "Post Set up Python": "success",
+      "Run backend tests": "success",
+      "Run isolated concurrent capacity smoke": "success",
+      "Set up Python": "success",
+      "Set up job": "success",
+      "Stop containers": "success",
+      "Upload capacity smoke measurements": "success",
+      "Verify browser preview fixture matches backend policy": "success",
+      "Verify generated API contract": "success",
+      "Verify runtime lockfile": "success"
+    },
+    "test_summaries": [
+      {
+        "counts": {
+          "passed": 4769,
+          "skipped": 5
+        },
+        "duration_seconds": 1311.07,
+        "stage": "pytest"
+      }
+    ]
+  },
+  "browser_totals": {
+    "deliberate_split_skips": 6,
+    "passed": 210,
+    "retry_markers": 0
+  },
+  "browsers": [
+    {
+      "browser_retry_markers": 0,
+      "conclusion": "success",
+      "job_id": 114275152931,
+      "log_sha256": "cbcaf263deee70aeeb858d86ac510d652f9283f49b2db3b9e1b02838191b42e1",
+      "name": "Browser workflows (chromium)",
+      "numeric_test_summaries": [
+        {
+          "count": 49,
+          "duration": 1.3,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_interactions"
+        },
+        {
+          "count": 2,
+          "duration": null,
+          "duration_unit": null,
+          "outcome": "skipped",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 19,
+          "duration": 1.5,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 2,
+          "duration": 48.7,
+          "duration_unit": "s",
+          "outcome": "passed",
+          "stage": "browser_real_server_ai_statistics"
+        }
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "conclusion": "success",
+      "job_id": 114275152975,
+      "log_sha256": "74cc227aa1f1994180cf59539d0c725220f0f72ca6f560fbade67ac224e1fbab",
+      "name": "Browser workflows (webkit)",
+      "numeric_test_summaries": [
+        {
+          "count": 49,
+          "duration": 1.7,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_interactions"
+        },
+        {
+          "count": 2,
+          "duration": null,
+          "duration_unit": null,
+          "outcome": "skipped",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 19,
+          "duration": 1.7,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 2,
+          "duration": 49.9,
+          "duration_unit": "s",
+          "outcome": "passed",
+          "stage": "browser_real_server_ai_statistics"
+        }
+      ]
+    },
+    {
+      "browser_retry_markers": 0,
+      "conclusion": "success",
+      "job_id": 114275153071,
+      "log_sha256": "e580b33f99cf5b33f08689cb8be05d44cd63702ac6cf39a6eb895596fd5a01be",
+      "name": "Browser workflows (firefox)",
+      "numeric_test_summaries": [
+        {
+          "count": 49,
+          "duration": 1.7,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_interactions"
+        },
+        {
+          "count": 2,
+          "duration": null,
+          "duration_unit": null,
+          "outcome": "skipped",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 19,
+          "duration": 1.8,
+          "duration_unit": "m",
+          "outcome": "passed",
+          "stage": "browser_real_server"
+        },
+        {
+          "count": 2,
+          "duration": 52.4,
+          "duration_unit": "s",
+          "outcome": "passed",
+          "stage": "browser_real_server_ai_statistics"
+        }
+      ]
+    }
+  ],
+  "capacity": {
+    "applicable_application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb",
+    "artifact_download_performed_by_capture": false,
+    "baseline_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+    "candidate_revision": "c591c3a8e30a6ef1fc38956317f0b0b41a12285b",
+    "current_public_evidence_sha256": "d1e5b7e7c5a4c44897b662b63518d6e08220d03fa468f193b4add7425bfbf308",
+    "current_run_id": 38070244407,
+    "current_source_capacity_gate_passed": true,
+    "diagnostics_enabled": false,
+    "duration_seconds_per_ref": 600,
+    "final_application_capacity_groups_matching_quality_head": [
+      {
+        "identical": true,
+        "path": "backend",
+        "review_git_object": "6eb396209c7eecfd7bd8bdd312fb20e51ecec218",
+        "tested_git_object": "6eb396209c7eecfd7bd8bdd312fb20e51ecec218"
+      },
+      {
+        "identical": true,
+        "path": ".github/workflows/capacity-trends.yml",
+        "review_git_object": "2f4eb4298f64d040875b38ed33dae0022ad78822",
+        "tested_git_object": "2f4eb4298f64d040875b38ed33dae0022ad78822"
+      },
+      {
+        "identical": true,
+        "path": "scripts/operations/run_capacity_reference.py",
+        "review_git_object": "9a0cdbbaeae3e329ff685a4c535a5609cfe78d1d",
+        "tested_git_object": "9a0cdbbaeae3e329ff685a4c535a5609cfe78d1d"
+      },
+      {
+        "identical": true,
+        "path": "scripts/operations/run_capacity_diagnostic.py",
+        "review_git_object": "b1f962ae2f4bab90346a161b6bb4d5c3b49173a1",
+        "tested_git_object": "b1f962ae2f4bab90346a161b6bb4d5c3b49173a1"
+      },
+      {
+        "identical": true,
+        "path": "scripts/operations/capacity_diagnostics.py",
+        "review_git_object": "a1c8a3010f1dd4dd2a4cc02ebd6b74b76590dd21",
+        "tested_git_object": "a1c8a3010f1dd4dd2a4cc02ebd6b74b76590dd21"
+      },
+      {
+        "identical": true,
+        "path": "scripts/operations/capacity_diagnostics_plugin.py",
+        "review_git_object": "7338b16acafa749ba1ad9e59019f367eeb57632d",
+        "tested_git_object": "7338b16acafa749ba1ad9e59019f367eeb57632d"
+      }
+    ],
+    "measured_path_source_applicability": {
+      "actual_candidate_revision": "c591c3a8e30a6ef1fc38956317f0b0b41a12285b",
+      "actual_capacity_candidate_relabelled": false,
+      "actual_capacity_run_id": 38070244407,
+      "actual_workflow_head_revision": "00e6034e9c1f65eb160b3e2772046252485020fe",
+      "all_other_backend_objects_identical": true,
+      "applicable_application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb",
+      "backend_objects_compared_after_exceptions": 1285,
+      "backend_source_exception_paths": [
+        "backend/app/core/config.py",
+        "backend/app/scripts/seed_admin.py",
+        "backend/tests/unit/test_config.py",
+        "backend/tests/unit/test_seed_admin.py"
+      ],
+      "baseline_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+      "browser_calls": 0,
+      "capacity_operations_groups": [
+        {
+          "identical": true,
+          "object": "2f4eb4298f64d040875b38ed33dae0022ad78822",
+          "path": ".github/workflows/capacity-trends.yml"
+        },
+        {
+          "identical": true,
+          "object": "9a0cdbbaeae3e329ff685a4c535a5609cfe78d1d",
+          "path": "scripts/operations/run_capacity_reference.py"
+        },
+        {
+          "identical": true,
+          "object": "b1f962ae2f4bab90346a161b6bb4d5c3b49173a1",
+          "path": "scripts/operations/run_capacity_diagnostic.py"
+        },
+        {
+          "identical": true,
+          "object": "a1c8a3010f1dd4dd2a4cc02ebd6b74b76590dd21",
+          "path": "scripts/operations/capacity_diagnostics.py"
+        },
+        {
+          "identical": true,
+          "object": "7338b16acafa749ba1ad9e59019f367eeb57632d",
+          "path": "scripts/operations/capacity_diagnostics_plugin.py"
+        }
+      ],
+      "capacity_result_pass_claimed": false,
+      "capacity_result_status_changed": false,
+      "diagnostics_enabled": false,
+      "dispatches": 0,
+      "docker_calls": 0,
+      "duration_seconds_per_ref": 600,
+      "filtered_backend_tree_sha256": "47b30884a458b56a7d2fd9a438dee19c505c0ef9ea3086d45ccd151d67a24a9d",
+      "network_calls": 0,
+      "new_unit_modules_imported_by_capacity_fixtures": false,
+      "new_unit_modules_selected_by_capacity_pytest": false,
+      "original_capacity_artifact_requires_independent_actual_terminal_capture": true,
+      "regression_threshold_percent": 20,
+      "release_clearance": false,
+      "schema": "threatlens-capacity-measured-path-applicability-v1",
+      "scope": "Applicability covers only the unchanged sustained workload and valid settings semantics. New bootstrap validation and invalid settings error rendering require their own regression checks and fresh native images.",
+      "seed_path_adjudication_sha256": "b7abecf77e896dd74b1b68380e17b05718a5b49521772bfc445b6720cc1124c7",
+      "seed_transaction_ast_proof": {
+        "changed_seed_module_unexecuted_in_sustained_capacity": true,
+        "database_transaction_ast_identical": true,
+        "database_transaction_ast_sha256": "29db516a857f5a78c535821cca865adc88ab9935492d853894cfb60dca1d15c1"
+      },
+      "settings_flag_ast_proof": {
+        "after_value": true,
+        "all_fields_defaults_and_validators_identical": true,
+        "before_effective_value": false,
+        "complete_module_ast_identical_after_only_flag_removal": true,
+        "normalized_module_ast_sha256": "e13bb8fe7f8716b78ad7be695c8b4f736129c57b71fd9c241b4984c8551f8e41",
+        "only_config_keyword": "hide_input_in_errors",
+        "settings_class_body_nodes": 247
+      },
+      "status": "measured_path_source_applicability_proved",
+      "valid_settings_equivalence": {
+        "all_fields_set_equal": true,
+        "all_json_schemas_equal": true,
+        "all_model_dumps_equal": true,
+        "database_or_network_execution": false,
+        "flag_scope_documented_as_error_rendering_only": true,
+        "installed_pydantic_config_source_sha256": "b8f4e740e0ada024ac981600f32501cfce0f6fc2452ddec4448c050a18f961a6",
+        "locked_packages": {
+          "pydantic": "2.13.4",
+          "pydantic-settings": "2.10.1",
+          "pydantic_core": "2.46.4"
+        },
+        "operator_settings_read": false,
+        "original_exit": 0,
+        "seed_admin_default_remains_false": true,
+        "valid_synthetic_settings_cases": 3
+      },
+      "whole_backend_tree_equality_claimed": false
+    },
+    "measured_path_source_applicability_sha256": "e0cb1a3b6185b32a816d3b6eff05bc62a860602950e5a6461d7a4a2b3a7b8d63",
+    "prior_failed_run_ids": [
+      37876316405,
+      37880757288,
+      37885492555,
+      37888628612,
+      37903114128
+    ],
+    "prior_pass": {
+      "baseline_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+      "candidate_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+      "outcome": "passed",
+      "public_evidence_sha256": "878421b7247477456e11e6fa415e6d45ccccb513b2c39e6830064fd30a727447",
+      "run_id": 37914335157,
+      "scope": "Historical aa92 PASS; does not substitute for the actual C capacity result or its explicit D applicability proof",
+      "workflow_head_revision": "aa92f8e7f9baf495f02c9bce89160b7a02f39514"
+    },
+    "regression_threshold_percent": 20,
+    "scope": "Actual capacity candidate C run38070244407 and workflow F labels are unchanged. Applicability to D is bounded by the explicit four-backend-exception measured-path proof; final quality H matches D. Prior aa92 run37914335157 remains explicitly historical. No capacity API call, observer, artifact capture or dispatch occurs in quality helpers.",
+    "workflow_head_revision": "00e6034e9c1f65eb160b3e2772046252485020fe"
+  },
+  "codeql_aggregate": [
+    {
+      "annotation_levels": {},
+      "annotations_count": 0,
+      "captured_annotations_count": 0,
+      "completed_at": "2026-10-10T17:51:53Z",
+      "conclusion": "neutral",
+      "head_sha": "7fe8cbad19f925200d9ca45c0646fe9653445381",
+      "historical_configuration_warning_present": true,
+      "html_url": "https://github.com/PatrikSi/threatlens/runs/114275470892",
+      "id": 114275470892,
+      "name": "CodeQL",
+      "started_at": "2026-10-10T17:51:50Z",
+      "status": "completed"
+    }
+  ],
+  "codeql_analysis_summaries": [
+    {
+      "analysis_id": 1929277171,
+      "category": ".github/workflows/quality-gates.yml:codeql/language:javascript-typescript",
+      "code_flow_result_count": 0,
+      "commit_revision": "fba5e663caa70ced6ce0ffec241d5e9e7ce85078",
+      "evaluated_rule_count": 87,
+      "result_count": 1,
+      "rule_result_counts": {
+        "js/incomplete-url-scheme-check": 1
+      },
+      "sarif_sha256": "b3144252e1ffd68ef3180679209a46f688cf2f9d2e1046c7316ae16fbc3c9830"
+    },
+    {
+      "analysis_id": 1929279800,
+      "category": ".github/workflows/quality-gates.yml:codeql/language:python",
+      "code_flow_result_count": 22,
+      "commit_revision": "fba5e663caa70ced6ce0ffec241d5e9e7ce85078",
+      "evaluated_rule_count": 43,
+      "result_count": 25,
+      "rule_result_counts": {
+        "py/clear-text-logging-sensitive-data": 6,
+        "py/clear-text-storage-sensitive-data": 1,
+        "py/incomplete-url-substring-sanitization": 2,
+        "py/insecure-protocol": 1,
+        "py/path-injection": 10,
+        "py/weak-sensitive-data-hashing": 5
+      },
+      "sarif_sha256": "777e53a978f3877bf82f57153857c0088bd6f7e5b1b901e292ec3603a93bf722"
+    }
+  ],
+  "codeql_open_alert_counts": {
+    "current_pull_request": 10,
+    "repository_default_branch_listing": 11
+  },
+  "codeql_scope": "Actual current-source language analyses and separate aggregate outcome are recorded without assuming zero findings or a neutral result. Prior dispositions are retained; PR and default-main listings have distinct source scope.",
+  "containers": [
+    {
+      "built_image_ids": {
+        "threatlens-backend:dev": "sha256:e22282f321975dbd2a80ce7f966513af0119cec7e38fd69c338f5253b21f0363",
+        "threatlens-web:dev": "sha256:c7f95919184e9c7b7c459cad7f6fba542b4246031a4364b5bbb022a5eee32e1a"
+      },
+      "conclusion": "success",
+      "image_scan_summaries": [
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-backend:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 95,
+          "target_type_counts": {
+            "debian": 1,
+            "python-pkg": 94
+          }
+        },
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-web:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 1,
+          "target_type_counts": {
+            "alpine": 1
+          }
+        }
+      ],
+      "job_id": 114275152930,
+      "log_sha256": "a018cc92272cfd600d83989c258e4e3ebfeb9bbad535ab6c4213a53a85f89985",
+      "name": "Container smoke and image scan (amd64)",
+      "smoke_and_scan_steps": {
+        "Build and start stack": "success",
+        "Scan backend image": "success",
+        "Scan web image": "success",
+        "Stop stack": "success",
+        "Verify access logs omit sensitive query values": "success",
+        "Verify bootstrap administrator login": "success",
+        "Verify bounded editorial uploads through the proxy": "success",
+        "Verify checked-in dependency and legal artifacts": "success",
+        "Verify legacy and hardened web image startup": "success",
+        "Verify running stack": "success"
+      }
+    },
+    {
+      "built_image_ids": {
+        "threatlens-backend:dev": "sha256:310059f5e9b1bec8bf69c022e5adfd64395f1e795cf8738b8d42ce6971a0f966",
+        "threatlens-web:dev": "sha256:7a216f97b24a5aca982668db70e783a7a4cf39879148574dd5e4f4fe3b0974e5"
+      },
+      "conclusion": "success",
+      "image_scan_summaries": [
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-backend:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 95,
+          "target_type_counts": {
+            "debian": 1,
+            "python-pkg": 94
+          }
+        },
+        {
+          "failure_exit_code": 1,
+          "image": "threatlens-web:dev",
+          "secrets_scanned": false,
+          "selected_severities": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "selected_vulnerability_count": 0,
+          "target_count": 1,
+          "target_type_counts": {
+            "alpine": 1
+          }
+        }
+      ],
+      "job_id": 114275153012,
+      "log_sha256": "2e8c0549588059610678813a8432ebc3f347cb0270ac0514067d0130035aa82e",
+      "name": "Container smoke and image scan (arm64)",
+      "smoke_and_scan_steps": {
+        "Build and start stack": "success",
+        "Scan backend image": "success",
+        "Scan web image": "success",
+        "Stop stack": "success",
+        "Verify access logs omit sensitive query values": "success",
+        "Verify bootstrap administrator login": "success",
+        "Verify bounded editorial uploads through the proxy": "success",
+        "Verify checked-in dependency and legal artifacts": "skipped",
+        "Verify legacy and hardened web image startup": "success",
+        "Verify running stack": "success"
+      }
+    }
+  ],
+  "frontend": {
+    "frontend_test_files_passed": 165,
+    "frontend_test_files_total": 165,
+    "frontend_tests_passed": 1386,
+    "frontend_tests_total": 1386,
+    "log_sha256": "1066ec9c2e5478deb9af94c3ad672fa188da5b6fdd4b01b0e14f8d2047381c6e",
+    "npm_audit_vulnerability_counts": null,
+    "npm_security_audit_pass_marker": false
+  },
+  "kind": "credential-contract-final_quality_public_projection",
+  "limitations": [
+    "Current exact-source quality remains separate from historical quality failures and all retained failed capacity pairs",
+    "ARM64 legal/dependency inventory is deliberately skipped; AMD64 performs it",
+    "This quality-only projection performs no capacity API call, dispatch, artifact download, merge, tag, publication or model promotion. Actual C/F capacity labels are retained from the verified local public evidence; applicability to D requires the separately pinned measured-path proof. Prior aa92 PASS stays unchanged."
+  ],
+  "quality_job_counts": {
+    "failed": 1,
+    "passed": 14,
+    "skipped": 0,
+    "total": 15
+  },
+  "quality_jobs": [
+    {
+      "conclusion": "success",
+      "job_id": 114275152654,
+      "log_sha256": "5d756adb460a25988000cf6b70eae4eb544a0b143fd7333a72d9b59932cbd72e",
+      "name": "OpenSearch connector vendor contract"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 114275152833,
+      "log_sha256": "4fcab1bb4afc28a0d48ae3dc1ed33bbb9a39455c890067790eb3b4501152fdf6",
+      "name": "Backend tests and contract"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 114275152846,
+      "log_sha256": "0ccfdf8b2fe0810cc62172885647c661bd1101ea816c666acf67f81e0a94f97d",
+      "name": "CodeQL (python)"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 114275152860,
+      "log_sha256": "4b36a60c57e450fdfe3975f66b4cd84b4b0c73ae10a8e50833395dfa0c7a3068",
+      "name": "MCP protocol and pinned SDK interoperability"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 114275152866,
+      "log_sha256": "bb3e865faa5b1641a0b39ce8725852925236cfd09bf86dacd3d9c9d5f21bd600",
+      "name": "Recovery tooling tests"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 114275152930,
+      "log_sha256": "a018cc92272cfd600d83989c258e4e3ebfeb9bbad535ab6c4213a53a85f89985",
+      "name": "Container smoke and image scan (amd64)"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 114275152931,
+      "log_sha256": "cbcaf263deee70aeeb858d86ac510d652f9283f49b2db3b9e1b02838191b42e1",
+      "name": "Browser workflows (chromium)"
+    },
+    {
+      "conclusion": "failure",
+      "job_id": 114275152934,
+      "log_sha256": "1066ec9c2e5478deb9af94c3ad672fa188da5b6fdd4b01b0e14f8d2047381c6e",
+      "name": "Frontend tests and build"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 114275152947,
+      "log_sha256": "144fd6c1b117d326968d3f1250a1f5883dad15cd1b85a8f73ac95b4b5adcb30f",
+      "name": "CodeQL (javascript-typescript)"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 114275152975,
+      "log_sha256": "74cc227aa1f1994180cf59539d0c725220f0f72ca6f560fbade67ac224e1fbab",
+      "name": "Browser workflows (webkit)"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 114275152981,
+      "log_sha256": "e29f92da929249f338f3fc974f6ea6e453add5292db972d5d97c8edf84fb2a7a",
+      "name": "Repository diff hygiene"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 114275153008,
+      "log_sha256": "5a13525b1cdab220a60a37e57ae430b0de9084105c044e49c56eb8387eaaabc8",
+      "name": "PostgreSQL migration round trip"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 114275153012,
+      "log_sha256": "2e8c0549588059610678813a8432ebc3f347cb0270ac0514067d0130035aa82e",
+      "name": "Container smoke and image scan (arm64)"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 114275153071,
+      "log_sha256": "e580b33f99cf5b33f08689cb8be05d44cd63702ac6cf39a6eb895596fd5a01be",
+      "name": "Browser workflows (firefox)"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 114275739608,
+      "log_sha256": "a925c6864960bd5ff1297bf3443d8892f1bb2b0df2382700c9d4b921e2839348",
+      "name": "Disposable PostgreSQL recovery drill"
+    }
+  ],
+  "quality_run": {
+    "conclusion": "failure",
+    "event": "pull_request",
+    "run_attempt": 1,
+    "run_id": 38073357452,
+    "status": "completed",
+    "url": "https://github.com/PatrikSi/threatlens/actions/runs/38073357452"
+  },
+  "recovery_tooling": {
+    "log_sha256": "bb3e865faa5b1641a0b39ce8725852925236cfd09bf86dacd3d9c9d5f21bd600",
+    "skip_scope": "Four recovery Docker opt-in unit cases and one source-loss operations opt-in case skipped; actual disposable4+1drills are separate",
+    "test_summaries": [
+      {
+        "duration_seconds": 156.092,
+        "stage": "unittest",
+        "terminal_summary": "OK (skipped=4)",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 123,
+        "tests_run": 127,
+        "tests_skipped": 4
+      },
+      {
+        "duration_seconds": 1.226,
+        "stage": "unittest",
+        "terminal_summary": "OK (skipped=1)",
+        "test_errors": 0,
+        "test_failures": 0,
+        "tests_passed": 152,
+        "tests_run": 153,
+        "tests_skipped": 1
+      }
+    ]
+  },
+  "release_clearance": false,
+  "schema_version": 1,
+  "source_applicability": {
+    "application_and_image_inputs_match_frozen_runtime": true,
+    "application_tree": "51e0fbf4d7fd8aef595b91db873dbe268f8e9ca7",
+    "head_tree": "451df8d1e006d9997b66908856f8b61acb0477ec",
+    "merge_tree": "451df8d1e006d9997b66908856f8b61acb0477ec",
+    "merge_tree_matches_head": true,
+    "scope": "Synthetic merge tree equals the final workflow-head tree; all actual quality checkouts match that immutable merge. Fourteen app/image and six final application capacity groups match APP D; synthetic merge tree equals H rather than D. Actual capacity C/F labels remain unchanged and apply to D only through the explicit four-backend-exception measured-path proof. Historical aa92 PASS remains separate.",
+    "source_proof_sha256": "3c3b4b1b5db78f2ea5cd0f4fd43cba425fecb240a9cd1e65fb32d574654bfc48"
+  },
+  "synthetic_merge_revision": "fba5e663caa70ced6ce0ffec241d5e9e7ce85078",
+  "workflow_head_revision": "7fe8cbad19f925200d9ca45c0646fe9653445381"
+}
