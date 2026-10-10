@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from email.headerregistry import Address
 import importlib.util
 import json
 from pathlib import Path
@@ -104,6 +105,17 @@ def complete_surfaces(value, directory):
             surfaces.append({"axeViolations": [], "axeScope": "Synthetic control", "screenshot": name})
         step["details"] = {"surfaces": surfaces}
     return number
+
+
+class NativeFixtureLoginInput(unittest.TestCase):
+    def test_generated_identity_uses_a_reserved_example_domain_usable_for_login(self):
+        # .test/.invalid are rejected by the real LoginRequest EmailStr. The
+        # disposable account uses an IANA example domain without mail delivery.
+        value = QUALIFY.FIXTURE_EMAIL
+        address = Address(addr_spec=value)
+        self.assertEqual(address.addr_spec, value)
+        self.assertIn(address.domain, {"example.com", "example.net", "example.org"})
+        self.assertRegex(address.username, r"^[A-Za-z0-9][A-Za-z0-9_.+-]*$")
 
 
 class NativeReadinessAdmission(unittest.TestCase):

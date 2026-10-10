@@ -46,6 +46,7 @@ CHECKS = ["/settings/access", "article preview and team assessment navigation",
           "provider draft tab retention and discard navigation"]
 BACKGROUND = ["beat", "worker", "worker-ai", "worker-notifications", "worker-exports", "worker-maintenance"]
 CERTIFICATE = ROOT / ".github/native-ui-review-certificate.pem"
+FIXTURE_EMAIL = "native-review@example.com"
 
 
 def readiness_admission(status: int, content_type: str, body: bytes) -> bool:
@@ -431,7 +432,7 @@ def main() -> None:
             if actual != version:
                 raise ValueError("Installed browser dependency differs from source lock")
             record["installed_dependencies"][package] = actual
-        env.update({"COMPOSE_PROJECT_NAME": project, "ADMIN_EMAIL": "native-review@example.test",
+        env.update({"COMPOSE_PROJECT_NAME": project, "ADMIN_EMAIL": FIXTURE_EMAIL,
                     "ADMIN_PASSWORD": secrets.token_urlsafe(32), "APP_ENV": "development", "AI_ENABLED": "true",
                     "ALLOW_PRIVATE_NETWORK_FETCH": "true", "AUTH_COOKIE_SECURE": "false", "SEED_ADMIN_ON_STARTUP": "true",
                     "AI_API_KEY": "", "MCP_ENABLED": "false", "MCP_OAUTH_ENABLED": "false",

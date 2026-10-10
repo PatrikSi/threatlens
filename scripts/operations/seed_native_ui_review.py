@@ -74,6 +74,15 @@ def validate_counts(counts: dict[str, int]) -> None:
         require(lower <= count <= upper)
 
 
+def validate_login_credentials(email: str, password: str, *, request_model=None) -> None:
+    if request_model is None:
+        from app.schemas.auth import LoginRequest
+
+        request_model = LoginRequest
+    request = request_model(email=email, password=password)
+    require(str(request.email) == email)
+
+
 def run_transaction(session_factory, operation):
     db = session_factory()
     try:
@@ -227,6 +236,9 @@ def build_fixture(db, inputs):
 
 
 def seed_database(inputs):
+    from app.core.config import get_settings
+
+    validate_login_credentials(inputs["admin_email"], get_settings().admin_password)
     from app.db.session import SessionLocal
 
     return run_transaction(SessionLocal, lambda db: build_fixture(db, inputs))

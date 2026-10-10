@@ -5,9 +5,11 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import sys
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from types import ModuleType, SimpleNamespace
+from unittest.mock import Mock, patch
 
 
 SOURCE = Path(__file__).resolve().parents[2] / "scripts/operations/seed_native_ui_review.py"
@@ -173,6 +175,36 @@ class SeedTransactionTests(unittest.TestCase):
         db.commit.assert_not_called()
         db.rollback.assert_called_once_with()
         db.close.assert_called_once_with()
+
+
+class SeedLoginCredentialTests(unittest.TestCase):
+    def test_uses_the_actual_request_model_contract_without_returning_credentials(self):
+        email, password = "native-review@example.com", "synthetic-validation-only-password"
+        model = Mock(return_value=SimpleNamespace(email=email))
+        self.assertIsNone(SEED.validate_login_credentials(email, password, request_model=model))
+        model.assert_called_once_with(email=email, password=password)
+
+    def test_request_schema_failure_is_preserved(self):
+        model = Mock(side_effect=ValueError("private validation details"))
+        with self.assertRaises(ValueError):
+            SEED.validate_login_credentials("native-review@example.test", "synthetic-password", request_model=model)
+
+    def test_schema_normalization_cannot_change_the_seeded_identity(self):
+        model = Mock(return_value=SimpleNamespace(email="other@example.com"))
+        with self.assertRaises(ValueError):
+            SEED.validate_login_credentials("native-review@example.com", "synthetic-password", request_model=model)
+
+    def test_invalid_login_credentials_fail_before_opening_database_session(self):
+        config = ModuleType("app.core.config")
+        config.get_settings = Mock(return_value=SimpleNamespace(admin_password="synthetic-password"))
+        session = ModuleType("app.db.session")
+        session.SessionLocal = Mock()
+        with patch.dict(sys.modules, {"app.core.config": config, "app.db.session": session}), \
+                patch.object(SEED, "validate_login_credentials", side_effect=ValueError("private validation details")) as validate:
+            with self.assertRaises(ValueError):
+                SEED.seed_database({"admin_email": "native-review@example.test"})
+        validate.assert_called_once_with("native-review@example.test", "synthetic-password")
+        session.SessionLocal.assert_not_called()
 
 
 if __name__ == "__main__":
