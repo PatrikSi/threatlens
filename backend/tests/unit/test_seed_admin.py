@@ -3,6 +3,7 @@ from unittest.mock import Mock
 import uuid
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -74,6 +75,124 @@ def test_seed_admin_bootstrap_email_matches_login_identity_without_changing_exis
     db.commit.assert_called_once_with()
     db.close.assert_called_once_with()
     db.add.assert_not_called()
+    password_hash.assert_not_called()
+    audit.assert_not_called()
+    revoke.assert_not_called()
+
+
+@pytest.mark.parametrize("password", [
+    pytest.param("", id="empty"),
+    pytest.param("p" * 257, id="over-login-limit"),
+])
+def test_seed_admin_bootstrap_password_rejects_login_bounds_before_session(password, monkeypatch):
+    email = "bootstrap-review@example.com"
+    with pytest.raises(ValidationError) as login_error:
+        LoginRequest(email=email, password=password)
+    assert any(error["loc"] == ("password",) for error in login_error.value.errors(include_input=False))
+
+    session = Mock(side_effect=AssertionError("Database session opened before credential validation"))
+    password_hash, audit, revoke = Mock(), Mock(), Mock()
+    monkeypatch.setattr("app.scripts.seed_admin.SessionLocal", session)
+    monkeypatch.setattr("app.scripts.seed_admin.get_password_hash", password_hash)
+    monkeypatch.setattr("app.scripts.seed_admin.record_audit", audit)
+    monkeypatch.setattr("app.scripts.seed_admin.revoke_user_credentials_with_counts", revoke)
+    monkeypatch.setattr("app.scripts.seed_admin.get_settings", lambda: SimpleNamespace(
+        admin_email=email, admin_password=password,
+    ))
+
+    with pytest.raises(ValueError, match="ADMIN_PASSWORD must be between 1 and 256 characters") as error:
+        seed_admin()
+
+    assert str(error.value) == "ADMIN_PASSWORD must be between 1 and 256 characters"
+    assert email not in str(error.value)
+    if password:
+        assert password not in str(error.value)
+    assert error.value.__cause__ is None and error.value.__suppress_context__ is True
+    session.assert_not_called()
+    password_hash.assert_not_called()
+    audit.assert_not_called()
+    revoke.assert_not_called()
+
+
+@pytest.mark.parametrize("password", [
+    pytest.param("p", id="login-minimum"),
+    pytest.param("p" * 256, id="login-maximum"),
+    pytest.param("ValidBootstrapPassword123!", id="ordinary"),
+])
+def test_seed_admin_bootstrap_password_accepts_login_bounds_without_changing_existing_user(password, monkeypatch):
+    email = "  SOC.Admin@Security.Example.COM  "
+    expected_email = LoginRequest(email=email, password=password).email.lower()
+    existing = SimpleNamespace(role=ROLE_VIEWER, is_active=False)
+    db = Mock()
+    db.scalar.return_value = existing
+    session = Mock(return_value=db)
+    password_hash, audit, revoke = Mock(), Mock(), Mock()
+    monkeypatch.setattr("app.scripts.seed_admin.SessionLocal", session)
+    monkeypatch.setattr("app.scripts.seed_admin.get_password_hash", password_hash)
+    monkeypatch.setattr("app.scripts.seed_admin.record_audit", audit)
+    monkeypatch.setattr("app.scripts.seed_admin.revoke_user_credentials_with_counts", revoke)
+    monkeypatch.setattr("app.scripts.seed_admin.get_settings", lambda: SimpleNamespace(
+        admin_email=email, admin_password=password, seed_admin_force_role=False,
+        seed_admin_reactivate_existing=False, seed_admin_reset_password_on_startup=False,
+    ))
+
+    seed_admin()
+
+    session.assert_called_once_with()
+    statement = db.scalar.call_args.args[0]
+    assert statement.compile().params["email_1"] == expected_email
+    assert existing.role == ROLE_VIEWER and existing.is_active is False
+    db.commit.assert_called_once_with()
+    db.close.assert_called_once_with()
+    db.add.assert_not_called()
+    password_hash.assert_not_called()
+    audit.assert_not_called()
+    revoke.assert_not_called()
+
+
+def test_seed_admin_bootstrap_password_keeps_email_error_priority(monkeypatch):
+    session = Mock(side_effect=AssertionError("Database session opened before credential validation"))
+    monkeypatch.setattr("app.scripts.seed_admin.SessionLocal", session)
+    monkeypatch.setattr("app.scripts.seed_admin.get_settings", lambda: SimpleNamespace(
+        admin_email="bootstrap-review@example.test", admin_password="",
+    ))
+
+    with pytest.raises(ValueError, match="ADMIN_EMAIL must be a valid login email address") as error:
+        seed_admin()
+
+    assert str(error.value) == "ADMIN_EMAIL must be a valid login email address"
+    assert error.value.__cause__ is None and error.value.__suppress_context__ is True
+    session.assert_not_called()
+
+
+@pytest.mark.parametrize("separator", [
+    pytest.param("\r", id="carriage-return"),
+    pytest.param("\n", id="line-feed"),
+    pytest.param("\r\n", id="carriage-return-line-feed"),
+])
+def test_seed_admin_bootstrap_password_single_line_rejects_browser_stripped_characters(separator, monkeypatch):
+    email = "bootstrap-review@example.com"
+    password = f"Bootstrap{separator}Password123!"
+    # LoginRequest preserves these characters, but the browser's password
+    # input strips them, making such a seeded password impossible to enter.
+    assert LoginRequest(email=email, password=password).password == password
+    session = Mock(side_effect=AssertionError("Database session opened before credential validation"))
+    password_hash, audit, revoke = Mock(), Mock(), Mock()
+    monkeypatch.setattr("app.scripts.seed_admin.SessionLocal", session)
+    monkeypatch.setattr("app.scripts.seed_admin.get_password_hash", password_hash)
+    monkeypatch.setattr("app.scripts.seed_admin.record_audit", audit)
+    monkeypatch.setattr("app.scripts.seed_admin.revoke_user_credentials_with_counts", revoke)
+    monkeypatch.setattr("app.scripts.seed_admin.get_settings", lambda: SimpleNamespace(
+        admin_email=email, admin_password=password,
+    ))
+
+    with pytest.raises(ValueError, match="ADMIN_PASSWORD must be a single-line login password") as error:
+        seed_admin()
+
+    assert str(error.value) == "ADMIN_PASSWORD must be a single-line login password"
+    assert email not in str(error.value) and password not in str(error.value)
+    assert error.value.__cause__ is None and error.value.__suppress_context__ is True
+    session.assert_not_called()
     password_hash.assert_not_called()
     audit.assert_not_called()
     revoke.assert_not_called()

@@ -158,7 +158,8 @@ def _derive_development_secret(
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=".env", env_file_encoding="utf-8", extra="ignore",
+        hide_input_in_errors=True,
     )
 
     _jwt_secret_was_derived: bool = PrivateAttr(default=False)
