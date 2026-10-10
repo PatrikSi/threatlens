@@ -1,0 +1,907 @@
+{
+  "schema": "threatlens-hosted-native-ui-v1",
+  "status": "failed",
+  "application_revision": "c591c3a8e30a6ef1fc38956317f0b0b41a12285b",
+  "profile": "Fresh isolated full native stack and unchanged 33 UI workflows",
+  "started_epoch": 1791651861.9077363,
+  "predeclared_browser_attempts": 1,
+  "browser_attempted": true,
+  "limits": {
+    "build_cpu": 1,
+    "build_memory_bytes": 1610612736,
+    "build_swap": false,
+    "build_parallelism": 1,
+    "build_seconds_each": 1200,
+    "browser_cpus": 2,
+    "browser_memory_bytes": 3221225472,
+    "browser_memory_swap_bytes": 3221225472,
+    "browser_pids": 768,
+    "browser_shm_bytes": 268435456,
+    "action_ms": 30000,
+    "assertion_ms": 5000,
+    "browser_seconds": 900
+  },
+  "stages": [
+    {
+      "name": "source-archive",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "elapsed_seconds": 0.171
+    },
+    {
+      "name": "npm-ci",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "640a15c604537219e40408ac2fb499c2e462fcfe007b8cf56d61d5881419f6ac",
+      "elapsed_seconds": 7.448
+    },
+    {
+      "name": "bootstrap",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "9db049ff09425aa21b75125bbcf923629dccdd681a4419e3d08d6004ecf3c2c9",
+      "elapsed_seconds": 0.215
+    },
+    {
+      "name": "builder-start",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "9b47b8ccd31cc3014484b4ff362fe411723a9735de8b0cc423c8ca2f0ad1fa88",
+      "elapsed_seconds": 5.076
+    },
+    {
+      "name": "build-backend",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "b6569432f9a8af3152451dbf13902b6306386955b5c24a31035358716b61003a",
+      "elapsed_seconds": 46.633
+    },
+    {
+      "name": "build-web",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "2fb4060f7a89131ba7c9eb3ab989ac652b4f0fb8aa0d66d7d9b8d0fcbd4f7e76",
+      "elapsed_seconds": 74.112
+    },
+    {
+      "name": "builder-remove",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "881708e67302c9c9e624e625ceb398658b85ef187edb78290a234068a0396107",
+      "elapsed_seconds": 4.073
+    },
+    {
+      "name": "pull-postgres",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "8030fb064f5a390f6fdf3ae7d2e55861f5418ed45d474c504b87d7ac39ac1b6d",
+      "elapsed_seconds": 6.229
+    },
+    {
+      "name": "pull-redis",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "8d0f8289dd8560575d963b058088ce528a5a024dcca48c3ac507bfdcc75a09ba",
+      "elapsed_seconds": 1.618
+    },
+    {
+      "name": "pull-playwright",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "4a381e41dcf389d13112cb5999bd5c3cae120c5c53d2b0f5b372d9a2915e6501",
+      "elapsed_seconds": 25.923
+    },
+    {
+      "name": "compose-config",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "elapsed_seconds": 0.315
+    },
+    {
+      "name": "stack-bootstrap",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "47e29d9cd4e8a3199eb0c1e715fe370eaff70dff013c3c1eadb48f5196b8a5ab",
+      "elapsed_seconds": 62.912
+    },
+    {
+      "name": "seed",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "4c686410972ba64eca1667a9d0126e508fd7c407484c4d1d4a622d68a3c68df2",
+      "elapsed_seconds": 3.973
+    },
+    {
+      "name": "background-start",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "437c489f3def0f3ccc9591bbf766aa061b38161227cc73820e3c7671070ddc22",
+      "elapsed_seconds": 67.693
+    },
+    {
+      "name": "browser-create",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "e7fceb3f1227e2c4ffe06135bb60b357c6f30fc17cb12d39e80f92625cdff79f",
+      "elapsed_seconds": 0.032
+    },
+    {
+      "name": "browser",
+      "original_exit": 1,
+      "status": "failed",
+      "log_sha256": "6d53ae46d10186a8928a9a619057f786b8d668f1b79b52c257c01dfe7df5b055",
+      "elapsed_seconds": 116.694
+    }
+  ],
+  "cleanup": {
+    "status": "passed",
+    "remaining_containers": 0,
+    "remaining_volumes": 0
+  },
+  "failures": [
+    {
+      "phase": "browser",
+      "error_type": "ValueError"
+    }
+  ],
+  "workflow_helper_revision": "00e6034e9c1f65eb160b3e2772046252485020fe",
+  "image_source_groups": [
+    {
+      "path": "backend/app",
+      "tested_object": "e37e52561eede431c2ed8cfb8a31406d86cf9164",
+      "workflow_object": "e37e52561eede431c2ed8cfb8a31406d86cf9164",
+      "identical": true
+    },
+    {
+      "path": "backend/alembic",
+      "tested_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "workflow_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "identical": true
+    },
+    {
+      "path": "backend/alembic.ini",
+      "tested_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "workflow_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "identical": true
+    },
+    {
+      "path": "backend/scripts",
+      "tested_object": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+      "workflow_object": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+      "identical": true
+    },
+    {
+      "path": "backend/compliance",
+      "tested_object": "529e143333d0075b32f4c5a51845ad0a0fb57abf",
+      "workflow_object": "529e143333d0075b32f4c5a51845ad0a0fb57abf",
+      "identical": true
+    },
+    {
+      "path": "backend/.dockerignore",
+      "tested_object": "991a8472a31f63c8dcdfc22ee735e83b7d03dd26",
+      "workflow_object": "991a8472a31f63c8dcdfc22ee735e83b7d03dd26",
+      "identical": true
+    },
+    {
+      "path": "backend/requirements-lock.txt",
+      "tested_object": "53c239ffd4679ce835cd86d122df93ba9a11862a",
+      "workflow_object": "53c239ffd4679ce835cd86d122df93ba9a11862a",
+      "identical": true
+    },
+    {
+      "path": "backend/requirements.txt",
+      "tested_object": "73b8e55f452a248483fd118fe2265b09f8f034f1",
+      "workflow_object": "73b8e55f452a248483fd118fe2265b09f8f034f1",
+      "identical": true
+    },
+    {
+      "path": "web",
+      "tested_object": "cf5489d2a203de14a09ff4fb6337df87a3bb3b28",
+      "workflow_object": "cf5489d2a203de14a09ff4fb6337df87a3bb3b28",
+      "identical": true
+    },
+    {
+      "path": "docker",
+      "tested_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "workflow_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "identical": true
+    },
+    {
+      "path": "docker-compose.yml",
+      "tested_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "workflow_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "identical": true
+    },
+    {
+      "path": "docker-compose.build.yml",
+      "tested_object": "15b1b8a21d80a46680fdf528635b216383285131",
+      "workflow_object": "15b1b8a21d80a46680fdf528635b216383285131",
+      "identical": true
+    },
+    {
+      "path": "VERSION",
+      "tested_object": "7ec1d6db40877765247db18e7f9a4e36a0def4ad",
+      "workflow_object": "7ec1d6db40877765247db18e7f9a4e36a0def4ad",
+      "identical": true
+    },
+    {
+      "path": "LICENSE",
+      "tested_object": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab",
+      "workflow_object": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab",
+      "identical": true
+    }
+  ],
+  "helpers": {
+    "run_native_ui_qualification.py": "86af549a34c82209f0dc5fd27ca0083d949d91199103fbb41d47492ed3e466d1",
+    "native_ui_config.py": "21c979d0b45cfc7ff4da9118933e911aae892b97b82fafedf6143f2285f58f21",
+    "native_ui_review.mjs": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c",
+    "seed_native_ui_review.py": "35274c8f40e39f13a8b17b0497ffc0ccaee48439a1edbb0808566e6987ddca80"
+  },
+  "installed_dependencies": {
+    "playwright": "1.63.0",
+    "@playwright/test": "1.63.0",
+    "@axe-core/playwright": "4.13.0"
+  },
+  "actual_builder_limits": {
+    "Memory": 1610612736,
+    "MemorySwap": 1610612736,
+    "CpuPeriod": 100000,
+    "CpuQuota": 100000
+  },
+  "production_image_ids": {
+    "backend": "sha256:e18333ba9510977488cc568da99e6d3fe0de7813367031bd315f50117189be5d",
+    "web": "sha256:a8fab8d0e9c5d0056b52f2577bdbc8a2a88a2ae698a06605642e4b55bc9435e0"
+  },
+  "postgres_image": {
+    "requested": "postgres@sha256:b6ccf02e9b47eac0d67b5eaa0ef56fd59163bffa5506f64e96ceb5053130ec86",
+    "actual_id": "sha256:9ed2501c9e7c4f4e27631c3e88f90fcda23891378bdf4f49ac810533a1e2a1ab",
+    "repo_digests": [
+      "postgres@sha256:b6ccf02e9b47eac0d67b5eaa0ef56fd59163bffa5506f64e96ceb5053130ec86"
+    ]
+  },
+  "redis_image": {
+    "requested": "redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
+    "actual_id": "sha256:487efc0616382465781b8fdc3d6d1db449e6fd80ae23bf48432a2da6b6929908",
+    "repo_digests": [
+      "redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99"
+    ]
+  },
+  "playwright_image": {
+    "requested": "mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27",
+    "actual_id": "sha256:2c1f4e0fd6450f43ddb46d60c2a6df30855a8588e165b1f2559fb0eda8d7ff35",
+    "repo_digests": [
+      "mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27"
+    ]
+  },
+  "seed": {
+    "source_revision": "c591c3a8e30a6ef1fc38956317f0b0b41a12285b",
+    "synthetic": true,
+    "counts": {
+      "articles": 1,
+      "classifications": 1,
+      "feeds": 1,
+      "groups": 1,
+      "items": 1,
+      "memberships": 1,
+      "teams": 1
+    },
+    "attention_queue_rows": 0
+  },
+  "runtime_before": {
+    "worker-notifications": {
+      "image_id": "sha256:e18333ba9510977488cc568da99e6d3fe0de7813367031bd315f50117189be5d",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256
+    },
+    "worker": {
+      "image_id": "sha256:e18333ba9510977488cc568da99e6d3fe0de7813367031bd315f50117189be5d",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 500000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256
+    },
+    "worker-exports": {
+      "image_id": "sha256:e18333ba9510977488cc568da99e6d3fe0de7813367031bd315f50117189be5d",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 128
+    },
+    "worker-maintenance": {
+      "image_id": "sha256:e18333ba9510977488cc568da99e6d3fe0de7813367031bd315f50117189be5d",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 128
+    },
+    "worker-ai": {
+      "image_id": "sha256:e18333ba9510977488cc568da99e6d3fe0de7813367031bd315f50117189be5d",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 128
+    },
+    "beat": {
+      "image_id": "sha256:e18333ba9510977488cc568da99e6d3fe0de7813367031bd315f50117189be5d",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 335544320,
+      "memory_swap_bytes": 335544320,
+      "pids_limit": 96
+    },
+    "web": {
+      "image_id": "sha256:a8fab8d0e9c5d0056b52f2577bdbc8a2a88a2ae698a06605642e4b55bc9435e0",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 134217728,
+      "memory_swap_bytes": 134217728,
+      "pids_limit": 64
+    },
+    "api": {
+      "image_id": "sha256:e18333ba9510977488cc568da99e6d3fe0de7813367031bd315f50117189be5d",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 500000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256
+    },
+    "migrate": {
+      "image_id": "sha256:e18333ba9510977488cc568da99e6d3fe0de7813367031bd315f50117189be5d",
+      "running": false,
+      "health": null,
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 1000000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 64
+    },
+    "db": {
+      "image_id": "sha256:9ed2501c9e7c4f4e27631c3e88f90fcda23891378bdf4f49ac810533a1e2a1ab",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 500000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256
+    },
+    "redis": {
+      "image_id": "sha256:487efc0616382465781b8fdc3d6d1db449e6fd80ae23bf48432a2da6b6929908",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 134217728,
+      "memory_swap_bytes": 134217728,
+      "pids_limit": 128
+    },
+    "review-source": {
+      "image_id": "sha256:e18333ba9510977488cc568da99e6d3fe0de7813367031bd315f50117189be5d",
+      "running": true,
+      "health": null,
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 100000000,
+      "memory_bytes": 67108864,
+      "memory_swap_bytes": 67108864,
+      "pids_limit": 32
+    }
+  },
+  "http_checks": [
+    {
+      "path": "/api/v1/health/ready",
+      "status": 200,
+      "semantic_check": true
+    },
+    {
+      "path": "/api/openapi.json",
+      "status": 200,
+      "semantic_check": true
+    }
+  ],
+  "readiness_admission": {
+    "startup_deadline_seconds": 240,
+    "read_seconds_max": 15,
+    "poll_seconds": 5,
+    "attempts": [
+      {
+        "http_status": 503,
+        "response_bytes": 12,
+        "response_sha256": "38667e60226bf99701916900a2a265233dcc014e1206c173ade921d608824b53",
+        "ok": false
+      },
+      {
+        "http_status": 200,
+        "response_bytes": 11,
+        "response_sha256": "4062edaf750fb8074e7e83e0c9028c94e32468a8b6f1614774328ef045150f93",
+        "ok": true
+      }
+    ],
+    "status": "passed"
+  },
+  "host_gate": {
+    "status": "passed",
+    "deadline_seconds": 600,
+    "continuous_quiet_seconds": 60,
+    "sample_interval_seconds": 15,
+    "minimum_available_memory_bytes": 3221225472,
+    "maximum_avg10": {
+      "cpu_some": 25,
+      "memory_some": 1,
+      "memory_full": 0.5,
+      "io_some": 5,
+      "io_full": 1
+    },
+    "samples": [
+      {
+        "elapsed_seconds": 0.0,
+        "available_memory_bytes": 14096379904,
+        "cpu": {
+          "some": 27.72,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "docker_seconds": 0.04477,
+        "eligible": false
+      },
+      {
+        "elapsed_seconds": 15.0,
+        "available_memory_bytes": 14064631808,
+        "cpu": {
+          "some": 17.75,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "docker_seconds": 0.046562,
+        "eligible": true
+      },
+      {
+        "elapsed_seconds": 30.0,
+        "available_memory_bytes": 14063034368,
+        "cpu": {
+          "some": 15.0,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "docker_seconds": 0.046903,
+        "eligible": true
+      },
+      {
+        "elapsed_seconds": 45.0,
+        "available_memory_bytes": 14076776448,
+        "cpu": {
+          "some": 9.76,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "docker_seconds": 0.060149,
+        "eligible": true
+      },
+      {
+        "elapsed_seconds": 60.0,
+        "available_memory_bytes": 14054498304,
+        "cpu": {
+          "some": 17.18,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "docker_seconds": 0.044085,
+        "eligible": true
+      },
+      {
+        "elapsed_seconds": 75.001,
+        "available_memory_bytes": 14065070080,
+        "cpu": {
+          "some": 11.44,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "docker_seconds": 0.044944,
+        "eligible": true
+      },
+      {
+        "elapsed_seconds": 90.001,
+        "available_memory_bytes": 14051909632,
+        "cpu": {
+          "some": 19.11,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "docker_seconds": 0.054107,
+        "eligible": true
+      }
+    ],
+    "observed_quiet_seconds": 75.008
+  },
+  "browser_container_creation_attempted": true,
+  "browser_terminal": {
+    "running": false,
+    "exit_code": 1,
+    "oom_killed": false,
+    "restarts": 0
+  },
+  "browser": {
+    "executed": 33,
+    "passed": 27,
+    "failed": 6,
+    "omitted": 0,
+    "steps": [
+      {
+        "engine": "chromium",
+        "theme": "light",
+        "layout": "desktop",
+        "name": "real local cookie login",
+        "status": "passed",
+        "elapsed_seconds": 1.86
+      },
+      {
+        "engine": "chromium",
+        "theme": "light",
+        "layout": "desktop",
+        "name": "route /settings/access",
+        "status": "passed",
+        "elapsed_seconds": 2.25
+      },
+      {
+        "engine": "chromium",
+        "theme": "light",
+        "layout": "desktop",
+        "name": "article preview and team assessment navigation",
+        "status": "failed",
+        "elapsed_seconds": 6.28,
+        "failure_category": "timeout"
+      },
+      {
+        "engine": "chromium",
+        "theme": "light",
+        "layout": "desktop",
+        "name": "reviewed publication preview and consumer contrast",
+        "status": "passed",
+        "elapsed_seconds": 3.54
+      },
+      {
+        "engine": "chromium",
+        "theme": "light",
+        "layout": "mobile",
+        "name": "mobile route /settings/access",
+        "status": "passed",
+        "elapsed_seconds": 1.94
+      },
+      {
+        "engine": "chromium",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "real local cookie login",
+        "status": "passed",
+        "elapsed_seconds": 1.52
+      },
+      {
+        "engine": "chromium",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "route /settings/access",
+        "status": "passed",
+        "elapsed_seconds": 2
+      },
+      {
+        "engine": "chromium",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "article preview and team assessment navigation",
+        "status": "failed",
+        "elapsed_seconds": 6.27,
+        "failure_category": "timeout"
+      },
+      {
+        "engine": "chromium",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "reviewed publication preview and consumer contrast",
+        "status": "passed",
+        "elapsed_seconds": 2.85
+      },
+      {
+        "engine": "chromium",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "provider draft tab retention and discard navigation",
+        "status": "passed",
+        "elapsed_seconds": 3.13
+      },
+      {
+        "engine": "chromium",
+        "theme": "dark",
+        "layout": "mobile",
+        "name": "mobile route /settings/access",
+        "status": "passed",
+        "elapsed_seconds": 4.23
+      },
+      {
+        "engine": "firefox",
+        "theme": "light",
+        "layout": "desktop",
+        "name": "real local cookie login",
+        "status": "passed",
+        "elapsed_seconds": 2.88
+      },
+      {
+        "engine": "firefox",
+        "theme": "light",
+        "layout": "desktop",
+        "name": "route /settings/access",
+        "status": "passed",
+        "elapsed_seconds": 2.38
+      },
+      {
+        "engine": "firefox",
+        "theme": "light",
+        "layout": "desktop",
+        "name": "article preview and team assessment navigation",
+        "status": "failed",
+        "elapsed_seconds": 6.51,
+        "failure_category": "timeout"
+      },
+      {
+        "engine": "firefox",
+        "theme": "light",
+        "layout": "desktop",
+        "name": "reviewed publication preview and consumer contrast",
+        "status": "passed",
+        "elapsed_seconds": 3.19
+      },
+      {
+        "engine": "firefox",
+        "theme": "light",
+        "layout": "mobile",
+        "name": "mobile route /settings/access",
+        "status": "passed",
+        "elapsed_seconds": 2.42
+      },
+      {
+        "engine": "firefox",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "real local cookie login",
+        "status": "passed",
+        "elapsed_seconds": 2.03
+      },
+      {
+        "engine": "firefox",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "route /settings/access",
+        "status": "passed",
+        "elapsed_seconds": 2.44
+      },
+      {
+        "engine": "firefox",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "article preview and team assessment navigation",
+        "status": "failed",
+        "elapsed_seconds": 6.56,
+        "failure_category": "timeout"
+      },
+      {
+        "engine": "firefox",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "reviewed publication preview and consumer contrast",
+        "status": "passed",
+        "elapsed_seconds": 3.23
+      },
+      {
+        "engine": "firefox",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "provider draft tab retention and discard navigation",
+        "status": "passed",
+        "elapsed_seconds": 4.03
+      },
+      {
+        "engine": "firefox",
+        "theme": "dark",
+        "layout": "mobile",
+        "name": "mobile route /settings/access",
+        "status": "passed",
+        "elapsed_seconds": 3.57
+      },
+      {
+        "engine": "webkit",
+        "theme": "light",
+        "layout": "desktop",
+        "name": "real local cookie login",
+        "status": "passed",
+        "elapsed_seconds": 1.25
+      },
+      {
+        "engine": "webkit",
+        "theme": "light",
+        "layout": "desktop",
+        "name": "route /settings/access",
+        "status": "passed",
+        "elapsed_seconds": 2.53
+      },
+      {
+        "engine": "webkit",
+        "theme": "light",
+        "layout": "desktop",
+        "name": "article preview and team assessment navigation",
+        "status": "failed",
+        "elapsed_seconds": 6.56,
+        "failure_category": "timeout"
+      },
+      {
+        "engine": "webkit",
+        "theme": "light",
+        "layout": "desktop",
+        "name": "reviewed publication preview and consumer contrast",
+        "status": "passed",
+        "elapsed_seconds": 3.39
+      },
+      {
+        "engine": "webkit",
+        "theme": "light",
+        "layout": "mobile",
+        "name": "mobile route /settings/access",
+        "status": "passed",
+        "elapsed_seconds": 2.32
+      },
+      {
+        "engine": "webkit",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "real local cookie login",
+        "status": "passed",
+        "elapsed_seconds": 1.78
+      },
+      {
+        "engine": "webkit",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "route /settings/access",
+        "status": "passed",
+        "elapsed_seconds": 2.24
+      },
+      {
+        "engine": "webkit",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "article preview and team assessment navigation",
+        "status": "failed",
+        "elapsed_seconds": 6.48,
+        "failure_category": "timeout"
+      },
+      {
+        "engine": "webkit",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "reviewed publication preview and consumer contrast",
+        "status": "passed",
+        "elapsed_seconds": 3.11
+      },
+      {
+        "engine": "webkit",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "provider draft tab retention and discard navigation",
+        "status": "passed",
+        "elapsed_seconds": 4.68
+      },
+      {
+        "engine": "webkit",
+        "theme": "dark",
+        "layout": "mobile",
+        "name": "mobile route /settings/access",
+        "status": "passed",
+        "elapsed_seconds": 2.79
+      }
+    ],
+    "summary_available": true
+  },
+  "browser_result_sha256": "fb5d4e6d5a3d412ba73d55447ae27e4db7d9a57408275a830e5c93b1eb10f6c4",
+  "private_artifact": {
+    "encryption_exit": 0,
+    "bytes": 5642824,
+    "sha256": "e85165a56cc46d1720421869d8663d413bd037e3a054462649765d9809463b0a",
+    "certificate_sha256": "bc51f6ba81d86302d3e5e911f9f533a1872b39b210b7f3514ffdd5aab3e38656"
+  },
+  "finished_epoch": 1791652451.5846183
+}
