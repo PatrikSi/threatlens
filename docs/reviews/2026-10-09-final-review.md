@@ -2,13 +2,16 @@
 
 ThreatLens **2.1.0** is prepared. The synthetic local instance at
 **http://127.0.0.1:3001** uses the earlier `e085733b` images. The current
-application/image candidate `5f370197e96b944831c7837cb58f470cb004fbfb`
+application/image candidate `36b2024fc25ddc8c8ce3d04900e27811b4267c42`
 contains all review corrections, including reduced envelope reads, the
 concurrent parent-reference guard, synchronous post-login navigation and
 complete administrator credential admission before database access. It also
 accepts backend-valid Unicode identities in credential and administrator user
 forms, conceals supplied settings in validation errors, and preserves the
-bootstrap script's earlier Bash compatibility. Focused checks pass: sixteen
+bootstrap script's earlier Bash compatibility. The production smoke contract now
+checks the same Unicode-capable email field and required form constraints.
+A fresh production build passes; the original smoke reproduces the hosted
+failure and the corrected smoke passes. Focused checks pass: sixteen
 seed-admission cases, 96 configuration cases, 56 authentication cases, 46
 administrator-user cases and sixteen bootstrap tests. Frontend lint and
 TypeScript pass.
@@ -22,8 +25,17 @@ unassigned, and that surface's accessibility audit is incomplete.
 The first isolated browser run fails all six logins on an invalid fixture
 email. The next run at `c591c3a8` executes all 33 checks: **27 passed / six
 failed**, including six successful logins. All six article checks encounter an
-owned publisher 404. The fixture permission defect is corrected; a fresh full
-native run at `5f370197` is in progress at this report checkpoint.
+owned publisher 404. The fixture permission defect is corrected. The fresh native run at
+`5f370197` passes all 33 checks and all article previews, but qualification
+fails on two WebKit light module-loading console errors. Page errors, API
+500s and cleanup errors are zero; the two console events have no timestamps
+or failed-request details, so their cause remains unassigned. The
+[native terminal evidence](evidence/2026-10-09-final-review/native-5f370197-listener-failure.json)
+preserves the strict failure and the limits of the retained service-log tail.
+[All 33 captured surfaces](evidence/2026-10-09-final-review/native-5f370197-visual-assessment.json)
+were visually reviewed; no additional visual blocker was found. All 33 Axe
+audits report zero violations, including six explicit publisher iframe
+exclusions with separate real-content checks.
 Earlier failed outcomes remain preserved under their actual source revisions.
 All application corrections were committed as `Patrik <patrik@local>`.
 
@@ -32,16 +44,27 @@ results linked from [PR #31](https://github.com/PatrikSi/threatlens/pull/31).**
 Consult the PR for their actual terminal results and exact tested heads;
 this committed checkpoint does not predict them. No comparative threshold, resource limit, workload
 duration or authorization fence was weakened. Hosted quality at `aa92f8e7`
-passes all fifteen jobs; the later corrections require fresh qualification
-on the final review commit. The new uninstrumented capacity pair at
+passes all fifteen jobs. Later quality run
+[38073357452](https://github.com/PatrikSi/threatlens/actions/runs/38073357452)
+fails its production smoke assertion after frontend tests, lint and build pass:
+it still expects the previous email input type. At this checkpoint, thirteen
+other jobs pass and backend validation is still running. The
+[actual smoke controls](evidence/2026-10-09-final-review/production-smoke-contract-controls.json)
+retain that failure and the corrected production-bundle result. The
+[committed source binding](evidence/2026-10-09-final-review/production-smoke-36b2024f-source-binding.json)
+verifies the tested script at `36b2024f` and unchanged application entry/build
+inputs. The final
+review head requires fresh qualification. The new uninstrumented capacity pair at
 `c591c3a8` **passes**, with verified source, unchanged 600-second duration and
 20% threshold, actual artifacts and independent cleanup. Its measured paths
-remain applicable to `5f370197`: exactly four backend paths differ, the seed
+remain applicable to `36b2024f` through the
+[explicit measured-path proof](evidence/2026-10-09-final-review/capacity-36b2024f-measured-path-applicability.json):
+exactly four backend paths differ, the seed
 script is outside the measured execution, and Settings changes only invalid
 error rendering. All other 1,285 backend objects and five capacity operation
 groups match. Valid Settings outputs and schemas match in three isolated
 controls. The actual measured candidate remains `c591c3a8`; whole-backend
-equality and a new measurement at `5f370197` are not claimed.
+equality and a new measurement at `36b2024f` are not claimed.
 
 Version 2.1.0 is already aligned across the version file, frontend metadata,
 OpenAPI and deployment defaults. These pre-merge corrections need no further
@@ -116,6 +139,7 @@ quality references; preparing evidence is not a hosted quality pass.
 | Native credential-form constraints rejected backend-valid Unicode identities | Use a text input with the email keyboard hint in the shared login/registration fields. Three real-click regressions fail before; 56 related cases pass, including empty-required controls and session-boundary checks. | `a3e782cb` |
 | Reserved-domain normalization introduced a Bash 4-only expansion | Use the script's existing printf/tr dependencies for case folding. Bash syntax and all sixteen bootstrap controls pass; Bash 3 runtime testing is unavailable. | `a3e782cb` |
 | Administrator local-user creation had the same Unicode email mismatch | Preserve the review/confirmation flow and submit the accepted identity to the user API. Three real-click regressions fail before; all 46 affected cases pass afterward, including empty-required and credential-retention controls. | `5f370197` |
+| Production smoke expected the old native email input type after Unicode admission was fixed | Verify the intended text/email keyboard contract, associated label, required credentials, three Unicode admissions and two empty-field rejections in the actual production bundle. Original smoke fails; corrected smoke passes. | `36b2024f` |
 
 [Structured regression evidence](evidence/2026-10-09-final-review/regression-proof.json)
 records pinned environments, before/after failures, hashes and scope limits.
@@ -1096,10 +1120,10 @@ outputs and named human review of the twelve prepared cases. Provider-contract
 and configuration tests do not complete that approval; ordinary ingestion and
 classification do not require model promotion.
 
-The remaining current gates at this committed checkpoint are native
-qualification at `5f370197` and hosted quality on the final review head.
+The remaining current gates at this committed checkpoint are fresh native
+qualification at `36b2024f` and hosted quality on the final review head.
 Capacity passes at actual measured candidate `c591c3a8`, with explicit
-measured-path applicability to `5f370197`. The PR records the actual terminal
+measured-path applicability to `36b2024f`. The PR records the actual terminal
 results without adding an evidence-only commit that changes the tested head.
 Earlier `e085733b` cookie
 logins, both exact local images and backend/runtime checks pass. Earlier failures

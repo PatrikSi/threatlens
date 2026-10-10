@@ -1,0 +1,187 @@
+{
+  "actual_browser_exit": {
+    "exit_code": 1,
+    "oom_killed": false,
+    "restarts": 0,
+    "running": false
+  },
+  "actual_console_findings": [
+    {
+      "category": "module-script-import-rejected",
+      "chunk_url_recorded": false,
+      "engine": "webkit",
+      "event_timestamp_recorded": false,
+      "page_path": "/",
+      "theme": "light"
+    },
+    {
+      "category": "react-router-reported-module-import-render-error",
+      "chunk_url_recorded": false,
+      "engine": "webkit",
+      "event_timestamp_recorded": false,
+      "page_path": "/",
+      "theme": "light"
+    }
+  ],
+  "actual_helper_original_exit": 1,
+  "actual_surface_result": {
+    "apiServerErrors": 0,
+    "blockedExternalRequests": 0,
+    "cleanupFailures": 0,
+    "consoleErrors": 2,
+    "createdSyntheticResources": 0,
+    "executedChecks": 33,
+    "expectedCheckCount": 33,
+    "expectedCountMatched": true,
+    "failed": 0,
+    "pageErrors": 0,
+    "passed": 33
+  },
+  "application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb",
+  "audit_execution_scope": {
+    "browser_calls": 0,
+    "docker_calls": 0,
+    "network_calls": 0,
+    "read_only_source_and_retained_evidence": true,
+    "source_mutations": 0,
+    "tests_run": 0
+  },
+  "historical_evidence_retained": {
+    "native_c591_run": 38070210180,
+    "native_c591_separate_listener_anomaly_retained": true,
+    "native_c591_surface_failed": 6,
+    "native_c591_surface_passed": 27,
+    "old_native_e085_release_cleared": false,
+    "prior_failures_relabelled_or_erased": false
+  },
+  "limitations": [
+    "Original console events lack timestamps, source locations, chunk URLs, failed-request reasons and step identity.",
+    "The retained web records are a last-80-record tail and cannot assign HTTP statuses to the earlier WebKit light root-page event.",
+    "Two console reports may describe one rejected import; the evidence does not prove two independent failures.",
+    "Successful later surfaces do not waive the strict zero-console gate.",
+    "A cancellation hypothesis remains source-level inference rather than an observed diagnosis.",
+    "No post-browser runtime snapshot is available for this failed run.",
+    "Console path records the callback-time page URL, not the module source document or location.",
+    "The exact driver routes all requests; Playwright documents that enabling routing disables HTTP cache, so a stale browser HTTP-cache diagnosis is not supported."
+  ],
+  "original_browser_driver_sha256": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c",
+  "qualification_status": "failed",
+  "release_clearance": false,
+  "retained_evidence_sha256": {
+    "browser_step_log": "937fa9cae00b2756e79c6854183a54a69b3ed1de18f79fb36edf503820bfa0df",
+    "capture_metadata": "82b9ca28831513704722dac213fdc2af28217f46e4ed7b42e446a03bcbd5e566",
+    "owned_stack_tail_log": "6508211a7c4ac39a73c8239ebed163c7b5c2d64a6923e8ca248084cb0fba6d20",
+    "public_projection": "e8e7ad03cb8d611d338fe61eb0ea9db41063c437a078f33bde3ecc13b56f7067",
+    "raw_browser_result": "735dd006f09e0a7a4f172a141549eb63b840ea2f03c861f801f857c1e6ac90ea"
+  },
+  "retained_web_tail_observations": {
+    "api_499_attributed_to_console_event": false,
+    "api_client_closed_499_records": 10,
+    "asset_4xx_or_5xx_observed_in_retained_tail": false,
+    "asset_records": 21,
+    "asset_status_counts": {
+      "200": 21
+    },
+    "csp_failure_proved": false,
+    "first_timestamp": "2026-10-10T17:51:35+00:00",
+    "last_timestamp": "2026-10-10T17:51:45+00:00",
+    "missing_chunk_or_permission_errno_proved": false,
+    "records": 80,
+    "request_error_stderr_is_suppressed_by_source": true,
+    "status_counts": {
+      "200": 70,
+      "499": 10
+    },
+    "whole_browser_window_coverage_claimed": false
+  },
+  "run_attempt": 1,
+  "run_id": 38072575289,
+  "schema": "threatlens-native-d-strict-listener-failure-independent-review-v1",
+  "setup_and_envelope": {
+    "actual_builder_limits": {
+      "CpuPeriod": 100000,
+      "CpuQuota": 100000,
+      "Memory": 1610612736,
+      "MemorySwap": 1610612736
+    },
+    "cleanup": {
+      "remaining_containers": 0,
+      "remaining_volumes": 0,
+      "status": "passed"
+    },
+    "full_readiness_http_passed": [
+      {
+        "path": "/api/v1/health/ready",
+        "semantic_check": true,
+        "status": 200
+      },
+      {
+        "path": "/api/openapi.json",
+        "semantic_check": true,
+        "status": 200
+      }
+    ],
+    "limits": {
+      "action_ms": 30000,
+      "assertion_ms": 5000,
+      "browser_cpus": 2,
+      "browser_memory_bytes": 3221225472,
+      "browser_memory_swap_bytes": 3221225472,
+      "browser_pids": 768,
+      "browser_seconds": 900,
+      "browser_shm_bytes": 268435456,
+      "build_cpu": 1,
+      "build_memory_bytes": 1610612736,
+      "build_parallelism": 1,
+      "build_seconds_each": 1200,
+      "build_swap": false
+    },
+    "observed_quiet_seconds": 74.961,
+    "one_predeclared_browser_attempt": true,
+    "publisher_admission_passed": true,
+    "quiet_gate_status": "passed",
+    "readiness_poll_status": "passed",
+    "runtime_after_absent_reason": "Helper stops at original nonzero browser exit before post-browser runtime snapshot",
+    "runtime_after_recorded": false,
+    "runtime_before_all_read_only": true,
+    "runtime_before_healthy": 10,
+    "runtime_before_memory_swap_equals_memory": true,
+    "runtime_before_oom": 0,
+    "runtime_before_restarts": 0,
+    "runtime_before_running": 11,
+    "runtime_before_services": 12,
+    "stages_failed": 1,
+    "stages_passed": 16
+  },
+  "source_review": {
+    "actual_cancellation_cause_proved": false,
+    "actual_context_close_cause_proved": false,
+    "all_steps_passed_so_failed_step_recovery_not_executed": true,
+    "concrete_application_or_fixture_bug_identified": false,
+    "console_path_is_callback_time_page_url_not_module_source_location": true,
+    "context_close_only_after_theme_checks_or_failed_step_recovery": true,
+    "dashboard_is_react_lazy_import_under_suspense": true,
+    "full_navigation_can_cancel_pending_import_in_principle": true,
+    "full_navigation_helper_waits_main_networkidle_and_no_page_failed_heading": true,
+    "global_request_routing_disables_http_cache_per_installed_playwright_contract": true,
+    "local_asset_requests_allowed_by_original_request_router": true,
+    "login_waits_rendered_dashboard_or_route_error_absence": false,
+    "login_waits_url_and_networkidle": true,
+    "main_shell_visibility_alone_is_not_dashboard_import_completion": true,
+    "nginx_asset_try_files_returns_404_for_missing_asset": true,
+    "nginx_script_csp_allows_same_origin": true,
+    "stale_http_cache_cause_supported": false
+  },
+  "source_sha256": {
+    "docker/web.Dockerfile": "99114ea0c03a99f79cd22ff34d48db209a2bf824dba9fb36fca88ccb142cd0b5",
+    "web/nginx/default.conf.template": "1ba23967fe1b2274bfac89052e24c7c4c76e76375626503631240ab3bfa838f1",
+    "web/nginx/nginx.conf": "d996ed738dde0a8c2c26996e913df5334c4ca9d7a5c3eaeb4bbe794911748d07",
+    "web/src/App.tsx": "cee1fd5352fc1fe931b03df9ffb864f51503d9bccdbc56941d5a5c15d101dfa5",
+    "web/src/components/PermissionRoute.tsx": "8a82682ae76a8c2476c9d2d2d9c9d29dbc9b8a511f5065c9b9e3c99df9bfc875",
+    "web/src/components/ProtectedRoute.tsx": "f59b059c328a9af7f005e23124c6e5cc2bd35d15034a7e031be6c9627bef150a",
+    "web/src/components/WorkspaceProvider.tsx": "92ab47efa8d3888dd79e289b49614477968fcff65bc9603e49b30e0e00d9355a",
+    "web/src/pages/LoginPage.tsx": "ae65d6e067f3cf9bd01cdd732b7e76fd8b85fac047b8a128eda3d63ebb60b9a6"
+  },
+  "workflow_conclusion": "failure",
+  "workflow_head_revision": "5ccb0d4d23aaa3667c2760e3c8b7fd2a7776c1bc"
+}

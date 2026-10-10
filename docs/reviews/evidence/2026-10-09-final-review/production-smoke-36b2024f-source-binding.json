@@ -1,0 +1,124 @@
+{
+  "schema": "threatlens-production-smoke-only-source-applicability-v1",
+  "owner": "hosted_helper_review",
+  "previous_application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb",
+  "application_revision": "36b2024fc25ddc8c8ce3d04900e27811b4267c42",
+  "status": "runtime_application_source_unchanged",
+  "changed_image_input_paths": [
+    "web/scripts/smoke_production_bundle.mjs"
+  ],
+  "unchanged_image_groups": [
+    {
+      "path": "backend/app",
+      "git_object": "5923a25e6da5cd870b62904ee63cae4e1c72d683",
+      "identical": true
+    },
+    {
+      "path": "backend/alembic",
+      "git_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "identical": true
+    },
+    {
+      "path": "backend/alembic.ini",
+      "git_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "identical": true
+    },
+    {
+      "path": "backend/scripts",
+      "git_object": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+      "identical": true
+    },
+    {
+      "path": "backend/compliance",
+      "git_object": "529e143333d0075b32f4c5a51845ad0a0fb57abf",
+      "identical": true
+    },
+    {
+      "path": "backend/.dockerignore",
+      "git_object": "991a8472a31f63c8dcdfc22ee735e83b7d03dd26",
+      "identical": true
+    },
+    {
+      "path": "backend/requirements-lock.txt",
+      "git_object": "53c239ffd4679ce835cd86d122df93ba9a11862a",
+      "identical": true
+    },
+    {
+      "path": "backend/requirements.txt",
+      "git_object": "73b8e55f452a248483fd118fe2265b09f8f034f1",
+      "identical": true
+    },
+    {
+      "path": "docker",
+      "git_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "identical": true
+    },
+    {
+      "path": "docker-compose.yml",
+      "git_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "identical": true
+    },
+    {
+      "path": "docker-compose.build.yml",
+      "git_object": "15b1b8a21d80a46680fdf528635b216383285131",
+      "identical": true
+    },
+    {
+      "path": "VERSION",
+      "git_object": "7ec1d6db40877765247db18e7f9a4e36a0def4ad",
+      "identical": true
+    },
+    {
+      "path": "LICENSE",
+      "git_object": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab",
+      "identical": true
+    }
+  ],
+  "other_web_objects_compared": 628,
+  "filtered_web_git_tree_sha256": "4844c81818be42b5299f25e923287ae8958bd440e93034e7bdb4c4f95010cf8b",
+  "all_other_web_objects_identical": true,
+  "backend_tree_identical": true,
+  "backend_tree_git_object": "6eb396209c7eecfd7bd8bdd312fb20e51ecec218",
+  "non_image_changed_paths": [
+    "docs/reviews/2026-10-09-final-review.md",
+    "docs/reviews/evidence/2026-10-09-final-review/bootstrap-portability-controls.json",
+    "docs/reviews/evidence/2026-10-09-final-review/capacity-5f370197-measured-path-applicability.json",
+    "docs/reviews/evidence/2026-10-09-final-review/capacity-c591-600s-hosted-evidence.json",
+    "docs/reviews/evidence/2026-10-09-final-review/capacity-c591-independent-capture-review.json",
+    "docs/reviews/evidence/2026-10-09-final-review/credential-contract-final-quality-controls.json",
+    "docs/reviews/evidence/2026-10-09-final-review/credential-contract-frontend-source-binding.json",
+    "docs/reviews/evidence/2026-10-09-final-review/credential-contract-source-applicability.json",
+    "docs/reviews/evidence/2026-10-09-final-review/native-ui-5f370197-source-controls.json",
+    "docs/reviews/evidence/2026-10-09-final-review/native-ui-c591-publisher-failure.json",
+    "docs/reviews/evidence/2026-10-09-final-review/native-ui-publisher-access-adjudication.json",
+    "docs/reviews/evidence/2026-10-09-final-review/native-ui-publisher-correction-controls.json",
+    "docs/reviews/evidence/2026-10-09-final-review/seed-admin-login-controls.json",
+    "docs/reviews/evidence/2026-10-09-final-review/settings-error-rendering-controls.json",
+    "docs/reviews/evidence/2026-10-09-final-review/unicode-login-form-controls.json",
+    "docs/reviews/evidence/2026-10-09-final-review/unicode-user-create-form-controls.json"
+  ],
+  "non_image_changes_are_review_documentation_only": true,
+  "runtime_source_references_smoke_script": false,
+  "compiler_inputs_exclude_smoke_script": true,
+  "web_build_does_not_execute_smoke_script": true,
+  "web_image_copies_compiled_dist_not_smoke_script": true,
+  "whole_web_tree_equality_claimed": false,
+  "whole_built_image_byte_equality_claimed": false,
+  "production_smoke_script_sha256": "b3f162006c7d827d4b0d82353f3ff35f9b6cc4cb0cc638a5cc4b6c1bc973815f",
+  "production_smoke_controls_sha256": "f21626c221f5edf06e853e3f1cbceb63939b9c6058631b02b8b5429382c6ffc4",
+  "production_smoke_control_source_matches_committed_application": true,
+  "prior_failed_quality_attempt": {
+    "run_id": 38073357452,
+    "workflow_head_revision": "7fe8cbad19f925200d9ca45c0646fe9653445381",
+    "application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb",
+    "known_failed_job": "Frontend tests and build",
+    "known_failure_step": "Smoke test production frontend",
+    "terminal_workflow_outcome_not_inferred": true
+  },
+  "network_calls": 0,
+  "docker_calls": 0,
+  "browser_calls": 0,
+  "dispatches": 0,
+  "release_clearance": false,
+  "scope": "Only the production-bundle smoke test changed among application/image input paths. Runtime sources, backend tree and build inputs remain identical. This does not assert equality of the whole web tree or built image bytes and does not replace fresh E native/quality qualification."
+}
