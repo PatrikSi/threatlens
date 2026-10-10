@@ -1,0 +1,119 @@
+{
+  "after_independent_controls": {
+    "control_count": 46,
+    "database_browser_network_or_container_mutation": false,
+    "deadline_seconds": 60,
+    "elapsed_seconds": 0.114,
+    "exit_code": 0,
+    "helper_sha256": "9d461cfa52c7567c748ee81ef67a92dba2999f86f95794a66517f4a720efc116",
+    "log_sha256": "b19c25b50d52718fd9a4c2a9b4c5bb9d9ffc2c1da8d33a077095e3adfaf5ed20",
+    "pinned_python": true,
+    "reported_elapsed_seconds": 0.01,
+    "status": "passed",
+    "tests_sha256": "9d4671674d770c4c82c617cb79d8952a9a4f19798260906cfce38b14736a227a"
+  },
+  "after_parent_controls": {
+    "control_count": 46,
+    "log_sha256": "415c00e2103aa515c688343a3499eafdfb7296cc5f7361c747e55c2141987b1b",
+    "original_exit_code": 0,
+    "reported_elapsed_seconds": 0.011,
+    "status": "passed"
+  },
+  "before_mode_regression": {
+    "evidence": "Actual parent tool invocation reported to independent reviewer.",
+    "failed": 1,
+    "passed": 0,
+    "raw_log_retained": false,
+    "raw_log_sha256": null
+  },
+  "helper_application_anchor_at_review": "c591c3a8e30a6ef1fc38956317f0b0b41a12285b",
+  "publisher_gate": {
+    "api_container_owned_network_preflight": true,
+    "article_mode_octal": "0644",
+    "before_seed_background_and_browser": true,
+    "command_timeout_seconds": 30,
+    "control_checks_metadata_only": true,
+    "different_uid_kernel_read_control_executed": false,
+    "directory_mode_octal": "0755",
+    "explicit_directory_chmod_preserves_private_parent": true,
+    "http_status_exact": 200,
+    "network_proxy_disabled": true,
+    "preflight_executed_in_this_review": false,
+    "private_parent_mode_octal": "0700",
+    "read_cap_bytes": 65537,
+    "reject_redirect_before_following": true,
+    "response_bytes_exact": 184,
+    "response_sha256_exact": "beb286962f69727b184bceef124532e747097098452a1c2b78eeb44e9f59db2e",
+    "socket_timeout_seconds": 10,
+    "umask_octal": "0077"
+  },
+  "release_clearance": false,
+  "retained_failed_native_case": {
+    "actual_kernel_errno_retained": false,
+    "actual_kernel_permission_failure_proved": false,
+    "actual_numeric_host_and_server_uids_retained": false,
+    "application_revision": "c591c3a8e30a6ef1fc38956317f0b0b41a12285b",
+    "article_preview_failed": 6,
+    "browser_results_sha256": "fb5d4e6d5a3d412ba73d55447ae27e4db7d9a57408275a830e5c93b1eb10f6c4",
+    "executed_checks": 33,
+    "failed": 6,
+    "independent_adjudication_sha256": "227024f4e2c3d4c75de472707a122b3e77459eaa89e759b9162e8c580dc5795b",
+    "login_passed": 6,
+    "owned_stack_log_sha256": "f1e7eb3e8d6045912ae40ec8e3e21cb237e605007991614bc2616a9c276c8c52",
+    "passed": 27,
+    "publisher_http_404_count": 6,
+    "separate_listener_observations": {
+      "api_5xx_errors": 6,
+      "api_5xx_status_counts": {
+        "502": 6
+      },
+      "causal_assignment_to_publisher_404": false,
+      "cause_and_source_unresolved": true,
+      "console_errors": 4,
+      "page_error": {
+        "access_control_failure_text_in_message": true,
+        "engine": "webkit",
+        "path": "/",
+        "session_verification_endpoint_in_message": true,
+        "theme": "light",
+        "timestamp_present": false
+      },
+      "page_errors": 1
+    },
+    "source_and_404_are_compatible_with_permission_failure": true,
+    "source_inferred_old_mode_octal": "0700"
+  },
+  "reviewer_mutation": {
+    "application_source_edits": false,
+    "commit": false,
+    "database_browser_network_or_container_mutation": false,
+    "helper_source_edits": false
+  },
+  "schema": "threatlens-native-publisher-fix-independent-controls-v1",
+  "source_controls": {
+    "all_existing_helper_test_classes_ast_unchanged": true,
+    "all_other_helper_ast_unchanged": true,
+    "driver_sha256": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c",
+    "helper_sha256": "9d461cfa52c7567c748ee81ef67a92dba2999f86f95794a66517f4a720efc116",
+    "root_after_controls": {
+      "control_count": 46,
+      "log_sha256": "415c00e2103aa515c688343a3499eafdfb7296cc5f7361c747e55c2141987b1b",
+      "reported_elapsed_seconds": 0.011,
+      "status": "passed"
+    },
+    "source_phase_order_correct": true,
+    "tests_sha256": "9d4671674d770c4c82c617cb79d8952a9a4f19798260906cfce38b14736a227a"
+  },
+  "status": "passed",
+  "unchanged_gates": {
+    "browser_driver_sha256": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c",
+    "browser_workflow_count": 33,
+    "caps_timeouts_and_global_deadline": true,
+    "cleanup_ownership_and_deadline": true,
+    "future_qualification_requires_zero_page_console_and_api_5xx_errors": true,
+    "loopback_listener": true,
+    "quiet_headroom": true,
+    "readiness_worker_gate": true,
+    "strict_runtime_and_browser_evidence_admission": true
+  }
+}

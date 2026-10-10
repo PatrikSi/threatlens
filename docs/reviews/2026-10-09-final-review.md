@@ -2,12 +2,16 @@
 
 ThreatLens **2.1.0** is prepared. The synthetic local instance at
 **http://127.0.0.1:3001** uses the earlier `e085733b` images. The current
-application/image candidate `c591c3a8e30a6ef1fc38956317f0b0b41a12285b`
+application/image candidate `5f370197e96b944831c7837cb58f470cb004fbfb`
 contains all review corrections, including reduced envelope reads, the
 concurrent parent-reference guard, synchronous post-login navigation and
-administrator-email admission before database access. Its seven new backend
-regressions and sixteen bootstrap tests pass; fresh native, comparative
-capacity and final-head hosted qualification remain required.
+complete administrator credential admission before database access. It also
+accepts backend-valid Unicode identities in credential and administrator user
+forms, conceals supplied settings in validation errors, and preserves the
+bootstrap script's earlier Bash compatibility. Focused checks pass: sixteen
+seed-admission cases, 96 configuration cases, 56 authentication cases, 46
+administrator-user cases and sixteen bootstrap tests. Frontend lint and
+TypeScript pass.
 
 Fresh native build/runtime, HTTP/helpers and selected image scans pass at the
 earlier `e085733b` source. Its original local native browser run executes all
@@ -15,29 +19,35 @@ earlier `e085733b` source. Its original local native browser run executes all
 including WebKit light. The remaining Firefox dark-theme failure is a
 30-second screenshot timeout in the article/team workflow; its cause is
 unassigned, and that surface's accessibility audit is incomplete.
-The first isolated browser run passes readiness and the host gate, then all six
-login checks fail because its generated fixture email uses a domain rejected
-by the actual login request schema. That setup error is confirmed; its
-correction and a fresh full browser result remain required.
+The first isolated browser run fails all six logins on an invalid fixture
+email. The next run at `c591c3a8` executes all 33 checks: **27 passed / six
+failed**, including six successful logins. All six article checks encounter an
+owned publisher 404. The fixture permission defect is corrected; a fresh full
+native run at `5f370197` is in progress at this report checkpoint.
 Earlier failed outcomes remain preserved under their actual source revisions.
 All application corrections were committed as `Patrik <patrik@local>`.
 
-**Decision at this checkpoint: held for fresh native and capacity results and
-final-head hosted quality.** No comparative threshold, resource limit, workload
+**Decision at this checkpoint: awaiting the final native and hosted quality
+results linked from [PR #31](https://github.com/PatrikSi/threatlens/pull/31).**
+Consult the PR for their actual terminal results and exact tested heads;
+this committed checkpoint does not predict them. No comparative threshold, resource limit, workload
 duration or authorization fence was weakened. Hosted quality at `aa92f8e7`
 passes all fifteen jobs; the later corrections require fresh qualification
-on the final review commit. The single fresh uninstrumented capacity pair at
-`aa92f8e7` passes, with verified source, threshold, artifact and cleanup evidence.
-The web change preserves its measured backend/control groups. The subsequent
-administrator fix changes the backend seed script and its unit tests, so the
-old whole-backend equality claim no longer applies. A new matched pair uses
-`c591c3a8`; the old passing capacity candidate remains `aa92f8e7`.
+on the final review commit. The new uninstrumented capacity pair at
+`c591c3a8` **passes**, with verified source, unchanged 600-second duration and
+20% threshold, actual artifacts and independent cleanup. Its measured paths
+remain applicable to `5f370197`: exactly four backend paths differ, the seed
+script is outside the measured execution, and Settings changes only invalid
+error rendering. All other 1,285 backend objects and five capacity operation
+groups match. Valid Settings outputs and schemas match in three isolated
+controls. The actual measured candidate remains `c591c3a8`; whole-backend
+equality and a new measurement at `5f370197` are not claimed.
 
 Version 2.1.0 is already aligned across the version file, frontend metadata,
 OpenAPI and deployment defaults. These pre-merge corrections need no further
 version bump. [Draft PR #31](https://github.com/PatrikSi/threatlens/pull/31)
-contains the remote review candidate; the latest local checkpoint is pending
-publication to that branch. Remote main, release tags, published images and
+receives the final review checkpoint and fresh fifteen-job quality run. Remote
+main, release tags, published images and
 model promotion remain unchanged. The reviewed CodeQL dispositions retain a
 neutral aggregate check with the historical configuration warning.
 
@@ -60,8 +70,20 @@ bounded writer shutdown and exact unchanged capacity inputs. The new DOM test
 is a Docker build/typecheck input, and the new images retain their actual
 `e085733b` labels.
 The [administrator source delta](evidence/2026-10-09-final-review/administrator-email-source-delta.json)
-records the single changed application image file, unchanged version/contract
-inputs and the fresh qualification requirement.
+retains the earlier `c591c3a8` email-only correction. Current
+[credential controls](evidence/2026-10-09-final-review/seed-admin-login-controls.json),
+[settings controls](evidence/2026-10-09-final-review/settings-error-rendering-controls.json),
+[authentication controls](evidence/2026-10-09-final-review/unicode-login-form-controls.json)
+and [administrator-form controls](evidence/2026-10-09-final-review/unicode-user-create-form-controls.json)
+retain their actual failing-before and passing-after results and source hashes.
+The [final source assessment](evidence/2026-10-09-final-review/credential-contract-source-applicability.json)
+and [frontend binding](evidence/2026-10-09-final-review/credential-contract-frontend-source-binding.json)
+independently bind those tested bytes to `5f370197`. The
+[portable bootstrap controls](evidence/2026-10-09-final-review/bootstrap-portability-controls.json)
+retain the actual final sixteen-test result. The
+[seven quality-capture controls](evidence/2026-10-09-final-review/credential-contract-final-quality-controls.json)
+preserve distinct application, measured-capacity, auxiliary workflow and final
+quality references; preparing evidence is not a hosted quality pass.
 
 ## Corrections completed in this pass
 
@@ -89,6 +111,11 @@ inputs and the fresh qualification requirement.
 | Concurrent envelope creation could skip the own-envelope parent-source guard | Revalidate references with the actual winner's envelope ID after reload, before modifying lineage. One real PostgreSQL regression fails before and passes afterward; all 38 new/existing envelope cases pass, including rollback and both matching/conflicting winners. | `aa92f8e7` |
 | Successful authentication retired the cache before deferred navigation committed, briefly remounting a blank credential form | Keep session invalidation first and synchronously commit replacement navigation for password and MFA success. The integrated ordinary-login regression fails before and passes after; 50 related auth cases, lint and TypeScript pass, preserving old-cache/identity/lease/late-mutation fences. Earlier browser stalls retain unassigned causes. | `e085733b` |
 | Administrator setup accepted emails that the sign-in schema rejects or normalizes differently | Validate and normalize with the actual email schema before database access; reject special-use domains before bootstrap output. Seven new backend cases change from five failed/two passed to seven passed. All sixteen bootstrap tests pass, including 24 reserved-domain and four accepted boundary cases. | `c591c3a8` |
+| Administrator seeding accepted empty, oversized or browser-stripped passwords | Admit the actual login credential schema and reject CR/LF before opening a database session. Two boundary failures and three line-break failures reproduce before correction; all sixteen seed-admission controls pass afterward. Transaction, role, reset and concurrent-creation behavior are preserved. | `5a6f9a20` |
+| Invalid settings errors printed supplied credentials and keys | Hide input dictionaries in Settings validation errors while preserving actionable rules. Twelve actual rendering regressions fail before; all 96 configuration cases pass after. Defaults, validators and secret derivation remain unchanged. | `5a6f9a20` |
+| Native credential-form constraints rejected backend-valid Unicode identities | Use a text input with the email keyboard hint in the shared login/registration fields. Three real-click regressions fail before; 56 related cases pass, including empty-required controls and session-boundary checks. | `a3e782cb` |
+| Reserved-domain normalization introduced a Bash 4-only expansion | Use the script's existing printf/tr dependencies for case folding. Bash syntax and all sixteen bootstrap controls pass; Bash 3 runtime testing is unavailable. | `a3e782cb` |
+| Administrator local-user creation had the same Unicode email mismatch | Preserve the review/confirmation flow and submit the accepted identity to the user API. Three real-click regressions fail before; all 46 affected cases pass afterward, including empty-required and credential-retention controls. | `5f370197` |
 
 [Structured regression evidence](evidence/2026-10-09-final-review/regression-proof.json)
 records pinned environments, before/after failures, hashes and scope limits.
@@ -252,7 +279,7 @@ file or printing credentials. Its
 retains the eighteen previously accepted invalid cases, six already rejected
 single-label cases, all 24 corrected cases and four valid suffix boundaries.
 
-Auxiliary workflow `00e6034e` now freezes application source `c591c3a8`.
+Auxiliary workflow `00e6034e` froze application source `c591c3a8`.
 Its [source and 44 fixture/evidence controls](evidence/2026-10-09-final-review/native-ui-c591-source-controls.json)
 preserve the original driver, 33 checks, contexts, actions/assertions,
 captures, resource limits and quiet gate. The
@@ -261,7 +288,64 @@ and the single
 [uninstrumented capacity comparison](https://github.com/PatrikSi/threatlens/actions/runs/38070244407)
 use separate isolated runners. The comparison retains baseline `b73a3363`,
 600 seconds per release, five shared start-gate participants, the same target,
-20% threshold and independent cleanup. Actual terminal results remain required.
+20% threshold and independent cleanup. Its actual passing result is recorded
+below; the browser result remains failed.
+
+The [actual `c591c3a8` native result](evidence/2026-10-09-final-review/native-ui-c591-publisher-failure.json)
+executes **33 checks: 27 pass, six fail, none are omitted**. All six logins pass.
+Each article assertion encounters an API 502 reporting the owned publisher's
+404; retained publisher logs contain six matching 404 responses. Four console
+errors, six API server errors and one WebKit light page error are retained.
+The latter reports an `auth/me` access-control failure at path `/`, with no
+timestamp; its cause is unassigned and is not attributed to publisher access.
+Browser exit is 1, without OOM/restarts; cleanup has zero remnants.
+
+The [independent publisher assessment](evidence/2026-10-09-final-review/native-ui-publisher-access-adjudication.json)
+finds that umask 077 makes the requested publisher directory mode 0700.
+This is incompatible with the configured nonroot publisher's traversal and
+consistent with the actual 404 responses. Actual kernel errno and numeric UID
+were not retained. The auxiliary correction explicitly sets only the synthetic
+publisher directory to 0755 and its article to 0644, preserving private
+ancestors at 0700. A bounded API-container preflight rejects redirects and
+requires status 200 with the exact owned content length and SHA before seeding
+or browser execution. Both independent and root
+[helper controls](evidence/2026-10-09-final-review/native-ui-publisher-correction-controls.json)
+pass all 46 cases. The original permission control failed before the fix; its
+raw pre-fix log is unavailable, and no log hash is invented.
+
+The [final auxiliary source proof](evidence/2026-10-09-final-review/native-ui-5f370197-source-controls.json)
+binds all fourteen image input groups at `5f370197` to workflow `5ccb0d4d`.
+The original browser driver, 33 checks, contexts, actions, assertions, capture
+timeouts, quiet gate, resource caps and zero-listener-error gates remain
+unchanged. The single corrected
+[native qualification](https://github.com/PatrikSi/threatlens/actions/runs/38072575289)
+is in progress at this committed checkpoint. Actual terminal qualification and
+visual review of the captured surfaces are required; pure controls do not
+clear it. Temporary qualification helpers and certificate remain confined to
+the auxiliary branch.
+
+The final application also validates the full `LoginRequest`, including
+password bounds, before administrator seeding and rejects browser-stripped
+CR/LF passwords. Its [sixteen admission controls](evidence/2026-10-09-final-review/seed-admin-login-controls.json)
+retain the actual boundary and line-break failures before correction.
+The seed-only proof's unchanged-settings statement refers to that regression
+execution. A separate [Settings correction](evidence/2026-10-09-final-review/settings-error-rendering-controls.json)
+adds only `hide_input_in_errors=True`: all field defaults, validators and
+derived-key behavior are preserved, with twelve disclosure regressions and
+84 existing configuration cases passing. Four existing PostgreSQL seed cases
+remain covered by the required fresh full hosted suite.
+
+[Credential-form controls](evidence/2026-10-09-final-review/unicode-login-form-controls.json)
+and [administrator user controls](evidence/2026-10-09-final-review/unicode-user-create-form-controls.json)
+use real submit-button clicks rather than dispatching submit events directly.
+Unicode local parts accepted by the unchanged API schemas reach the existing
+confirmation/authentication flows; empty required fields still block
+submission. Unicode-domain constraint observations are scoped to jsdom because
+native browsers can perform IDN conversion. The administrator controls also
+verify the production mutation's exact user-creation payload and eventual
+credential-cache cleanup. Its initial after run retains one test assertion
+that checked scheduled cleanup too early; waiting for the existing contract
+yields all 46 passes, without a production change to cleanup.
 
 ### Earlier native candidate `aa92f8e7` — retained
 
@@ -420,12 +504,12 @@ selectors, assertions, deadlines and generic error listeners remain unchanged.
 
 ## Hosted quality and preserved failures
 
-Fresh final-head quality remains required for the later `e085733b` web change.
+Fresh final-head quality remains required for the final `5f370197` corrections.
 The final review commit must retain exact image-input groups and complete all
 fifteen jobs on its actual merge checkout before clearance. Old outcomes below
 remain bound to their recorded sources.
 
-The latest completed [quality run 37914317245](https://github.com/PatrikSi/threatlens/actions/runs/37914317245)
+The retained [quality run 37914317245](https://github.com/PatrikSi/threatlens/actions/runs/37914317245)
 at `aa92f8e7` passes **all fifteen jobs**. Backend reports **4,741 passed / five
 skipped** in 1094.38 seconds, overall coverage **87.08%**, reporting coverage
 **87.21%**, and all **58 critical module floors**. Capacity smoke, generated
@@ -625,7 +709,9 @@ review status is separate from the failed full-suite result above.
 
 ## Security finding review
 
-CodeQL completed with **25 Python and one JavaScript high alerts**. The
+The recorded earlier CodeQL runs completed with **25 Python and one JavaScript
+high alerts**. Final-head analyses and aggregate outcome remain part of the
+fresh quality gate; their actual result is recorded on the PR. The
 [per-flow review](2026-10-09-codeql-triage.md) documents the SMTP policy gap
 corrected in this pass and the constrained application/test-fixture findings.
 All 26 results remain reported by the latest analyzer, including SMTP. Independent
@@ -655,18 +741,62 @@ default-main listing eleven; no further dispositions, query changes or severity
 changes were made. Exact analysis IDs and SARIF hashes are retained in the
 current quality record.
 
-Current `aa92f8e7` analyses retain **25 Python and one JavaScript results**:
+Retained `aa92f8e7` analyses contain **25 Python and one JavaScript results**:
 Python analysis `1922341461` and JavaScript analysis `1922335253`. No result or
 code-flow location points to either changed envelope/lineage runtime file.
 The aggregate remains neutral with zero annotations and the historical
 configuration warning; PR/main open-alert scopes remain ten/eleven. Exact
 analysis and SARIF identities are in the
-[current full quality record](evidence/2026-10-09-final-review/hosted-quality-aa92.json).
+[earlier full quality record](evidence/2026-10-09-final-review/hosted-quality-aa92.json).
 
 ## Capacity comparison
 
+The single fresh uninstrumented
+[pair 38070244407](https://github.com/PatrikSi/threatlens/actions/runs/38070244407)
+compares actual candidate `c591c3a8` against matched-harness baseline `b73a3363`
+on workflow `00e6034e`. It **passes** the unchanged 20% comparator and both
+600-second absolute-budget checks. Actual inputs, source labels, five shared
+start-gate participants, target and fingerprints match the frozen plan.
+Required successful-export/AI/governance/DNS/header counts are
+286/301/300/6/6 for baseline and 292/301/300/6/6 for candidate. Each independent
+cleanup verifies sixteen probes and zero remnants. No diagnostics were enabled.
+The artifact's advertised digest, all nine regular bounded archive members,
+measurement hashes and Bash `-e` exit evidence reconcile. Replaying the frozen
+default-threshold comparator produces the exact hosted comparison with exit 0.
+The [actual capacity record](evidence/2026-10-09-final-review/capacity-c591-600s-hosted-evidence.json)
+and [independent capture review](evidence/2026-10-09-final-review/capacity-c591-independent-capture-review.json)
+preserve this proof; no repeated identical pair or threshold waiver occurred.
+
+| Metric | Baseline | Candidate `c591c3a8` | Change |
+|---|---:|---:|---:|
+| Processing-dispatch queue p95 | 189.608 ms | 188.614 ms | −0.524% |
+| Feed task p95 | 751.306 ms | 475.815 ms | −36.668% |
+| Governance p95 | 66.937 ms | 68.939 ms | +2.991% |
+| Sampled waiting-query age peak | 556.004 ms | 189.479 ms | −65.921% |
+
+Three optional series remain insufficient: asynchronous export, its success
+subset and export policy conflicts. No required series is insufficient.
+Application limits use CPU affinity and a sampled owned-process RSS watchdog;
+an application hard cgroup or no-swap cap is not claimed. This one sequential
+pair provides no estimate of run-to-run variance or causal speedup.
+
+The [explicit measured-path source assessment](evidence/2026-10-09-final-review/capacity-5f370197-measured-path-applicability.json)
+binds this result to the unchanged workload at `5f370197`. Exactly four backend
+paths differ: the administrator seed module, Settings and their two unit
+modules. The capacity harness does not launch administrator seeding or select
+those unit tests. The complete seed database transaction AST matches. The
+complete Settings module AST matches after removing only the error-rendering
+flag, and three isolated valid Settings cases produce equal outputs, fields
+and JSON schemas under the exact locked Pydantic versions. All other 1,285
+backend objects and five capacity operation/workflow groups match.
+This is measured-path applicability, with actual candidate `c591c3a8` retained;
+the entire backend trees differ. Fresh full-suite and native qualification
+cover the new setup, invalid-input and frontend paths independently.
+
+### Earlier passing capacity candidate `aa92f8e7` — retained
+
 The single predeclared uninstrumented
-[current pair 37914335157](https://github.com/PatrikSi/threatlens/actions/runs/37914335157)
+[earlier pair 37914335157](https://github.com/PatrikSi/threatlens/actions/runs/37914335157)
 compares matched-harness baseline `b73a3363` with the measured candidate
 `aa92f8e7`, using each ref's locked dependencies. It **passes the unchanged
 20% regression gate**. Both 600-second workloads pass absolute budgets,
@@ -676,7 +806,7 @@ match the frozen plan. Both independent cleanup attestations pass sixteen probes
 with zero errors or remnants; the successful sequential Bash `-e` step and frozen
 exit-preserving wrapper verify both workload exits. The artifact was downloaded
 once, with no redispatch or repeated identical pair.
-The [verified current capacity record](evidence/2026-10-09-final-review/hosted-capacity-aa92.json)
+The [verified earlier capacity record](evidence/2026-10-09-final-review/hosted-capacity-aa92.json)
 retains all artifact hashes, measurements, comparison, process/cleanup proofs
 and a deterministic replay of the exact comparator with an equal result.
 The later web-only `e085733b` correction preserves the entire backend tree,
@@ -966,8 +1096,12 @@ outputs and named human review of the twelve prepared cases. Provider-contract
 and configuration tests do not complete that approval; ordinary ingestion and
 classification do not require model promotion.
 
-The remaining current gates are fresh native and capacity qualification at
-`c591c3a8` and hosted quality on the final review head. Earlier `e085733b` cookie
+The remaining current gates at this committed checkpoint are native
+qualification at `5f370197` and hosted quality on the final review head.
+Capacity passes at actual measured candidate `c591c3a8`, with explicit
+measured-path applicability to `5f370197`. The PR records the actual terminal
+results without adding an evidence-only commit that changes the tested head.
+Earlier `e085733b` cookie
 logins, both exact local images and backend/runtime checks pass. Earlier failures
 remain recorded under their actual runtime and harness inputs; they are not
 assigned causes by later passing observations.

@@ -1,0 +1,96 @@
+{
+  "after": {
+    "config_sha256": "31d78e2efffd53e8e1f2e1326b014be6da173b27f46d604265e4463522c0b0d9",
+    "database_tests_selected": false,
+    "deadline_seconds": 60,
+    "elapsed_seconds": 7.729,
+    "exit_code": 0,
+    "failed": 0,
+    "log_sha256": "650187a4ae2a868d13be275796a0d28ad4257a5afeea46b9e46fc9082e9ae4f9",
+    "passed": 96,
+    "phase": "after",
+    "selected_count": 96,
+    "selected_tests": "pure unit test_config.py",
+    "skipped": 0,
+    "tests_sha256": "22d752bf52ab38b62422d9d37eac2dec0396bcaf44eb49f64b3ff6a28fda6920"
+  },
+  "application_base": "c591c3a8e30a6ef1fc38956317f0b0b41a12285b",
+  "before": {
+    "config_sha256": "686ad84ee14ed4d9943aeb26d9448e6e1e8e079e085f5de133d6e49fc68139dc",
+    "database_tests_selected": false,
+    "deadline_seconds": 60,
+    "elapsed_seconds": 7.779,
+    "exit_code": 1,
+    "failed": 12,
+    "log_sha256": "786543ee63ba4a791fc76132c05cbe7948aabcaf90b3bb37ed55214ae1b1ba55",
+    "passed": 0,
+    "phase": "before",
+    "selected_count": 12,
+    "selected_tests": "validation_error_rendering_hides",
+    "tests_sha256": "22d752bf52ab38b62422d9d37eac2dec0396bcaf44eb49f64b3ff6a28fda6920"
+  },
+  "initial_candidate_test": {
+    "qualification_claim": false,
+    "reason": "The initial input layout displayed no marker because Pydantic truncated the dictionary; it was strengthened before the production fix.",
+    "result": {
+      "config_sha256": "686ad84ee14ed4d9943aeb26d9448e6e1e8e079e085f5de133d6e49fc68139dc",
+      "database_tests_selected": false,
+      "deadline_seconds": 60,
+      "elapsed_seconds": 7.227,
+      "exit_code": 0,
+      "failed": 0,
+      "log_sha256": "cf426ab35f3b06fccef8290fde5325d90af130a79da1d1752031518df77c4236",
+      "passed": 3,
+      "phase": "before",
+      "selected_count": 3,
+      "selected_tests": "validation_error_rendering_hides",
+      "tests_sha256": "8083db55d614bdb426ed795b51689dfaf9befa328ab97c7c01315646c93c7080"
+    }
+  },
+  "readiness_claim": false,
+  "regression": {
+    "actionable_validation_message_preserved": true,
+    "all_custom_exception_messages_static": true,
+    "api_public_validation_issue_input_filter_unchanged": true,
+    "custom_exception_message_count": 57,
+    "dictionary_truncation_does_not_mask_the_proof": true,
+    "global_field_defaults_validation_normalization_and_key_derivation_unchanged": true,
+    "new_regression_cases": 12,
+    "original_config_cases_passed_unchanged": 84,
+    "rendering_types": [
+      "str",
+      "repr",
+      "formatted traceback"
+    ],
+    "secret_field_types": [
+      "AI API key",
+      "administrator password",
+      "JWT secret",
+      "data encryption key"
+    ],
+    "secret_value_interpolation_in_custom_messages": false,
+    "seed_guard_loc_only_error_inspection_unchanged": true,
+    "synthetic_short_markers_used": true
+  },
+  "schema": "threatlens-settings-error-rendering-controls-v1",
+  "scope": "Input omission in Settings str/repr/formatted validation errors; no secret-field types or values changed.",
+  "source_controls": {
+    "added_regression_test_function_count": 1,
+    "all_existing_test_functions_ast_unchanged": true,
+    "only_config_ast_delta_hide_input_in_errors_true": true,
+    "source_sha256": {
+      "backend/app/core/config.py": "31d78e2efffd53e8e1f2e1326b014be6da173b27f46d604265e4463522c0b0d9",
+      "backend/tests/unit/test_config.py": "22d752bf52ab38b62422d9d37eac2dec0396bcaf44eb49f64b3ff6a28fda6920"
+    }
+  },
+  "status": "passed",
+  "tested_source_state": "uncommitted rendering-only Settings fix",
+  "verification": {
+    "browser_network_or_container_mutation": false,
+    "database_tests_executed": 0,
+    "diff_check": "passed",
+    "per_command_deadline_seconds": 60,
+    "pinned_python": true,
+    "ruff": "passed"
+  }
+}

@@ -1,0 +1,107 @@
+{
+  "final_guard": {
+    "actual_login_request_schema_used": true,
+    "all_guards_before_session_constructor": true,
+    "email_validation_error_priority_preserved": true,
+    "exceptions_suppress_chained_validation_detail": true,
+    "fixed_email_message_preserved": true,
+    "fixed_password_bounds_message": true,
+    "fixed_single_line_password_message": true,
+    "global_settings_and_development_key_derivation_unchanged": true,
+    "invalid_credentials_never_open_session_hash_audit_or_revoke": true,
+    "new_single_line_cases_passed": 3,
+    "other_control_characters_not_newly_rejected": true,
+    "password_lengths_1_and_256_and_ordinary_accepted": true,
+    "prior_email_cases_passed_unchanged": 7,
+    "prior_password_boundary_cases_passed_unchanged": 6,
+    "single_line_rejection_characters": [
+      "CR",
+      "LF"
+    ],
+    "validation_errors_exclude_input_and_are_not_printed": true
+  },
+  "password_boundary_regression": {
+    "after_full_schema_admission": {
+      "database_tests_selected": false,
+      "deadline_seconds": 60,
+      "elapsed_seconds": 6.826,
+      "exit_code": 0,
+      "failed": 0,
+      "log_sha256": "cfc14fd2dc11c362cccf5421245ca5ab0e9d286b54a604a80bd2dd5522f6feb9",
+      "passed": 13,
+      "phase": "after",
+      "seed_sha256": "b0e2c1f3c5935a2aacc05b792f4ecd3506af62eea5a4afca985ab789af286e6c",
+      "selected_count": 13,
+      "selected_tests": "bootstrap_email or bootstrap_password",
+      "tests_sha256": "1a4de8395f2efefcec9b025bfea3b34cc66afe956f0147aaf05d298d239f9131"
+    },
+    "before": {
+      "database_tests_selected": false,
+      "deadline_seconds": 60,
+      "elapsed_seconds": 7.63,
+      "exit_code": 1,
+      "failed": 2,
+      "log_sha256": "635f37af3c844ca4e2993ae9068ebb95cf7468a51fc2f595d99bf93dba808687",
+      "passed": 4,
+      "phase": "before",
+      "seed_sha256": "a16a385010bf83296b980d69817f7ddd9088cd92d08fe15c28180d671f2a7c28",
+      "selected_count": 6,
+      "selected_tests": "bootstrap_password",
+      "tests_sha256": "1a4de8395f2efefcec9b025bfea3b34cc66afe956f0147aaf05d298d239f9131"
+    }
+  },
+  "readiness_claim": false,
+  "schema": "threatlens-seed-admin-login-admission-controls-v2",
+  "single_line_regression": {
+    "after_final_guard": {
+      "database_tests_selected": false,
+      "deadline_seconds": 60,
+      "elapsed_seconds": 6.926,
+      "exit_code": 0,
+      "failed": 0,
+      "log_sha256": "ecf57d762b443151696ef4727347520d0d5715719bac1e0cd93caddf627ffa61",
+      "passed": 16,
+      "phase": "after",
+      "seed_sha256": "438f343dd0ff49947a6cf7295dbee4d20d8385ccb54e698d74fd1ec0508cd208",
+      "selected_count": 16,
+      "selected_tests": "bootstrap_email or bootstrap_password",
+      "tests_sha256": "aabb956f62c8d8801e58c6eaae1772978ee7ff1e1137d0de8f30698ee93b636a"
+    },
+    "before": {
+      "database_tests_selected": false,
+      "deadline_seconds": 60,
+      "elapsed_seconds": 7.428,
+      "exit_code": 1,
+      "failed": 3,
+      "log_sha256": "18480732023210a13bfbaec80ce8ab4bf06c19acc21ff4a68c30769a9434b046",
+      "passed": 0,
+      "phase": "before",
+      "seed_sha256": "b0e2c1f3c5935a2aacc05b792f4ecd3506af62eea5a4afca985ab789af286e6c",
+      "selected_count": 3,
+      "selected_tests": "bootstrap_password_single_line",
+      "tests_sha256": "aabb956f62c8d8801e58c6eaae1772978ee7ff1e1137d0de8f30698ee93b636a"
+    }
+  },
+  "source_controls": {
+    "all_prior_test_functions_ast_unchanged": true,
+    "new_single_line_test_function_count": 1,
+    "settings_and_auth_schema_unchanged": true,
+    "source_sha256": {
+      "backend/app/scripts/seed_admin.py": "438f343dd0ff49947a6cf7295dbee4d20d8385ccb54e698d74fd1ec0508cd208",
+      "backend/tests/unit/test_seed_admin.py": "aabb956f62c8d8801e58c6eaae1772978ee7ff1e1137d0de8f30698ee93b636a"
+    },
+    "transaction_policy_ast_unchanged": true
+  },
+  "status": "passed",
+  "tested_application_base": "c591c3a8e30a6ef1fc38956317f0b0b41a12285b",
+  "tested_source_state": "uncommitted final working-tree guard",
+  "verification": {
+    "browser_network_or_container_mutation": false,
+    "database_tests_executed": 0,
+    "diff_check": "passed",
+    "existing_postgresql_cases_pending_fresh_full_ci": 4,
+    "per_command_deadline_seconds": 60,
+    "pinned_python": true,
+    "ruff": "passed"
+  }
+}

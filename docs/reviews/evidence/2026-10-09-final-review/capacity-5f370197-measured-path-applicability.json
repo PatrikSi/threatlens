@@ -1,0 +1,93 @@
+{
+  "schema": "threatlens-capacity-measured-path-applicability-v1",
+  "actual_candidate_revision": "c591c3a8e30a6ef1fc38956317f0b0b41a12285b",
+  "actual_workflow_head_revision": "00e6034e9c1f65eb160b3e2772046252485020fe",
+  "actual_capacity_run_id": 38070244407,
+  "baseline_revision": "b73a3363fc0cb7354e36d3f92b2394448a459d02",
+  "applicable_application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb",
+  "status": "measured_path_source_applicability_proved",
+  "duration_seconds_per_ref": 600,
+  "regression_threshold_percent": 20,
+  "diagnostics_enabled": false,
+  "backend_source_exception_paths": [
+    "backend/app/core/config.py",
+    "backend/app/scripts/seed_admin.py",
+    "backend/tests/unit/test_config.py",
+    "backend/tests/unit/test_seed_admin.py"
+  ],
+  "all_other_backend_objects_identical": true,
+  "backend_objects_compared_after_exceptions": 1285,
+  "filtered_backend_tree_sha256": "47b30884a458b56a7d2fd9a438dee19c505c0ef9ea3086d45ccd151d67a24a9d",
+  "capacity_operations_groups": [
+    {
+      "path": ".github/workflows/capacity-trends.yml",
+      "object": "2f4eb4298f64d040875b38ed33dae0022ad78822",
+      "identical": true
+    },
+    {
+      "path": "scripts/operations/run_capacity_reference.py",
+      "object": "9a0cdbbaeae3e329ff685a4c535a5609cfe78d1d",
+      "identical": true
+    },
+    {
+      "path": "scripts/operations/run_capacity_diagnostic.py",
+      "object": "b1f962ae2f4bab90346a161b6bb4d5c3b49173a1",
+      "identical": true
+    },
+    {
+      "path": "scripts/operations/capacity_diagnostics.py",
+      "object": "a1c8a3010f1dd4dd2a4cc02ebd6b74b76590dd21",
+      "identical": true
+    },
+    {
+      "path": "scripts/operations/capacity_diagnostics_plugin.py",
+      "object": "7338b16acafa749ba1ad9e59019f367eeb57632d",
+      "identical": true
+    }
+  ],
+  "settings_flag_ast_proof": {
+    "only_config_keyword": "hide_input_in_errors",
+    "before_effective_value": false,
+    "after_value": true,
+    "complete_module_ast_identical_after_only_flag_removal": true,
+    "all_fields_defaults_and_validators_identical": true,
+    "normalized_module_ast_sha256": "e13bb8fe7f8716b78ad7be695c8b4f736129c57b71fd9c241b4984c8551f8e41",
+    "settings_class_body_nodes": 247
+  },
+  "valid_settings_equivalence": {
+    "valid_synthetic_settings_cases": 3,
+    "all_model_dumps_equal": true,
+    "all_fields_set_equal": true,
+    "all_json_schemas_equal": true,
+    "seed_admin_default_remains_false": true,
+    "locked_packages": {
+      "pydantic": "2.13.4",
+      "pydantic_core": "2.46.4",
+      "pydantic-settings": "2.10.1"
+    },
+    "installed_pydantic_config_source_sha256": "b8f4e740e0ada024ac981600f32501cfce0f6fc2452ddec4448c050a18f961a6",
+    "flag_scope_documented_as_error_rendering_only": true,
+    "operator_settings_read": false,
+    "database_or_network_execution": false,
+    "original_exit": 0
+  },
+  "seed_transaction_ast_proof": {
+    "database_transaction_ast_identical": true,
+    "database_transaction_ast_sha256": "29db516a857f5a78c535821cca865adc88ab9935492d853894cfb60dca1d15c1",
+    "changed_seed_module_unexecuted_in_sustained_capacity": true
+  },
+  "seed_path_adjudication_sha256": "b7abecf77e896dd74b1b68380e17b05718a5b49521772bfc445b6720cc1124c7",
+  "new_unit_modules_selected_by_capacity_pytest": false,
+  "new_unit_modules_imported_by_capacity_fixtures": false,
+  "actual_capacity_candidate_relabelled": false,
+  "whole_backend_tree_equality_claimed": false,
+  "capacity_result_status_changed": false,
+  "capacity_result_pass_claimed": false,
+  "original_capacity_artifact_requires_independent_actual_terminal_capture": true,
+  "network_calls": 0,
+  "docker_calls": 0,
+  "browser_calls": 0,
+  "dispatches": 0,
+  "release_clearance": false,
+  "scope": "Applicability covers only the unchanged sustained workload and valid settings semantics. New bootstrap validation and invalid settings error rendering require their own regression checks and fresh native images."
+}
