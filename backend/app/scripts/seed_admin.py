@@ -39,16 +39,16 @@ def seed_admin() -> None:
                 is_active=True,
             )
             db.add(admin)
-            db.flush()
-            record_audit(
-                db,
-                actor_user_id=None,
-                action="system.seed_admin.create",
-                resource_type="user",
-                resource_id=str(admin.id),
-                metadata={"email": email},
-            )
             try:
+                db.flush()
+                record_audit(
+                    db,
+                    actor_user_id=None,
+                    action="system.seed_admin.create",
+                    resource_type="user",
+                    resource_id=str(admin.id),
+                    metadata={"email": email},
+                )
                 db.commit()
                 return
             except IntegrityError:

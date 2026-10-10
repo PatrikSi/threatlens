@@ -198,6 +198,71 @@ def test_seed_admin_bootstrap_password_single_line_rejects_browser_stripped_char
     revoke.assert_not_called()
 
 
+@pytest.mark.parametrize("failure_phase", ["flush", "audit", "commit"])
+@pytest.mark.parametrize("winner_available", [True, False], ids=["winner-reloaded", "no-winner"])
+def test_seed_admin_create_integrity_failure_recovers_or_reraises_without_credential_changes(
+    failure_phase, winner_available, monkeypatch,
+):
+    winner = SimpleNamespace(
+        password_hash="winner-password-hash", role=ROLE_VIEWER, is_active=False,
+        auth_token_version=7, password_login_enabled=False,
+    )
+    original_winner = vars(winner).copy()
+    conflict = IntegrityError("insert", {}, Exception("synthetic unique conflict"))
+    db = Mock()
+    db.scalar.side_effect = [None, winner if winner_available else None]
+    audit, revoke = Mock(), Mock()
+    if failure_phase == "flush":
+        db.flush.side_effect = conflict
+    elif failure_phase == "audit":
+        audit.side_effect = conflict
+    else:
+        db.commit.side_effect = [conflict, None]
+    password_hash = Mock(return_value="discarded-candidate-password-hash")
+    monkeypatch.setattr("app.scripts.seed_admin.SessionLocal", Mock(return_value=db))
+    monkeypatch.setattr("app.scripts.seed_admin.get_password_hash", password_hash)
+    monkeypatch.setattr("app.scripts.seed_admin.record_audit", audit)
+    monkeypatch.setattr("app.scripts.seed_admin.revoke_user_credentials_with_counts", revoke)
+    monkeypatch.setattr("app.scripts.seed_admin.get_settings", lambda: SimpleNamespace(
+        admin_email="ADMIN@example.com", admin_password="AdminPass123!",
+        seed_admin_force_role=False, seed_admin_reactivate_existing=False,
+        seed_admin_reset_password_on_startup=False,
+    ))
+
+    if winner_available:
+        seed_admin()
+    else:
+        with pytest.raises(IntegrityError) as raised:
+            seed_admin()
+        assert raised.value is conflict
+
+    assert vars(winner) == original_winner
+    password_hash.assert_called_once_with("AdminPass123!")
+    revoke.assert_not_called()
+    db.add.assert_called_once()
+    candidate = db.add.call_args.args[0]
+    assert candidate.email == "admin@example.com" and candidate.role == ROLE_ADMIN
+    assert candidate.password_hash == "discarded-candidate-password-hash"
+    db.flush.assert_called_once_with()
+    db.rollback.assert_called_once_with()
+    assert db.scalar.call_count == 2
+    for lookup in db.scalar.call_args_list:
+        statement = lookup.args[0]
+        assert statement.compile().params["email_1"] == "admin@example.com"
+        assert statement._for_update_arg is not None
+        assert statement.get_execution_options()["populate_existing"] is True
+    rollback_index = next(i for i, call in enumerate(db.mock_calls) if call[0] == "rollback")
+    lookup_indices = [i for i, call in enumerate(db.mock_calls) if call[0] == "scalar"]
+    assert lookup_indices[0] < rollback_index < lookup_indices[1]
+    assert db.commit.call_count == int(failure_phase == "commit") + int(winner_available)
+    if failure_phase == "flush":
+        audit.assert_not_called()
+    else:
+        audit.assert_called_once()
+        assert audit.call_args.kwargs["action"] == "system.seed_admin.create"
+    db.close.assert_called_once_with()
+
+
 def test_seed_admin_does_not_reactivate_or_force_role_by_default(db_session, monkeypatch):
     existing = User(
         id=uuid.uuid4(),
@@ -393,3 +458,78 @@ def test_seed_admin_handles_concurrent_create_conflict(db_session, monkeypatch):
     users = db_session.scalars(select(User).where(User.email == "admin@example.com")).all()
     assert len(users) == 1
     assert verify_password("RacedPass123!", users[0].password_hash)
+
+
+def test_seed_admin_handles_real_unique_flush_conflict_without_changing_winner(db_session, monkeypatch):
+    winner = User(
+        id=uuid.uuid4(), email="admin@example.com",
+        password_hash=get_password_hash("RacedPass123!"), role=ROLE_VIEWER,
+        is_active=False, password_login_enabled=False, auth_token_version=7,
+    )
+    db_session.add(winner)
+    db_session.flush()
+    token = ApiToken(
+        id=uuid.uuid4(), user_id=winner.id, name="winner-token",
+        token_prefix="tl_flush_race", token_hash="flush-race-token-hash", scopes=[],
+    )
+    db_session.add(token)
+    db_session.commit()
+    winner_hash = winner.password_hash
+
+    class _SessionProxy:
+        def __init__(self, session):
+            self._session = session
+            self.lookups = 0
+            self.rollbacks = 0
+            self.flush_conflict = None
+
+        def __getattr__(self, item):
+            return getattr(self._session, item)
+
+        def scalar(self, statement):
+            self.lookups += 1
+            if self.lookups == 1:
+                # Reproduce the seeder's stale absence check while a winner
+                # already exists. The duplicate INSERT uses PostgreSQL itself.
+                return None
+            return self._session.scalar(statement)
+
+        def flush(self):
+            try:
+                return self._session.flush()
+            except IntegrityError as error:
+                self.flush_conflict = error
+                raise
+
+        def rollback(self):
+            self.rollbacks += 1
+            return self._session.rollback()
+
+        def close(self):
+            # The fixture owns the outer transaction and cleanup.
+            return None
+
+    proxy = _SessionProxy(db_session)
+    monkeypatch.setattr("app.scripts.seed_admin.SessionLocal", lambda: proxy)
+    monkeypatch.setattr("app.scripts.seed_admin.get_settings", lambda: SimpleNamespace(
+        admin_email="ADMIN@example.com", admin_password="AdminPass123!",
+        seed_admin_force_role=False, seed_admin_reactivate_existing=False,
+        seed_admin_reset_password_on_startup=False,
+    ))
+
+    seed_admin()
+
+    assert proxy.flush_conflict is not None
+    assert proxy.flush_conflict.orig.sqlstate == "23505"
+    assert proxy.rollbacks == 1 and proxy.lookups == 2
+    users = db_session.scalars(select(User).where(User.email == "admin@example.com")).all()
+    assert len(users) == 1 and users[0].id == winner.id
+    assert users[0].password_hash == winner_hash
+    assert verify_password("RacedPass123!", users[0].password_hash)
+    assert users[0].role == ROLE_VIEWER and users[0].is_active is False
+    assert users[0].password_login_enabled is False and users[0].auth_token_version == 7
+    db_session.refresh(token)
+    assert token.revoked_at is None
+    assert db_session.scalar(select(AuditLog).where(
+        AuditLog.action.in_(["system.seed_admin.create", "system.seed_admin.update"]),
+    )) is None
