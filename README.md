@@ -66,6 +66,9 @@ ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='use-a-long-password' ./bootstrap.sh
 
 Bootstrap escapes custom credentials for Compose, preserving literal dollar
 signs, quotes and backslashes. Keep the generated file private.
+Use a valid email address; special-use domains such as `.test` and `.invalid`
+cannot sign in. Administrator seeding validates and normalizes the address
+with the same email schema as login before opening a database session.
 
 For a production or internet-facing deployment, review `.env.example` and replace any local-only settings before first startup.
 

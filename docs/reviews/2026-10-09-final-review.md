@@ -5,11 +5,15 @@ running at **http://127.0.0.1:3001**. Current application/image candidate
 `e085733b1200b8308f0011cf50d3abe79fa792b4` contains all review corrections,
 including reduced envelope reads, the concurrent parent-reference guard and
 synchronous post-login navigation. Fresh native build/runtime, HTTP/helpers
-and selected image scans pass. The current native browser run executes all
+and selected image scans pass. The original local native browser run executes all
 33 checks, with **32 passed / one failed**. All six cookie-login checks pass,
 including WebKit light. The remaining Firefox dark-theme failure is a
 30-second screenshot timeout in the article/team workflow; its cause is
 unassigned, and that surface's accessibility audit is incomplete.
+The latest isolated run passes readiness and the host gate, then all six
+login checks fail because its generated fixture email uses a domain rejected
+by the actual login request schema. That setup error is confirmed; its
+correction and a fresh full browser result remain required.
 Earlier failed outcomes remain preserved under their actual source revisions.
 All application corrections were committed as `Patrik <patrik@local>`.
 
@@ -136,8 +140,91 @@ retains those counts, exact engine order, image identities, limits and hash-only
 capture evidence. The
 [read-only capture-source assessment](evidence/2026-10-09-final-review/native-firefox-e085-capture-source.json)
 retains the pinned SDK await order and original call-log markers. Screenshot
-preparation/evaluation versus scheduling cause is unassigned. A focused diagnostic is prepared; no identical full-suite retry,
-capture bypass or weakened assertion is authorized.
+preparation/evaluation versus scheduling cause is unassigned.
+
+The subsequent single focused Firefox diagnostic preserves the original light
+five then dark login/access/article workflows and unchanged limits. It executes
+all eight checks: **five passed / three failed**, with both logins passing.
+All three primary failures are navigation timeouts; the dark article/team
+workflow never reaches the original failed capture. Its driver records 31 stages
+and 23 frame events without drops/errors, while whole-container numeric capture
+has 47 separate five-second Docker-inspection timeouts. The 114 successful
+samples leave a 106.640-second observation gap. Kernel-recorded peak whole-container
+memory is 735,498,240 bytes, with no observed OOM/restarts/quota throttling.
+A separate point sampled during the run records severe CPU, memory and I/O
+pressure; it is not atomic with the browser stages. Neither the diagnostic nor
+these observations establish the original screenshot cause or justify an
+application/font/timeout change. The
+[failed diagnostic](evidence/2026-10-09-final-review/native-firefox-e085-capture-diagnostic.json)
+retains separate workload/capture outcomes, exact inputs, bounded stages and
+privacy-safe numeric observations.
+
+The first owned-background environment procedure finds seven historical Beat
+restarts before any quiet-window or browser execution. Its graceful pause
+command succeeds, but the zero-restart guard rejects the state; all six services
+restore successfully. Exact current readiness and OpenAPI checks pass afterward.
+Retained Beat logs identify six failed Redis heartbeat reads and one stale
+heartbeat as watchdog recovery triggers, without assigning their underlying
+cause. The seven historical restarts remain recorded. The second procedure
+passes the pause guard but fails its declared ten-minute host check: all 40
+samples have less than 3 GiB available memory and excessive full I/O pressure.
+No browser runs. All six services restore; the exact 12-service stack has
+11 running and 10 healthy services, with the original image/resource controls.
+The [environment result](evidence/2026-10-09-final-review/native-ui-local-environment.json)
+preserves the failed host check and the unused browser budget. A separate
+[read-only check on October 10](evidence/2026-10-09-final-review/native-runtime-e085-resumed.json)
+confirms current zero restarts/OOM, resource controls, readiness and exact live
+OpenAPI without erasing historical failures.
+
+The remaining qualification is moving to a fresh isolated AMD64 runner with
+new synthetic credentials/database, the exact original 33-case driver and
+unchanged actions, assertions, capture deadlines and container limits.
+Qualification-specific helpers remain on the auxiliary review branch.
+Their 29 pure fixture/evidence controls pass; they do not count as browser
+results. GitHub rejects the first auxiliary workflow before any job runs
+because a runner context appears in job-level environment configuration.
+The context-only correction starts the
+[isolated qualification](https://github.com/PatrikSi/threatlens/actions/runs/38067158775)
+at helper revision `3994b4df`; application/image source remains `e085733b`.
+That setup passes all 14 command stages, the fresh seed and the exact
+12-service runtime snapshot, then its first full readiness request returns
+503. No quiet-window or browser execution occurs; owned cleanup passes with
+zero remnants. The request arrives 57.235 seconds after the logged Beat start,
+before the configured first 60-second heartbeat interval. This is compatible
+with a pending worker round trip; the failed component remains unassigned.
+The [original setup result](evidence/2026-10-09-final-review/native-ui-isolated-first-setup.json)
+and [independent admission assessment](evidence/2026-10-09-final-review/native-ui-readiness-admission.json)
+preserve these limits and distinguish actual logged responses from source
+semantics.
+
+Helper revision `a57e2fb2` waits for valid startup 503 responses within the
+same original 240-second background-start window. Each read uses at most
+15 seconds of the remaining window; 200/`ok:true` remains mandatory. Other
+statuses, malformed responses and late success fail closed. All 39 helper and
+fixture controls pass after this correction. Application timers, browser
+contexts, assertions, captures and resource limits remain unchanged. The
+[fresh isolated qualification](https://github.com/PatrikSi/threatlens/actions/runs/38068110917)
+uses the browser budget left unused by the earlier setup failures. Its actual
+terminal result is **six executed / zero passed / six failed / 27 omitted**.
+Readiness admits six valid startup 503 responses followed by 200/`ok:true`;
+the quiet host gate passes. Each actual login POST returns 422, and four
+browser console errors report that status. No page errors, API server errors,
+external requests, synthetic resources or cleanup failures occur. The browser
+exits 1, with no OOM/restarts, and owned cleanup leaves zero remnants.
+The [failed isolated result](evidence/2026-10-09-final-review/native-ui-isolated-invalid-fixture.json)
+preserves the actual outcome.
+
+Captured login pages show that the generated `example.test` email is rejected
+as a special-use domain. The pinned actual `LoginRequest` schema independently
+rejects `.test` and `.invalid` and accepts `example.com`. Validation occurs
+before credential authentication or cookie issuance; this failure does not
+adjudicate onboarding, authenticated navigation or the earlier Firefox capture.
+The [fixture admission proof](evidence/2026-10-09-final-review/native-ui-fixture-auth-adjudication.json)
+records six distinct access-log responses, source hashes and real schema
+controls. The correction is confined to the auxiliary synthetic email and
+request-schema admission before database seeding. Application source and
+the original browser driver remain unchanged. A fresh full result is required;
+these schema controls are not browser qualification.
 
 ### Earlier native candidate `aa92f8e7` — retained
 
