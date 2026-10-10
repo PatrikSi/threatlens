@@ -176,6 +176,20 @@ class BootstrapTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0)
                 self.assertIn(f"Email:    {email}", result.stdout)
 
+    def test_reserved_domain_check_preserves_valid_suffix_boundaries(self) -> None:
+        # The pinned login validator accepts these: reserved words inside a
+        # larger label or above a public suffix are not reserved-domain matches.
+        for index, email in enumerate((
+            "review@host.example",
+            "review@test-example.com",
+            "review@test.example.com",
+            "review@example.test.com",
+        )):
+            with self.subTest(email=email):
+                result = self.run_bootstrap(str(self.work / f"domain-boundary-{index}.env"), ADMIN_EMAIL=email)
+                self.assertEqual(result.returncode, 0)
+                self.assertIn(f"Email:    {email}", result.stdout)
+
     def test_pasteable_credentials_survive_a_second_compose_interpolation(self) -> None:
         self.require_compose()
         password = "cash$UNSET ${OTHER_UNSET} \\ ' \" #literal"
@@ -274,6 +288,31 @@ class BootstrapTests(unittest.TestCase):
                 self.assertFalse((self.work / ".env").exists())
                 self.assertEqual(result.stdout, "")
                 self.assertTrue(result.stderr.strip())
+
+    def test_reserved_login_email_domains_fail_before_creating_a_file(self) -> None:
+        # These are the reserved names rejected by the pinned login EmailStr
+        # validator. A seeded identity must remain usable by that same API.
+        reserved_domains = ("arpa", "invalid", "local", "localhost", "onion", "test")
+        addresses = (
+            email
+            for domain in reserved_domains
+            for email in (
+                f"review@{domain}",
+                f"review@example.{domain}",
+                f"review@sub.example.{domain}",
+                f"review@EXAMPLE.{domain.upper()}",
+            )
+        )
+        for index, email in enumerate(addresses):
+            with self.subTest(email=email):
+                destination = self.work / f"reserved-email-{index}.env"
+                result = self.run_bootstrap(str(destination), ADMIN_EMAIL=email)
+                self.assertEqual(result.returncode, 2)
+                self.assertFalse(destination.exists())
+                self.assertEqual(result.stdout, "")
+                self.assertIn("ADMIN_EMAIL", result.stderr)
+                self.assertIn("example.com", result.stderr)
+                self.assertNotIn(self.environment["ADMIN_PASSWORD"], result.stderr)
 
     def test_unknown_option_is_not_created_as_an_output_file(self) -> None:
         result = self.run_bootstrap("--invalid")

@@ -1,3 +1,4 @@
+from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -12,9 +13,12 @@ from app.services.user_access import revoke_user_credentials_with_counts
 
 def seed_admin() -> None:
     settings = get_settings()
+    try:
+        email = TypeAdapter(EmailStr).validate_python(settings.admin_email).lower()
+    except ValidationError:
+        raise ValueError("ADMIN_EMAIL must be a valid login email address") from None
     db = SessionLocal()
     try:
-        email = settings.admin_email.lower()
         existing = db.scalar(
             select(User)
             .where(User.email == email)

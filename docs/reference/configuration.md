@@ -58,7 +58,7 @@
 | `PUBLIC_APP_URL` (`public_app_url`) | _(empty)_ | Optional public browser URL, without credentials/query/fragment, used to make report integration links absolute. |
 | `EXPOSE_API_DOCS_IN_PRODUCTION` (`expose_api_docs_in_production`) | `false` | Keeps `/docs` and `/redoc` disabled by default in production. |
 | `EXPOSE_OPENAPI_SCHEMA_IN_PRODUCTION` (`expose_openapi_schema_in_production`) | `true` | Keeps the machine-readable OpenAPI contract available at `/openapi.json` by default. Set to `false` if the schema is distributed only as a checked-in artifact. |
-| `ADMIN_EMAIL` (`admin_email`) | `admin@example.com` | Seed admin identity. |
+| `ADMIN_EMAIL` (`admin_email`) | `admin@example.com` | Seed admin identity. When seeding runs, the login email schema validates and normalizes it before database access; invalid or special-use domains fail with an actionable error. |
 | `ADMIN_PASSWORD` (`admin_password`) | `admin123` | Seed admin password. |
 | `FETCH_USER_AGENT` (`fetch_user_agent`) | `ThreatLensBot/1.0 (+https://localhost)` | User-Agent for feed/article HTTP requests. |
 | `FEED_CONNECT_TIMEOUT_SECONDS` (`feed_connect_timeout_seconds`) | `5` | Feed HTTP connect timeout. |
