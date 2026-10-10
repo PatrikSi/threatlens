@@ -23,7 +23,6 @@ jobs:
     env:
       THREATLENS_NATIVE_FROZEN_SOURCE: e085733b1200b8308f0011cf50d3abe79fa792b4
       THREATLENS_NATIVE_CANDIDATE: ${{ inputs.candidate || 'e085733b1200b8308f0011cf50d3abe79fa792b4' }}
-      THREATLENS_NATIVE_UI_EVIDENCE: ${{ runner.temp }}/threatlens-native-ui-${{ github.run_id }}
       NODE_OPTIONS: --max-old-space-size=640
     steps:
       - name: Checkout qualification helpers and application history
@@ -72,6 +71,8 @@ jobs:
           python-version: "3.12.3"
 
       - name: Build frozen images and run the original native UI checks
+        env:
+          THREATLENS_NATIVE_UI_EVIDENCE: ${{ runner.temp }}/threatlens-native-ui-${{ github.run_id }}
         run: |
           umask 077
           helper_log="${RUNNER_TEMP}/threatlens-native-ui-helper-${GITHUB_RUN_ID}.log"
@@ -88,6 +89,8 @@ jobs:
       - name: Preserve sanitized projection and encrypted diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4
+        env:
+          THREATLENS_NATIVE_UI_EVIDENCE: ${{ runner.temp }}/threatlens-native-ui-${{ github.run_id }}
         with:
           name: native-ui-qualification-${{ github.run_id }}
           path: |
