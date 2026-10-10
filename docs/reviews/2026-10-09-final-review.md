@@ -5,11 +5,15 @@ running at **http://127.0.0.1:3001**. Current application/image candidate
 `e085733b1200b8308f0011cf50d3abe79fa792b4` contains all review corrections,
 including reduced envelope reads, the concurrent parent-reference guard and
 synchronous post-login navigation. Fresh native build/runtime, HTTP/helpers
-and selected image scans pass. The current native browser run executes all
+and selected image scans pass. The original local native browser run executes all
 33 checks, with **32 passed / one failed**. All six cookie-login checks pass,
 including WebKit light. The remaining Firefox dark-theme failure is a
 30-second screenshot timeout in the article/team workflow; its cause is
 unassigned, and that surface's accessibility audit is incomplete.
+The latest isolated run passes readiness and the host gate, then all six
+login checks fail because its generated fixture email uses a domain rejected
+by the actual login request schema. That setup error is confirmed; its
+correction and a fresh full browser result remain required.
 Earlier failed outcomes remain preserved under their actual source revisions.
 All application corrections were committed as `Patrik <patrik@local>`.
 
@@ -201,7 +205,26 @@ fixture controls pass after this correction. Application timers, browser
 contexts, assertions, captures and resource limits remain unchanged. The
 [fresh isolated qualification](https://github.com/PatrikSi/threatlens/actions/runs/38068110917)
 uses the browser budget left unused by the earlier setup failures. Its actual
-terminal result remains required before release clearance.
+terminal result is **six executed / zero passed / six failed / 27 omitted**.
+Readiness admits six valid startup 503 responses followed by 200/`ok:true`;
+the quiet host gate passes. Each actual login POST returns 422, and four
+browser console errors report that status. No page errors, API server errors,
+external requests, synthetic resources or cleanup failures occur. The browser
+exits 1, with no OOM/restarts, and owned cleanup leaves zero remnants.
+The [failed isolated result](evidence/2026-10-09-final-review/native-ui-isolated-invalid-fixture.json)
+preserves the actual outcome.
+
+Captured login pages show that the generated `example.test` email is rejected
+as a special-use domain. The pinned actual `LoginRequest` schema independently
+rejects `.test` and `.invalid` and accepts `example.com`. Validation occurs
+before credential authentication or cookie issuance; this failure does not
+adjudicate onboarding, authenticated navigation or the earlier Firefox capture.
+The [fixture admission proof](evidence/2026-10-09-final-review/native-ui-fixture-auth-adjudication.json)
+records six distinct access-log responses, source hashes and real schema
+controls. The correction is confined to the auxiliary synthetic email and
+request-schema admission before database seeding. Application source and
+the original browser driver remain unchanged. A fresh full result is required;
+these schema controls are not browser qualification.
 
 ### Earlier native candidate `aa92f8e7` — retained
 
