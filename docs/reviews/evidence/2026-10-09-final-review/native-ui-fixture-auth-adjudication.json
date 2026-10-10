@@ -1,0 +1,79 @@
+{
+  "actual_artifact": {
+    "capture_metadata_sha256": "3501803f05a41dcea211809cafe85b28275f28900c40e8e2a57d797e1ef816d2",
+    "owned_log_sha256": "84c670af9e2533fe807a5e56f16baf0eb748edf463570bdb08253f6beb57f03f",
+    "projection_sha256": "b5818720e05beea0c18cc91dab1938accb654177d43f5280cd121b400e45dbcf"
+  },
+  "actual_browser": {
+    "console_error_count": 4,
+    "console_error_status": 422,
+    "executed": 6,
+    "failed": 6,
+    "login_http_statuses": [
+      422,
+      422,
+      422,
+      422,
+      422,
+      422
+    ],
+    "omitted": 27,
+    "passed": 0
+  },
+  "application_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "cause": "Generated disposable fixture email uses special-use .test domain rejected by actual LoginRequest EmailStr before authentication.",
+  "cleanup_passed": true,
+  "correction_scope": "Auxiliary fixture generation and real request-schema admission before database fixture mutation; application source and original browser driver remain unchanged.",
+  "created_at": "2026-10-10T16:55:47.059151+00:00",
+  "limits": [
+    "Schema controls are synthetic input validation only and do not qualify browser navigation.",
+    "Prior Firefox capture failure retains its unassigned cause."
+  ],
+  "no_oom_or_restarts": true,
+  "qualification_status": "failed_preserved",
+  "quiet_host_gate_passed": true,
+  "readiness_passed": true,
+  "request_schema_controls": [
+    {
+      "accepted": false,
+      "domain": "example.test",
+      "error_fields": [
+        [
+          "email"
+        ]
+      ],
+      "error_types": [
+        "value_error"
+      ]
+    },
+    {
+      "accepted": false,
+      "domain": "example.invalid",
+      "error_fields": [
+        [
+          "email"
+        ]
+      ],
+      "error_types": [
+        "value_error"
+      ]
+    },
+    {
+      "accepted": true,
+      "domain": "example.com",
+      "normalized_unchanged": true
+    }
+  ],
+  "run_id": 38068110917,
+  "schema": "threatlens-native-ui-fixture-auth-adjudication-v1",
+  "source_files": {
+    "backend/app/core/config.py": "686ad84ee14ed4d9943aeb26d9448e6e1e8e079e085f5de133d6e49fc68139dc",
+    "backend/app/schemas/auth.py": "b1a63634e13df646d00c846319969aeb5ac5fe999832a7833711462b43be1d00"
+  },
+  "versions": {
+    "email_validator": "2.2.0",
+    "pydantic": "2.13.4",
+    "python": "3.12.3"
+  },
+  "workflow_helper_revision": "a57e2fb2a7f9bc8b59a0483c09499ed36d197a4b"
+}

@@ -1,0 +1,883 @@
+{
+  "schema": "threatlens-hosted-native-ui-v1",
+  "status": "failed",
+  "application_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "profile": "Fresh isolated full native stack and unchanged 33 UI workflows",
+  "started_epoch": 1791649998.1163473,
+  "predeclared_browser_attempts": 1,
+  "browser_attempted": true,
+  "limits": {
+    "build_cpu": 1,
+    "build_memory_bytes": 1610612736,
+    "build_swap": false,
+    "build_parallelism": 1,
+    "build_seconds_each": 1200,
+    "browser_cpus": 2,
+    "browser_memory_bytes": 3221225472,
+    "browser_memory_swap_bytes": 3221225472,
+    "browser_pids": 768,
+    "browser_shm_bytes": 268435456,
+    "action_ms": 30000,
+    "assertion_ms": 5000,
+    "browser_seconds": 900
+  },
+  "stages": [
+    {
+      "name": "source-archive",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "elapsed_seconds": 0.17
+    },
+    {
+      "name": "npm-ci",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "9f8349b05c01250a58a2a7a8720b000af03303d3dc421279982154487d039093",
+      "elapsed_seconds": 5.46
+    },
+    {
+      "name": "bootstrap",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "698969e493e7d5132fd3dc7defe6625f9b79145b91bcd61f82d6ad83ebbcdfdd",
+      "elapsed_seconds": 0.266
+    },
+    {
+      "name": "builder-start",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "053cec827d310f4a04250fe1d5f1be7d135865f9493a199058df19890bd1108d",
+      "elapsed_seconds": 16.357
+    },
+    {
+      "name": "build-backend",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "576c2738ec1a38f4237b49cba46aa6ba1a7b40abd60a3f8f675037eb753196d7",
+      "elapsed_seconds": 47.685
+    },
+    {
+      "name": "build-web",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "af2e02f816872e1490f7805b76de285d4bff954b9dee905c2daf331c0c089e80",
+      "elapsed_seconds": 67.396
+    },
+    {
+      "name": "builder-remove",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "443c918f10f98756ed1e2201a78309e0c4ca33ac4f117f5ebce5f8b461f3cb19",
+      "elapsed_seconds": 8.132
+    },
+    {
+      "name": "pull-postgres",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "e00ab6f3c1bd88bdc08276131ced42c683a32798885b2095d5ce63a23edc1dee",
+      "elapsed_seconds": 8.134
+    },
+    {
+      "name": "pull-redis",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "46cbbb39e214316b5a4a262f4e87d880011726ece0af2b79c2a2d25fda65ba22",
+      "elapsed_seconds": 1.568
+    },
+    {
+      "name": "pull-playwright",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "416f8a2050d15c5ddd1f84717bc27cb5101a4f0d0e5ac37288ca23206f7d8f75",
+      "elapsed_seconds": 33.047
+    },
+    {
+      "name": "compose-config",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "elapsed_seconds": 2.119
+    },
+    {
+      "name": "stack-bootstrap",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "e49af2cb475934f7e1be01ae3e528d3ccd4dd00e4ebe0585ea0826d941ecd3c7",
+      "elapsed_seconds": 62.945
+    },
+    {
+      "name": "seed",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "140d14223b770b560595e2c083fffcb0a5a6787f039f6989a1e2cb23aaa569e2",
+      "elapsed_seconds": 3.725
+    },
+    {
+      "name": "background-start",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "0898cd3eb8143084ee6138a819ce70d101426029843d191875d84bd60c865a26",
+      "elapsed_seconds": 29.153
+    },
+    {
+      "name": "browser-create",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "a8a343f2e8af1839aaccb4488d5b44fd0da6ba0a5861f897ee393e371a722a5b",
+      "elapsed_seconds": 0.032
+    },
+    {
+      "name": "browser",
+      "original_exit": 1,
+      "status": "failed",
+      "log_sha256": "46c41560e0beee46aa8a4cb4340f33f44f78999001d7c2030c2f89648d5603c8",
+      "elapsed_seconds": 187.01
+    }
+  ],
+  "cleanup": {
+    "status": "passed",
+    "remaining_containers": 0,
+    "remaining_volumes": 0
+  },
+  "failures": [
+    {
+      "phase": "browser",
+      "error_type": "ValueError"
+    }
+  ],
+  "workflow_helper_revision": "a57e2fb2a7f9bc8b59a0483c09499ed36d197a4b",
+  "image_source_groups": [
+    {
+      "path": "backend/app",
+      "tested_object": "ea6886c6ec0b556d3a83b44b1a7e5ef5c51e94a7",
+      "workflow_object": "ea6886c6ec0b556d3a83b44b1a7e5ef5c51e94a7",
+      "identical": true
+    },
+    {
+      "path": "backend/alembic",
+      "tested_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "workflow_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "identical": true
+    },
+    {
+      "path": "backend/alembic.ini",
+      "tested_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "workflow_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "identical": true
+    },
+    {
+      "path": "backend/scripts",
+      "tested_object": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+      "workflow_object": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+      "identical": true
+    },
+    {
+      "path": "backend/compliance",
+      "tested_object": "529e143333d0075b32f4c5a51845ad0a0fb57abf",
+      "workflow_object": "529e143333d0075b32f4c5a51845ad0a0fb57abf",
+      "identical": true
+    },
+    {
+      "path": "backend/.dockerignore",
+      "tested_object": "991a8472a31f63c8dcdfc22ee735e83b7d03dd26",
+      "workflow_object": "991a8472a31f63c8dcdfc22ee735e83b7d03dd26",
+      "identical": true
+    },
+    {
+      "path": "backend/requirements-lock.txt",
+      "tested_object": "53c239ffd4679ce835cd86d122df93ba9a11862a",
+      "workflow_object": "53c239ffd4679ce835cd86d122df93ba9a11862a",
+      "identical": true
+    },
+    {
+      "path": "backend/requirements.txt",
+      "tested_object": "73b8e55f452a248483fd118fe2265b09f8f034f1",
+      "workflow_object": "73b8e55f452a248483fd118fe2265b09f8f034f1",
+      "identical": true
+    },
+    {
+      "path": "web",
+      "tested_object": "cf5489d2a203de14a09ff4fb6337df87a3bb3b28",
+      "workflow_object": "cf5489d2a203de14a09ff4fb6337df87a3bb3b28",
+      "identical": true
+    },
+    {
+      "path": "docker",
+      "tested_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "workflow_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "identical": true
+    },
+    {
+      "path": "docker-compose.yml",
+      "tested_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "workflow_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "identical": true
+    },
+    {
+      "path": "docker-compose.build.yml",
+      "tested_object": "15b1b8a21d80a46680fdf528635b216383285131",
+      "workflow_object": "15b1b8a21d80a46680fdf528635b216383285131",
+      "identical": true
+    },
+    {
+      "path": "VERSION",
+      "tested_object": "7ec1d6db40877765247db18e7f9a4e36a0def4ad",
+      "workflow_object": "7ec1d6db40877765247db18e7f9a4e36a0def4ad",
+      "identical": true
+    },
+    {
+      "path": "LICENSE",
+      "tested_object": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab",
+      "workflow_object": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab",
+      "identical": true
+    }
+  ],
+  "helpers": {
+    "run_native_ui_qualification.py": "07efb2b288f707a05b1eea1a5ce98a00fa8de0a109f67b33bd330d45eabeebab",
+    "native_ui_config.py": "21c979d0b45cfc7ff4da9118933e911aae892b97b82fafedf6143f2285f58f21",
+    "native_ui_review.mjs": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c",
+    "seed_native_ui_review.py": "bcbb5b65c8c2fd73e1ca228aed44134a2b79e5b0b4a8828a1a4e982331f076a4"
+  },
+  "installed_dependencies": {
+    "playwright": "1.63.0",
+    "@playwright/test": "1.63.0",
+    "@axe-core/playwright": "4.13.0"
+  },
+  "actual_builder_limits": {
+    "Memory": 1610612736,
+    "MemorySwap": 1610612736,
+    "CpuPeriod": 100000,
+    "CpuQuota": 100000
+  },
+  "production_image_ids": {
+    "backend": "sha256:0d2053e6fe5735710661f31a67eb274d067f2d2d4e9d2f09b519c3ccdbb102b1",
+    "web": "sha256:a472d5f984f1295eca7c507b4ccd54a13e4fc7ecc7d095106379ef5075ca76b3"
+  },
+  "postgres_image": {
+    "requested": "postgres@sha256:b6ccf02e9b47eac0d67b5eaa0ef56fd59163bffa5506f64e96ceb5053130ec86",
+    "actual_id": "sha256:9ed2501c9e7c4f4e27631c3e88f90fcda23891378bdf4f49ac810533a1e2a1ab",
+    "repo_digests": [
+      "postgres@sha256:b6ccf02e9b47eac0d67b5eaa0ef56fd59163bffa5506f64e96ceb5053130ec86"
+    ]
+  },
+  "redis_image": {
+    "requested": "redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
+    "actual_id": "sha256:487efc0616382465781b8fdc3d6d1db449e6fd80ae23bf48432a2da6b6929908",
+    "repo_digests": [
+      "redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99"
+    ]
+  },
+  "playwright_image": {
+    "requested": "mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27",
+    "actual_id": "sha256:2c1f4e0fd6450f43ddb46d60c2a6df30855a8588e165b1f2559fb0eda8d7ff35",
+    "repo_digests": [
+      "mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27"
+    ]
+  },
+  "seed": {
+    "source_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+    "synthetic": true,
+    "counts": {
+      "articles": 1,
+      "classifications": 1,
+      "feeds": 1,
+      "groups": 1,
+      "items": 1,
+      "memberships": 1,
+      "teams": 1
+    },
+    "attention_queue_rows": 0
+  },
+  "runtime_before": {
+    "worker-maintenance": {
+      "image_id": "sha256:0d2053e6fe5735710661f31a67eb274d067f2d2d4e9d2f09b519c3ccdbb102b1",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 128
+    },
+    "worker-exports": {
+      "image_id": "sha256:0d2053e6fe5735710661f31a67eb274d067f2d2d4e9d2f09b519c3ccdbb102b1",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 128
+    },
+    "worker": {
+      "image_id": "sha256:0d2053e6fe5735710661f31a67eb274d067f2d2d4e9d2f09b519c3ccdbb102b1",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 500000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256
+    },
+    "beat": {
+      "image_id": "sha256:0d2053e6fe5735710661f31a67eb274d067f2d2d4e9d2f09b519c3ccdbb102b1",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 335544320,
+      "memory_swap_bytes": 335544320,
+      "pids_limit": 96
+    },
+    "worker-ai": {
+      "image_id": "sha256:0d2053e6fe5735710661f31a67eb274d067f2d2d4e9d2f09b519c3ccdbb102b1",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 128
+    },
+    "worker-notifications": {
+      "image_id": "sha256:0d2053e6fe5735710661f31a67eb274d067f2d2d4e9d2f09b519c3ccdbb102b1",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256
+    },
+    "web": {
+      "image_id": "sha256:a472d5f984f1295eca7c507b4ccd54a13e4fc7ecc7d095106379ef5075ca76b3",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 134217728,
+      "memory_swap_bytes": 134217728,
+      "pids_limit": 64
+    },
+    "api": {
+      "image_id": "sha256:0d2053e6fe5735710661f31a67eb274d067f2d2d4e9d2f09b519c3ccdbb102b1",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 500000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256
+    },
+    "migrate": {
+      "image_id": "sha256:0d2053e6fe5735710661f31a67eb274d067f2d2d4e9d2f09b519c3ccdbb102b1",
+      "running": false,
+      "health": null,
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 1000000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 64
+    },
+    "redis": {
+      "image_id": "sha256:487efc0616382465781b8fdc3d6d1db449e6fd80ae23bf48432a2da6b6929908",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 134217728,
+      "memory_swap_bytes": 134217728,
+      "pids_limit": 128
+    },
+    "db": {
+      "image_id": "sha256:9ed2501c9e7c4f4e27631c3e88f90fcda23891378bdf4f49ac810533a1e2a1ab",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 500000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256
+    },
+    "review-source": {
+      "image_id": "sha256:0d2053e6fe5735710661f31a67eb274d067f2d2d4e9d2f09b519c3ccdbb102b1",
+      "running": true,
+      "health": null,
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 100000000,
+      "memory_bytes": 67108864,
+      "memory_swap_bytes": 67108864,
+      "pids_limit": 32
+    }
+  },
+  "http_checks": [
+    {
+      "path": "/api/v1/health/ready",
+      "status": 200,
+      "semantic_check": true
+    },
+    {
+      "path": "/api/openapi.json",
+      "status": 200,
+      "semantic_check": true
+    }
+  ],
+  "readiness_admission": {
+    "startup_deadline_seconds": 240,
+    "read_seconds_max": 15,
+    "poll_seconds": 5,
+    "attempts": [
+      {
+        "http_status": 503,
+        "response_bytes": 12,
+        "response_sha256": "38667e60226bf99701916900a2a265233dcc014e1206c173ade921d608824b53",
+        "ok": false
+      },
+      {
+        "http_status": 503,
+        "response_bytes": 12,
+        "response_sha256": "38667e60226bf99701916900a2a265233dcc014e1206c173ade921d608824b53",
+        "ok": false
+      },
+      {
+        "http_status": 503,
+        "response_bytes": 12,
+        "response_sha256": "38667e60226bf99701916900a2a265233dcc014e1206c173ade921d608824b53",
+        "ok": false
+      },
+      {
+        "http_status": 503,
+        "response_bytes": 12,
+        "response_sha256": "38667e60226bf99701916900a2a265233dcc014e1206c173ade921d608824b53",
+        "ok": false
+      },
+      {
+        "http_status": 503,
+        "response_bytes": 12,
+        "response_sha256": "38667e60226bf99701916900a2a265233dcc014e1206c173ade921d608824b53",
+        "ok": false
+      },
+      {
+        "http_status": 503,
+        "response_bytes": 12,
+        "response_sha256": "38667e60226bf99701916900a2a265233dcc014e1206c173ade921d608824b53",
+        "ok": false
+      },
+      {
+        "http_status": 200,
+        "response_bytes": 11,
+        "response_sha256": "4062edaf750fb8074e7e83e0c9028c94e32468a8b6f1614774328ef045150f93",
+        "ok": true
+      }
+    ],
+    "status": "passed"
+  },
+  "host_gate": {
+    "status": "passed",
+    "deadline_seconds": 600,
+    "continuous_quiet_seconds": 60,
+    "sample_interval_seconds": 15,
+    "minimum_available_memory_bytes": 3221225472,
+    "maximum_avg10": {
+      "cpu_some": 25,
+      "memory_some": 1,
+      "memory_full": 0.5,
+      "io_some": 5,
+      "io_full": 1
+    },
+    "samples": [
+      {
+        "elapsed_seconds": 0.0,
+        "available_memory_bytes": 14094467072,
+        "cpu": {
+          "some": 16.49,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 1.37,
+          "full": 1.12
+        },
+        "docker_seconds": 0.043037,
+        "eligible": false
+      },
+      {
+        "elapsed_seconds": 15.0,
+        "available_memory_bytes": 14028070912,
+        "cpu": {
+          "some": 25.19,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.56,
+          "full": 0.46
+        },
+        "docker_seconds": 0.045576,
+        "eligible": false
+      },
+      {
+        "elapsed_seconds": 30.0,
+        "available_memory_bytes": 14087405568,
+        "cpu": {
+          "some": 10.62,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 1.29,
+          "full": 1.02
+        },
+        "docker_seconds": 0.038286,
+        "eligible": false
+      },
+      {
+        "elapsed_seconds": 45.0,
+        "available_memory_bytes": 14072934400,
+        "cpu": {
+          "some": 13.42,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.5,
+          "full": 0.35
+        },
+        "docker_seconds": 0.034308,
+        "eligible": true
+      },
+      {
+        "elapsed_seconds": 60.0,
+        "available_memory_bytes": 14074015744,
+        "cpu": {
+          "some": 15.06,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 3.42,
+          "full": 3.19
+        },
+        "docker_seconds": 0.035299,
+        "eligible": false
+      },
+      {
+        "elapsed_seconds": 75.001,
+        "available_memory_bytes": 14088036352,
+        "cpu": {
+          "some": 10.79,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 2.87,
+          "full": 2.16
+        },
+        "docker_seconds": 0.037335,
+        "eligible": false
+      },
+      {
+        "elapsed_seconds": 90.001,
+        "available_memory_bytes": 14072180736,
+        "cpu": {
+          "some": 19.43,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.85,
+          "full": 0.68
+        },
+        "docker_seconds": 0.041808,
+        "eligible": true
+      },
+      {
+        "elapsed_seconds": 105.001,
+        "available_memory_bytes": 14079131648,
+        "cpu": {
+          "some": 11.69,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.17,
+          "full": 0.13
+        },
+        "docker_seconds": 0.038738,
+        "eligible": true
+      },
+      {
+        "elapsed_seconds": 120.001,
+        "available_memory_bytes": 14069682176,
+        "cpu": {
+          "some": 23.7,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.04,
+          "full": 0.03
+        },
+        "docker_seconds": 0.035392,
+        "eligible": true
+      },
+      {
+        "elapsed_seconds": 135.001,
+        "available_memory_bytes": 14082658304,
+        "cpu": {
+          "some": 14.17,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "docker_seconds": 0.039982,
+        "eligible": true
+      },
+      {
+        "elapsed_seconds": 150.001,
+        "available_memory_bytes": 14071283712,
+        "cpu": {
+          "some": 27.57,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.18,
+          "full": 0.18
+        },
+        "docker_seconds": 0.116865,
+        "eligible": false
+      },
+      {
+        "elapsed_seconds": 165.001,
+        "available_memory_bytes": 14083227648,
+        "cpu": {
+          "some": 15.83,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.12,
+          "full": 0.12
+        },
+        "docker_seconds": 0.035983,
+        "eligible": true
+      },
+      {
+        "elapsed_seconds": 180.001,
+        "available_memory_bytes": 13999034368,
+        "cpu": {
+          "some": 16.9,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.03,
+          "full": 0.03
+        },
+        "docker_seconds": 0.047319,
+        "eligible": true
+      },
+      {
+        "elapsed_seconds": 195.002,
+        "available_memory_bytes": 14033395712,
+        "cpu": {
+          "some": 17.27,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.65,
+          "full": 0.05
+        },
+        "docker_seconds": 0.040437,
+        "eligible": true
+      },
+      {
+        "elapsed_seconds": 210.002,
+        "available_memory_bytes": 14046986240,
+        "cpu": {
+          "some": 8.93,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.16,
+          "full": 0.01
+        },
+        "docker_seconds": 0.035476,
+        "eligible": true
+      },
+      {
+        "elapsed_seconds": 225.002,
+        "available_memory_bytes": 14058508288,
+        "cpu": {
+          "some": 13.23,
+          "full": 0.0
+        },
+        "memory": {
+          "some": 0.0,
+          "full": 0.0
+        },
+        "io": {
+          "some": 0.03,
+          "full": 0.0
+        },
+        "docker_seconds": 0.043592,
+        "eligible": true
+      }
+    ],
+    "observed_quiet_seconds": 60.008
+  },
+  "browser_container_creation_attempted": true,
+  "browser_terminal": {
+    "running": false,
+    "exit_code": 1,
+    "oom_killed": false,
+    "restarts": 0
+  },
+  "browser": {
+    "executed": 6,
+    "passed": 0,
+    "failed": 6,
+    "omitted": 27,
+    "steps": [
+      {
+        "engine": "chromium",
+        "theme": "light",
+        "layout": "desktop",
+        "name": "real local cookie login",
+        "status": "failed",
+        "elapsed_seconds": 30.27,
+        "failure_category": "login_navigation"
+      },
+      {
+        "engine": "chromium",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "real local cookie login",
+        "status": "failed",
+        "elapsed_seconds": 30.26,
+        "failure_category": "login_navigation"
+      },
+      {
+        "engine": "firefox",
+        "theme": "light",
+        "layout": "desktop",
+        "name": "real local cookie login",
+        "status": "failed",
+        "elapsed_seconds": 31.03,
+        "failure_category": "login_navigation"
+      },
+      {
+        "engine": "firefox",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "real local cookie login",
+        "status": "failed",
+        "elapsed_seconds": 30.52,
+        "failure_category": "login_navigation"
+      },
+      {
+        "engine": "webkit",
+        "theme": "light",
+        "layout": "desktop",
+        "name": "real local cookie login",
+        "status": "failed",
+        "elapsed_seconds": 30.85,
+        "failure_category": "login_navigation"
+      },
+      {
+        "engine": "webkit",
+        "theme": "dark",
+        "layout": "desktop",
+        "name": "real local cookie login",
+        "status": "failed",
+        "elapsed_seconds": 30.44,
+        "failure_category": "login_navigation"
+      }
+    ],
+    "summary_available": true
+  },
+  "browser_result_sha256": "57dd0b27f0e283153af4b6ee5b43d2c4f9be1cdc2b60b4e2fd4e702e40be61c2",
+  "private_artifact": {
+    "encryption_exit": 0,
+    "bytes": 635464,
+    "sha256": "576dc02363a2742fd68a76fc812efc6fa8d5a66dba763a7597ac3eec9731492b",
+    "certificate_sha256": "bc51f6ba81d86302d3e5e911f9f533a1872b39b210b7f3514ffdd5aab3e38656"
+  },
+  "finished_epoch": 1791650806.1442935
+}
