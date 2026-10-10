@@ -23,7 +23,7 @@ from urllib.error import HTTPError
 from native_ui_config import build_config
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = "c591c3a8e30a6ef1fc38956317f0b0b41a12285b"
+SOURCE = "5f370197e96b944831c7837cb58f470cb004fbfb"
 DRIVER_SHA = "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c"
 LOCK_SHA = "ff0c8a90497ff530bc41335654a59f644226e0782773f1454ab0a42afda8e64b"
 PLAYWRIGHT = "mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27"

@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 
-SOURCE_REVISION = "c591c3a8e30a6ef1fc38956317f0b0b41a12285b"
+SOURCE_REVISION = "5f370197e96b944831c7837cb58f470cb004fbfb"
 BASELINE_COUNTS = {
     "users": (1, 1), "audit_logs": (1, 1), "iam_policy_state": (1, 1),
     "iam_roles": (3, 3), "iam_role_permissions": (1, 1000), "iam_groups": (1, 1),
