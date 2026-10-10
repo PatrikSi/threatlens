@@ -161,7 +161,7 @@ valid_admin_email() {
   local -a labels
   # Special-use domains are rejected by the login API's email validator.
   # Keep the authoritative validation in seed_admin for all deployment paths.
-  case "${domain,,}" in
+  case "$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]')" in
     arpa|*.arpa|invalid|*.invalid|local|*.local|localhost|*.localhost|onion|*.onion|test|*.test)
       return 1
       ;;
