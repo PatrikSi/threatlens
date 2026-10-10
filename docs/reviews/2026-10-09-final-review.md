@@ -1,30 +1,37 @@
 # Iterative code review and qualification — 2026-10-09
 
-ThreatLens **2.1.0** is prepared, and the rebuilt synthetic local instance is
-running at **http://127.0.0.1:3001**. Current application/image candidate
-`e085733b1200b8308f0011cf50d3abe79fa792b4` contains all review corrections,
-including reduced envelope reads, the concurrent parent-reference guard and
-synchronous post-login navigation. Fresh native build/runtime, HTTP/helpers
-and selected image scans pass. The original local native browser run executes all
+ThreatLens **2.1.0** is prepared. The synthetic local instance at
+**http://127.0.0.1:3001** uses the earlier `e085733b` images. The current
+application/image candidate `c591c3a8e30a6ef1fc38956317f0b0b41a12285b`
+contains all review corrections, including reduced envelope reads, the
+concurrent parent-reference guard, synchronous post-login navigation and
+administrator-email admission before database access. Its seven new backend
+regressions and sixteen bootstrap tests pass; fresh native, comparative
+capacity and final-head hosted qualification remain required.
+
+Fresh native build/runtime, HTTP/helpers and selected image scans pass at the
+earlier `e085733b` source. Its original local native browser run executes all
 33 checks, with **32 passed / one failed**. All six cookie-login checks pass,
 including WebKit light. The remaining Firefox dark-theme failure is a
 30-second screenshot timeout in the article/team workflow; its cause is
 unassigned, and that surface's accessibility audit is incomplete.
-The latest isolated run passes readiness and the host gate, then all six
+The first isolated browser run passes readiness and the host gate, then all six
 login checks fail because its generated fixture email uses a domain rejected
 by the actual login request schema. That setup error is confirmed; its
 correction and a fresh full browser result remain required.
 Earlier failed outcomes remain preserved under their actual source revisions.
 All application corrections were committed as `Patrik <patrik@local>`.
 
-**Decision at this checkpoint: held for native capture completion and fresh
+**Decision at this checkpoint: held for fresh native and capacity results and
 final-head hosted quality.** No comparative threshold, resource limit, workload
 duration or authorization fence was weakened. Hosted quality at `aa92f8e7`
-passes all fifteen jobs; the later web correction requires fresh qualification
+passes all fifteen jobs; the later corrections require fresh qualification
 on the final review commit. The single fresh uninstrumented capacity pair at
 `aa92f8e7` passes, with verified source, threshold, artifact and cleanup evidence.
-The later web change preserves all six measured backend/control groups and the
-matched runtime harness. It does not relabel the actual capacity candidate.
+The web change preserves its measured backend/control groups. The subsequent
+administrator fix changes the backend seed script and its unit tests, so the
+old whole-backend equality claim no longer applies. A new matched pair uses
+`c591c3a8`; the old passing capacity candidate remains `aa92f8e7`.
 
 Version 2.1.0 is already aligned across the version file, frontend metadata,
 OpenAPI and deployment defaults. These pre-merge corrections need no further
@@ -47,11 +54,14 @@ It is not claimed to explain either earlier WebKit timeout.
 
 This follows the [Oct8 review](2026-10-08-final-local-review.md), preserving its
 original sources, failures and qualification limits. The
-[current release/source consistency proof](evidence/2026-10-09-final-review/release-consistency-e085.json)
+[earlier release/source consistency proof](evidence/2026-10-09-final-review/release-consistency-e085.json)
 records aligned versions, the distinct OpenAPI contract anchor/file hash,
 bounded writer shutdown and exact unchanged capacity inputs. The new DOM test
 is a Docker build/typecheck input, and the new images retain their actual
 `e085733b` labels.
+The [administrator source delta](evidence/2026-10-09-final-review/administrator-email-source-delta.json)
+records the single changed application image file, unchanged version/contract
+inputs and the fresh qualification requirement.
 
 ## Corrections completed in this pass
 
@@ -78,6 +88,7 @@ is a Docker build/typecheck input, and the new images retain their actual
 | Envelope persistence repeated known-absent and known-empty reads | Only successful local creation skips empty child reads; unique winners retain full reads, and snapshots reuse already validated persisted counts. The six-item measured variant removes 24 SQL executions, with policy/feed locks unchanged. Final fresh/replay query controls pass. | `aa92f8e7` |
 | Concurrent envelope creation could skip the own-envelope parent-source guard | Revalidate references with the actual winner's envelope ID after reload, before modifying lineage. One real PostgreSQL regression fails before and passes afterward; all 38 new/existing envelope cases pass, including rollback and both matching/conflicting winners. | `aa92f8e7` |
 | Successful authentication retired the cache before deferred navigation committed, briefly remounting a blank credential form | Keep session invalidation first and synchronously commit replacement navigation for password and MFA success. The integrated ordinary-login regression fails before and passes after; 50 related auth cases, lint and TypeScript pass, preserving old-cache/identity/lease/late-mutation fences. Earlier browser stalls retain unassigned causes. | `e085733b` |
+| Administrator setup accepted emails that the sign-in schema rejects or normalizes differently | Validate and normalize with the actual email schema before database access; reject special-use domains before bootstrap output. Seven new backend cases change from five failed/two passed to seven passed. All sixteen bootstrap tests pass, including 24 reserved-domain and four accepted boundary cases. | `c591c3a8` |
 
 [Structured regression evidence](evidence/2026-10-09-final-review/regression-proof.json)
 records pinned environments, before/after failures, hashes and scope limits.
@@ -86,7 +97,7 @@ retain the new commit-bound before/after and session-isolation evidence.
 
 ## Actual native runtime
 
-The exact current images were freshly built at `e085733b`, with one CPU,
+The earlier local images were freshly built at `e085733b`, with one CPU,
 1536 MiB, no swap and one build operation at a time. Both builds pass on their
 first attempt; the owned builder and volume are removed. All seven writers stop
 before the dedicated migration. Independent inspection verifies twelve services:
@@ -225,6 +236,32 @@ controls. The correction is confined to the auxiliary synthetic email and
 request-schema admission before database seeding. Application source and
 the original browser driver remain unchanged. A fresh full result is required;
 these schema controls are not browser qualification.
+
+The same invalid-input contract also affects production administrator setup.
+At `c591c3a8`, seeding applies the actual login email validator and canonical
+lowercase identity before opening a database session. Invalid input raises a
+fixed actionable error with the original validation details suppressed.
+Global settings, derived development keys and existing role/reactivation/
+password-reset/concurrent-creation policies remain unchanged. The
+[backend regression proof](evidence/2026-10-09-final-review/seed-admin-email-controls.json)
+retains unchanged new tests, actual five failures/two passes before and seven
+passes after. Four existing PostgreSQL seed cases await fresh full CI.
+Bootstrap rejects the six special-use suffixes before creating an environment
+file or printing credentials. Its
+[sixteen-test proof](evidence/2026-10-09-final-review/bootstrap-email-controls.json)
+retains the eighteen previously accepted invalid cases, six already rejected
+single-label cases, all 24 corrected cases and four valid suffix boundaries.
+
+Auxiliary workflow `00e6034e` now freezes application source `c591c3a8`.
+Its [source and 44 fixture/evidence controls](evidence/2026-10-09-final-review/native-ui-c591-source-controls.json)
+preserve the original driver, 33 checks, contexts, actions/assertions,
+captures, resource limits and quiet gate. The
+[fresh native qualification](https://github.com/PatrikSi/threatlens/actions/runs/38070210180)
+and the single
+[uninstrumented capacity comparison](https://github.com/PatrikSi/threatlens/actions/runs/38070244407)
+use separate isolated runners. The comparison retains baseline `b73a3363`,
+600 seconds per release, five shared start-gate participants, the same target,
+20% threshold and independent cleanup. Actual terminal results remain required.
 
 ### Earlier native candidate `aa92f8e7` — retained
 
@@ -929,9 +966,9 @@ outputs and named human review of the twelve prepared cases. Provider-contract
 and configuration tests do not complete that approval; ordinary ingestion and
 classification do not require model promotion.
 
-The remaining current gates are the Firefox native capture/audit completion
-and fresh hosted quality on the final review head. Current `e085733b` cookie
-logins, both exact images and all backend/runtime checks pass. Earlier failures
+The remaining current gates are fresh native and capacity qualification at
+`c591c3a8` and hosted quality on the final review head. Earlier `e085733b` cookie
+logins, both exact local images and backend/runtime checks pass. Earlier failures
 remain recorded under their actual runtime and harness inputs; they are not
 assigned causes by later passing observations.
 The CodeQL neutral baseline-configuration warning and chosen-model
