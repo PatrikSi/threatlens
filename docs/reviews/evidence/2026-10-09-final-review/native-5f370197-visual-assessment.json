@@ -1,0 +1,277 @@
+{
+  "actual_console_errors": 2,
+  "actual_native_qualification_status": "failed",
+  "actual_screenshot_count": 33,
+  "application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb",
+  "derived_contact_sheet_sha256": {
+    "chromium": "119213c34c34cd213ebc1da66cc4ab9136fa1f734b3e6d77a9ff749e68a6a754",
+    "firefox": "2f3855d5f045b6341f8a219af19975d4cd4070d21c8c93c6e0f29e77c0b719f0",
+    "webkit": "31b98c4bf8f7f77d0536335a2d3ebc4357bdd05cebd677cef6e99d2b1de39e5b"
+  },
+  "engine_counts": {
+    "chromium": 11,
+    "firefox": 11,
+    "webkit": 11
+  },
+  "limitations": [
+    "This is a review of retained passing surfaces from a failed strict qualification, not a successful native qualification.",
+    "Screenshots represent the predeclared synthetic fixture and selected workflows, not every role, volume, failure state or deployment.",
+    "Zero Axe findings and selected contrast checks do not prove complete WCAG compliance.",
+    "The scripts-disabled publisher iframe was excluded from Axe traversal and separately checked for real text, title and sandbox.",
+    "The six login checks have no separate login screenshot; all 33 reviewed PNGs come from later surfaces.",
+    "No new browser, database, network workload or source edit was performed for the visual review."
+  ],
+  "login_checks_have_separate_screenshot": false,
+  "missing_referenced_screenshots": 0,
+  "original_screenshot_manifest": [
+    {
+      "filename": "chromium-dark-desktop-article-preview.png",
+      "height": 1019,
+      "sha256": "5bdeb96a81535db73a1ffad7bcff70190e30a35949dd9016784fbdb1f1553b79",
+      "width": 1440
+    },
+    {
+      "filename": "chromium-dark-desktop-article-team-assessment.png",
+      "height": 1019,
+      "sha256": "f17e623905b7563ff0823e4ac6d7054ed986e600db0d1dbb71404a9f890254af",
+      "width": 1440
+    },
+    {
+      "filename": "chromium-dark-desktop-provider-draft-preservation.png",
+      "height": 2788,
+      "sha256": "79222cc481525641df35f0210cb256ed5ed34e1401d3baded0806ca1f28dc015",
+      "width": 1440
+    },
+    {
+      "filename": "chromium-dark-desktop-reviewed-publication-consumers.png",
+      "height": 2830,
+      "sha256": "f80ea6e379db15dcb89198f6b529803bd2acfa31d6fc95b3c9cdbed82287d5b2",
+      "width": 1440
+    },
+    {
+      "filename": "chromium-dark-desktop-route-settings-access.png",
+      "height": 1000,
+      "sha256": "e6241d46814658efebb7247e7c93067e8eb3fc4c503b4bef3937fe9594dee871",
+      "width": 1440
+    },
+    {
+      "filename": "chromium-dark-mobile-mobile-route-settings-access.png",
+      "height": 1243,
+      "sha256": "973a8d830aa3687ea4935a0f9f6ad16138914796f9d8bb176048125e0276c029",
+      "width": 390
+    },
+    {
+      "filename": "chromium-light-desktop-article-preview.png",
+      "height": 1019,
+      "sha256": "e962c5098505c3e8f3e5865d990e52e2488aad50f397b354dc55e4183fffae00",
+      "width": 1440
+    },
+    {
+      "filename": "chromium-light-desktop-article-team-assessment.png",
+      "height": 1019,
+      "sha256": "0814c079d299e7f6355f99b9d3df4bea3a8e608d8e53bbcf6a1df5232d00d8ba",
+      "width": 1440
+    },
+    {
+      "filename": "chromium-light-desktop-reviewed-publication-consumers.png",
+      "height": 2830,
+      "sha256": "5df58fb1426274e110191e6f2ea088f7d25d7ab72a5a0b5d29b2c6f42f1e229c",
+      "width": 1440
+    },
+    {
+      "filename": "chromium-light-desktop-route-settings-access.png",
+      "height": 1000,
+      "sha256": "3c556024aa917165ea09b8c6c76055ee88ce96124eca0310bda932b2fb2083cf",
+      "width": 1440
+    },
+    {
+      "filename": "chromium-light-mobile-mobile-route-settings-access.png",
+      "height": 1243,
+      "sha256": "3f461ee2efd64ee50b49ecb74d7040c9d0c5b4125dc759c326fa68a1c0e28f37",
+      "width": 390
+    },
+    {
+      "filename": "firefox-dark-desktop-article-preview.png",
+      "height": 1019,
+      "sha256": "feb6535d80282292fb9896c808b4efbca1dd83b9f764cee02c0fa2e74f41a674",
+      "width": 1440
+    },
+    {
+      "filename": "firefox-dark-desktop-article-team-assessment.png",
+      "height": 1019,
+      "sha256": "1ee294bb76f660c7bf5c700a42f729545df7c42a5aeffa280b0d2964be9aba74",
+      "width": 1440
+    },
+    {
+      "filename": "firefox-dark-desktop-provider-draft-preservation.png",
+      "height": 3136,
+      "sha256": "3c594467d6eb59665555a2130facb1b9cf59321a231aeb213b06606da15f9f28",
+      "width": 1440
+    },
+    {
+      "filename": "firefox-dark-desktop-reviewed-publication-consumers.png",
+      "height": 2823,
+      "sha256": "05dda14ff3511195f3e8a69e46427c1e21c143b2d215aeee66593e24e3b5e2df",
+      "width": 1440
+    },
+    {
+      "filename": "firefox-dark-desktop-route-settings-access.png",
+      "height": 1000,
+      "sha256": "98f8e777b98cd856ad7a89c0ef332cd3a7bc5397db8e010981343e3c6557d921",
+      "width": 1440
+    },
+    {
+      "filename": "firefox-dark-mobile-mobile-route-settings-access.png",
+      "height": 1243,
+      "sha256": "cce67a3d868e39c1d248c9846e9b5cec3e434aefcc423395c3d9e6949b6c0e22",
+      "width": 390
+    },
+    {
+      "filename": "firefox-light-desktop-article-preview.png",
+      "height": 1019,
+      "sha256": "67c2d3a6a9a992c14b59098ff18c0ae51d88677999f72ad1ed7f21afd947a9f1",
+      "width": 1440
+    },
+    {
+      "filename": "firefox-light-desktop-article-team-assessment.png",
+      "height": 1019,
+      "sha256": "20ad00f174cd94c88151ab811bc4a2e4cf03826ee72d7c01100de449f3de18bf",
+      "width": 1440
+    },
+    {
+      "filename": "firefox-light-desktop-reviewed-publication-consumers.png",
+      "height": 2823,
+      "sha256": "3d8e3ca845c44c0f89292175653f2e14931ce9bf5293bce71fc333fa1a4b4a8d",
+      "width": 1440
+    },
+    {
+      "filename": "firefox-light-desktop-route-settings-access.png",
+      "height": 1000,
+      "sha256": "1cfbbd2a162b6115cf73d17a7666a32c4b2753557950db565b81bd62a274a273",
+      "width": 1440
+    },
+    {
+      "filename": "firefox-light-mobile-mobile-route-settings-access.png",
+      "height": 1243,
+      "sha256": "4a90e1e3fa1d33669383f96c684289ddb88c241e58cfe2ff3f5f600abd0a7209",
+      "width": 390
+    },
+    {
+      "filename": "webkit-dark-desktop-article-preview.png",
+      "height": 1019,
+      "sha256": "f1dbd71cd9efd007bdfe0218a965c8a4a71fd3d1535b4b587a9239f6890cf7c7",
+      "width": 1440
+    },
+    {
+      "filename": "webkit-dark-desktop-article-team-assessment.png",
+      "height": 1019,
+      "sha256": "1749d6f16d440ec260e45faba20de60f4dbf78fcbf054930a4d2bebdb4b47608",
+      "width": 1440
+    },
+    {
+      "filename": "webkit-dark-desktop-provider-draft-preservation.png",
+      "height": 3127,
+      "sha256": "b78a709688dc935bbf6eb984978e97b470622335229b52520235dad871b7693a",
+      "width": 1440
+    },
+    {
+      "filename": "webkit-dark-desktop-reviewed-publication-consumers.png",
+      "height": 2870,
+      "sha256": "bc8ef76deb6383da2e15d1606bcd5772702d135746e76e6d5f93a6fa70fa5863",
+      "width": 1440
+    },
+    {
+      "filename": "webkit-dark-desktop-route-settings-access.png",
+      "height": 1000,
+      "sha256": "6cd4a4b2307d1fb377180e415da1b1242289a21da812454e0af78d3f2274b7ad",
+      "width": 1440
+    },
+    {
+      "filename": "webkit-dark-mobile-mobile-route-settings-access.png",
+      "height": 1243,
+      "sha256": "f49dc2953e86de51e02eddef6602f4a35104fa499e3f32a5151135a58466dc78",
+      "width": 390
+    },
+    {
+      "filename": "webkit-light-desktop-article-preview.png",
+      "height": 1019,
+      "sha256": "cf2ddfb601f5ffcd523c0118a849607168699c58c48e44ba1a1e97fbbb398705",
+      "width": 1440
+    },
+    {
+      "filename": "webkit-light-desktop-article-team-assessment.png",
+      "height": 1019,
+      "sha256": "75d6233136ce46d7c423bb49d5238f10aefb8a9e4924aa6224656b8489df5ed5",
+      "width": 1440
+    },
+    {
+      "filename": "webkit-light-desktop-reviewed-publication-consumers.png",
+      "height": 2870,
+      "sha256": "11b9b09f0e0388cdc5091f5dadfb0ce15e543a69f29165de5dda5a2997a8406e",
+      "width": 1440
+    },
+    {
+      "filename": "webkit-light-desktop-route-settings-access.png",
+      "height": 1000,
+      "sha256": "7b6980cc1253b987d613e7ee1907278416451db7f2eca927f17c5bbad99b7436",
+      "width": 1440
+    },
+    {
+      "filename": "webkit-light-mobile-mobile-route-settings-access.png",
+      "height": 1243,
+      "sha256": "36fb5b396fffa37b2a55b4304f9f092ffebe840ba7029f9467827c7c11f8fed2",
+      "width": 390
+    }
+  ],
+  "qualification_pass_claimed": false,
+  "raw_accessibility_observations": {
+    "article_reader_tab_focus_confirmed": 12,
+    "article_readers": 12,
+    "axe_audits": 33,
+    "axe_rule_violations": 0,
+    "axe_tags": [
+      "wcag2a",
+      "wcag2aa",
+      "wcag21a",
+      "wcag21aa",
+      "wcag22aa"
+    ],
+    "desktop_viewport_width": 1440,
+    "document_overflow_audits": 33,
+    "document_width_exceeds_viewport": 0,
+    "mobile_horizontal_wrapper_count": 6,
+    "mobile_keyboard_arrow_scroll_pixels": [
+      31,
+      33,
+      37,
+      37,
+      49,
+      49
+    ],
+    "mobile_keyboard_tab_focus_confirmed": 6,
+    "mobile_table_scroll_width": 760,
+    "mobile_viewport_width": 390,
+    "mobile_wrapper_client_width": 346,
+    "publication_contrast_controls": 12,
+    "publication_minimum_ratio": 11.758486057287385,
+    "publisher_iframe_excluded_audits": 6,
+    "publisher_iframe_real_text_title_sandbox_checks_passed": true,
+    "scrollable_article_readers_end_scroll_increased": 12
+  },
+  "raw_browser_results_sha256": "735dd006f09e0a7a4f172a141549eb63b840ea2f03c861f801f857c1e6ac90ea",
+  "release_clearance": false,
+  "review_guidance": "enterprise-ui-ux",
+  "review_method": "All 33 original PNGs inspected via three labelled contact sheets; no new browser execution or screenshot modification.",
+  "run_id": 38072575289,
+  "schema": "threatlens-native-d-retained-surface-visual-review-v1",
+  "visual_findings": [
+    "No blank application shell, route error page, overlapping primary action or newly identified visual blocker appeared in the retained surfaces.",
+    "Desktop access controls separate posture, policy state and the attention queue; role scope and empty queue state remain visible.",
+    "Article source drawer retains the underlying triage context, renders real synthetic publisher content and exposes close/open-source controls.",
+    "Summary and full-text readers wrap long fixture text inside bounded reading regions rather than expanding document width.",
+    "Export and publication settings separate filters, format choices, reviewed publication controls and history; labels and dark/light control fills remain visible.",
+    "AI provider configuration uses labelled sections and collapsed secondary settings; native form widget sizing causes vertical-height variation between engines without horizontal page overflow.",
+    "Mobile access overview stacks posture and policy cards and contains the wide attention table inside its keyboard-scrollable wrapper; screenshot captures show focus and intentional table scroll."
+  ],
+  "workflow_head_revision": "5ccb0d4d23aaa3667c2760e3c8b7fd2a7776c1bc"
+}
