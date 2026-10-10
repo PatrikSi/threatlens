@@ -1,0 +1,432 @@
+{
+  "schema": "threatlens-hosted-native-ui-v1",
+  "status": "failed",
+  "application_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "profile": "Fresh isolated full native stack and unchanged 33 UI workflows",
+  "started_epoch": 1791649160.0872593,
+  "predeclared_browser_attempts": 1,
+  "browser_attempted": false,
+  "limits": {
+    "build_cpu": 1,
+    "build_memory_bytes": 1610612736,
+    "build_swap": false,
+    "build_parallelism": 1,
+    "build_seconds_each": 1200,
+    "browser_cpus": 2,
+    "browser_memory_bytes": 3221225472,
+    "browser_memory_swap_bytes": 3221225472,
+    "browser_pids": 768,
+    "browser_shm_bytes": 268435456,
+    "action_ms": 30000,
+    "assertion_ms": 5000,
+    "browser_seconds": 900
+  },
+  "stages": [
+    {
+      "name": "source-archive",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "elapsed_seconds": 0.171
+    },
+    {
+      "name": "npm-ci",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "640a15c604537219e40408ac2fb499c2e462fcfe007b8cf56d61d5881419f6ac",
+      "elapsed_seconds": 7.147
+    },
+    {
+      "name": "bootstrap",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "e1eadba961bffe9e528c7449772a9f7f05493c0caf4fa83824010b8939bd459c",
+      "elapsed_seconds": 1.217
+    },
+    {
+      "name": "builder-start",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "642b833727efd2868f6b1a05de26cd240bd305216636802d4b7f9c84fb170b8b",
+      "elapsed_seconds": 8.283
+    },
+    {
+      "name": "build-backend",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "6f63afaa50f47b0cb0e92285f92e9eddfd917f88fe5485917aae2a0bfb1a3991",
+      "elapsed_seconds": 46.023
+    },
+    {
+      "name": "build-web",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "6fd72976de6a63e594c1d817f949c1ff75e1833c726abbbaf776268c5a0bdceb",
+      "elapsed_seconds": 74.157
+    },
+    {
+      "name": "builder-remove",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "c6d37b411fde9c3ecade36f95fbc0803a2ddab3174a3e79484034602a8feb390",
+      "elapsed_seconds": 3.624
+    },
+    {
+      "name": "pull-postgres",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "3a9a673b77331dcb46d62120a21def4b68d6635a634d03e96d660396904ddded",
+      "elapsed_seconds": 6.181
+    },
+    {
+      "name": "pull-redis",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "54e3482b8d2063e8bfce48e7830537afdfd602ffc718e0dcac2c4bc08db29e35",
+      "elapsed_seconds": 1.668
+    },
+    {
+      "name": "pull-playwright",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "616f3d8272e89b7a309c508528bf855892de44818b88bd8ffa47c1ae832f02d2",
+      "elapsed_seconds": 25.924
+    },
+    {
+      "name": "compose-config",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "elapsed_seconds": 2.62
+    },
+    {
+      "name": "stack-bootstrap",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "e3c322e508af8b255f607b9e2af1fcdd02a23f770863d21d925a970ada720fe3",
+      "elapsed_seconds": 63.019
+    },
+    {
+      "name": "seed",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "09be92f20d2b21069d4a7b43e7e165498eabfa158bc64a7f320bb73650208214",
+      "elapsed_seconds": 3.774
+    },
+    {
+      "name": "background-start",
+      "original_exit": 0,
+      "status": "passed",
+      "log_sha256": "246b179ac94bb28a2020c386dc01a75bee4f720e5fbd6347c3534aee5d26a903",
+      "elapsed_seconds": 68.729
+    }
+  ],
+  "cleanup": {
+    "status": "passed",
+    "remaining_containers": 0,
+    "remaining_volumes": 0
+  },
+  "failures": [
+    {
+      "phase": "background-start",
+      "error_type": "HTTPError"
+    }
+  ],
+  "workflow_helper_revision": "3994b4df7c38e1a6d7691dabe0e0b0f4f63ab8fa",
+  "image_source_groups": [
+    {
+      "path": "backend/app",
+      "tested_object": "ea6886c6ec0b556d3a83b44b1a7e5ef5c51e94a7",
+      "workflow_object": "ea6886c6ec0b556d3a83b44b1a7e5ef5c51e94a7",
+      "identical": true
+    },
+    {
+      "path": "backend/alembic",
+      "tested_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "workflow_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "identical": true
+    },
+    {
+      "path": "backend/alembic.ini",
+      "tested_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "workflow_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "identical": true
+    },
+    {
+      "path": "backend/scripts",
+      "tested_object": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+      "workflow_object": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+      "identical": true
+    },
+    {
+      "path": "backend/compliance",
+      "tested_object": "529e143333d0075b32f4c5a51845ad0a0fb57abf",
+      "workflow_object": "529e143333d0075b32f4c5a51845ad0a0fb57abf",
+      "identical": true
+    },
+    {
+      "path": "backend/.dockerignore",
+      "tested_object": "991a8472a31f63c8dcdfc22ee735e83b7d03dd26",
+      "workflow_object": "991a8472a31f63c8dcdfc22ee735e83b7d03dd26",
+      "identical": true
+    },
+    {
+      "path": "backend/requirements-lock.txt",
+      "tested_object": "53c239ffd4679ce835cd86d122df93ba9a11862a",
+      "workflow_object": "53c239ffd4679ce835cd86d122df93ba9a11862a",
+      "identical": true
+    },
+    {
+      "path": "backend/requirements.txt",
+      "tested_object": "73b8e55f452a248483fd118fe2265b09f8f034f1",
+      "workflow_object": "73b8e55f452a248483fd118fe2265b09f8f034f1",
+      "identical": true
+    },
+    {
+      "path": "web",
+      "tested_object": "cf5489d2a203de14a09ff4fb6337df87a3bb3b28",
+      "workflow_object": "cf5489d2a203de14a09ff4fb6337df87a3bb3b28",
+      "identical": true
+    },
+    {
+      "path": "docker",
+      "tested_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "workflow_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "identical": true
+    },
+    {
+      "path": "docker-compose.yml",
+      "tested_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "workflow_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "identical": true
+    },
+    {
+      "path": "docker-compose.build.yml",
+      "tested_object": "15b1b8a21d80a46680fdf528635b216383285131",
+      "workflow_object": "15b1b8a21d80a46680fdf528635b216383285131",
+      "identical": true
+    },
+    {
+      "path": "VERSION",
+      "tested_object": "7ec1d6db40877765247db18e7f9a4e36a0def4ad",
+      "workflow_object": "7ec1d6db40877765247db18e7f9a4e36a0def4ad",
+      "identical": true
+    },
+    {
+      "path": "LICENSE",
+      "tested_object": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab",
+      "workflow_object": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab",
+      "identical": true
+    }
+  ],
+  "helpers": {
+    "run_native_ui_qualification.py": "76a55fb43a9135d1e0cea5efbbac94fe00453113a717cdc3820d354470699c10",
+    "native_ui_config.py": "21c979d0b45cfc7ff4da9118933e911aae892b97b82fafedf6143f2285f58f21",
+    "native_ui_review.mjs": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c",
+    "seed_native_ui_review.py": "bcbb5b65c8c2fd73e1ca228aed44134a2b79e5b0b4a8828a1a4e982331f076a4"
+  },
+  "installed_dependencies": {
+    "playwright": "1.63.0",
+    "@playwright/test": "1.63.0",
+    "@axe-core/playwright": "4.13.0"
+  },
+  "actual_builder_limits": {
+    "Memory": 1610612736,
+    "MemorySwap": 1610612736,
+    "CpuPeriod": 100000,
+    "CpuQuota": 100000
+  },
+  "production_image_ids": {
+    "backend": "sha256:84fa42e454f85333a32bb7af994865c92e458b118ed2ac75c460c2a78bf93b27",
+    "web": "sha256:882c9a65dc31f67d4ff3433d705572169bfcfd612ae8e0c5223223e24bfca598"
+  },
+  "postgres_image": {
+    "requested": "postgres@sha256:b6ccf02e9b47eac0d67b5eaa0ef56fd59163bffa5506f64e96ceb5053130ec86",
+    "actual_id": "sha256:9ed2501c9e7c4f4e27631c3e88f90fcda23891378bdf4f49ac810533a1e2a1ab",
+    "repo_digests": [
+      "postgres@sha256:b6ccf02e9b47eac0d67b5eaa0ef56fd59163bffa5506f64e96ceb5053130ec86"
+    ]
+  },
+  "redis_image": {
+    "requested": "redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
+    "actual_id": "sha256:487efc0616382465781b8fdc3d6d1db449e6fd80ae23bf48432a2da6b6929908",
+    "repo_digests": [
+      "redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99"
+    ]
+  },
+  "playwright_image": {
+    "requested": "mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27",
+    "actual_id": "sha256:2c1f4e0fd6450f43ddb46d60c2a6df30855a8588e165b1f2559fb0eda8d7ff35",
+    "repo_digests": [
+      "mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27"
+    ]
+  },
+  "seed": {
+    "source_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+    "synthetic": true,
+    "counts": {
+      "articles": 1,
+      "classifications": 1,
+      "feeds": 1,
+      "groups": 1,
+      "items": 1,
+      "memberships": 1,
+      "teams": 1
+    },
+    "attention_queue_rows": 0
+  },
+  "runtime_before": {
+    "worker-maintenance": {
+      "image_id": "sha256:84fa42e454f85333a32bb7af994865c92e458b118ed2ac75c460c2a78bf93b27",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 128
+    },
+    "worker": {
+      "image_id": "sha256:84fa42e454f85333a32bb7af994865c92e458b118ed2ac75c460c2a78bf93b27",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 500000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256
+    },
+    "beat": {
+      "image_id": "sha256:84fa42e454f85333a32bb7af994865c92e458b118ed2ac75c460c2a78bf93b27",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 335544320,
+      "memory_swap_bytes": 335544320,
+      "pids_limit": 96
+    },
+    "worker-notifications": {
+      "image_id": "sha256:84fa42e454f85333a32bb7af994865c92e458b118ed2ac75c460c2a78bf93b27",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256
+    },
+    "worker-ai": {
+      "image_id": "sha256:84fa42e454f85333a32bb7af994865c92e458b118ed2ac75c460c2a78bf93b27",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 128
+    },
+    "worker-exports": {
+      "image_id": "sha256:84fa42e454f85333a32bb7af994865c92e458b118ed2ac75c460c2a78bf93b27",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 128
+    },
+    "web": {
+      "image_id": "sha256:882c9a65dc31f67d4ff3433d705572169bfcfd612ae8e0c5223223e24bfca598",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 134217728,
+      "memory_swap_bytes": 134217728,
+      "pids_limit": 64
+    },
+    "api": {
+      "image_id": "sha256:84fa42e454f85333a32bb7af994865c92e458b118ed2ac75c460c2a78bf93b27",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 500000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256
+    },
+    "migrate": {
+      "image_id": "sha256:84fa42e454f85333a32bb7af994865c92e458b118ed2ac75c460c2a78bf93b27",
+      "running": false,
+      "health": null,
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 1000000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 64
+    },
+    "review-source": {
+      "image_id": "sha256:84fa42e454f85333a32bb7af994865c92e458b118ed2ac75c460c2a78bf93b27",
+      "running": true,
+      "health": null,
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 100000000,
+      "memory_bytes": 67108864,
+      "memory_swap_bytes": 67108864,
+      "pids_limit": 32
+    },
+    "db": {
+      "image_id": "sha256:9ed2501c9e7c4f4e27631c3e88f90fcda23891378bdf4f49ac810533a1e2a1ab",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 500000000,
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256
+    },
+    "redis": {
+      "image_id": "sha256:487efc0616382465781b8fdc3d6d1db449e6fd80ae23bf48432a2da6b6929908",
+      "running": true,
+      "health": "healthy",
+      "restarts": 0,
+      "oom_killed": false,
+      "read_only": true,
+      "cpu_nanos": 250000000,
+      "memory_bytes": 134217728,
+      "memory_swap_bytes": 134217728,
+      "pids_limit": 128
+    }
+  },
+  "http_checks": [],
+  "private_artifact": {
+    "encryption_exit": 0,
+    "bytes": 174664,
+    "sha256": "b72fb93ef9a4fee37918d25f80b22fbb4ee74b8c931cd4812033f7ea6c04cb28",
+    "certificate_sha256": "bc51f6ba81d86302d3e5e911f9f533a1872b39b210b7f3514ffdd5aab3e38656"
+  },
+  "finished_epoch": 1791649536.6656141
+}

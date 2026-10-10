@@ -1,0 +1,101 @@
+{
+  "schema": "threatlens-hosted-native-initial-readiness-adjudication-v1",
+  "qualification": false,
+  "application_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "workflow_revision": "3994b4df7c38e1a6d7691dabe0e0b0f4f63ab8fa",
+  "run_id": 38067158775,
+  "original_helper_exit": 1,
+  "status": "failed_setup_admission_retained",
+  "original_commands": {
+    "executed": 14,
+    "passed": 14,
+    "failed": 0,
+    "all_original_exit_zero": true
+  },
+  "runtime_before": {
+    "services": 12,
+    "running": 11,
+    "healthy": 10,
+    "current_restarts": 0,
+    "oom_killed": false,
+    "actual_image_id_and_caps_guards_passed": true,
+    "read_only": true,
+    "swap_enabled": false,
+    "worker_exports_pids_limit": 128
+  },
+  "first_readiness": {
+    "observed_http_status": 503,
+    "response_bytes": 12,
+    "frozen_anonymous_route_ok": false,
+    "response_body_retained": false,
+    "body_semantics_source": "Frozen anonymous route maps the observed503 to ok=false; raw response bytes were not captured.",
+    "elapsed_seconds_after_logged_beat_start": 57.235,
+    "configured_worker_heartbeat_interval_seconds": 60,
+    "first_probe_precedes_configured_interval": true,
+    "specific_unready_component": "unassigned",
+    "interpretation": "Compatible with initial readiness still pending. Aggregate503 and these logs do not prove which component was unready or establish an application defect."
+  },
+  "browser": {
+    "host_quiet_gate_attempted": false,
+    "container_created": false,
+    "attempted": false,
+    "executed_cases": 0,
+    "predeclared_browser_attempts": 1,
+    "original_browser_budget_consumed": false
+  },
+  "synthetic_fixture": {
+    "source_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+    "counts": {
+      "teams": 1,
+      "groups": 1,
+      "memberships": 1,
+      "feeds": 1,
+      "items": 1,
+      "articles": 1,
+      "classifications": 1
+    },
+    "attention_queue_rows": 0,
+    "provider_credentials_created": 0,
+    "external_provider_scope": "No external provider configured or provider task submitted by this fixture."
+  },
+  "cleanup": {
+    "status": "passed",
+    "remaining_containers": 0,
+    "remaining_volumes": 0
+  },
+  "retained_hashes": {
+    "public_projection_sha256": "72449dbb4f07289992e658e410f76f193e0ae87073d4277a67dab298b8cb71e3",
+    "capture_metadata_sha256": "e56f2516499fe311b4784b07412ac3a044495d0ce8a9f122dc8d01a6d1abb685",
+    "owned_stack_log_sha256": "6233c50bdb81dcd9e7f3cd5b78e24a276a5ba4bfd3445f1dd9cc84491ca26310"
+  },
+  "application_source_files": {
+    "backend/app/api/routes/health.py": "f9d0f8188997aff968743c4b7782e9db4a2291dd354a4b6684d812446ac24031",
+    "backend/app/services/component_health.py": "48fb7a094ac1c656dfb24bc503b5022af40b586fd7cb010956741419a6426b84",
+    "backend/app/services/beat_heartbeat.py": "c4f28ee2b824af69e1ca5ff0095088ab9cab3246bed7b8a498bad77276e20fdd",
+    "backend/app/services/worker_health.py": "f8cdf1d79a4596e66b9782058b625e27d985524edabb46868038ddcc84fe044e",
+    "backend/app/tasks/celery_app.py": "2a8fbe9593bdb722b4fb8fd0dfd7d23f1e7b469a51a9713aed86bae74d9b51e9",
+    "backend/app/tasks/beat_app.py": "ccfb6d45a94a15afab9776b4f7925b98460cba2480d19facafa8580d4c5336ec",
+    "backend/app/tasks/beat_scheduler.py": "0496c574007a24ce645fb861b8e966ad988a1bdb6e7e6d9a6881365b8fe4b164",
+    "backend/app/tasks/feed_tasks.py": "a610240df2944cb330f022c39cf86d94ef906b1b4353b2a419d577d2e8784d84",
+    "backend/app/core/config.py": "686ad84ee14ed4d9943aeb26d9448e6e1e8e079e085f5de133d6e49fc68139dc",
+    "docker-compose.yml": "28ff5055e07fc4a818546f1610fc73cd18b011fa2cbe6b607d183fee941a88d3"
+  },
+  "admission_correction": {
+    "helper_sha256": "07efb2b288f707a05b1eea1a5ce98a00fa8de0a109f67b33bd330d45eabeebab",
+    "scope": "Qualification helper only; application/image source, workload, actions, captures and caps unchanged.",
+    "shared_startup_deadline_seconds": 240,
+    "deadline_anchor": "Monotonic timestamp immediately before the original background-start command.",
+    "read_seconds_max": 15,
+    "request_bound": "min(15, remaining startup seconds)",
+    "poll_sleep_seconds_max": 5,
+    "sleep_bound": "min(5, remaining startup seconds)",
+    "accepted_ready": "HTTP200 application/json bounded JSON object with boolean ok=true",
+    "accepted_pending": "HTTP503 application/json bounded JSON object with boolean ok=false",
+    "all_other_status_body_redirect_errors": "fail closed",
+    "application_timing_changed": false,
+    "manual_heartbeat_or_task_invocation": false,
+    "browser_retry": false,
+    "timeout_waiver": false,
+    "new_execution_result_required": true
+  }
+}

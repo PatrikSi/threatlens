@@ -182,7 +182,26 @@ because a runner context appears in job-level environment configuration.
 The context-only correction starts the
 [isolated qualification](https://github.com/PatrikSi/threatlens/actions/runs/38067158775)
 at helper revision `3994b4df`; application/image source remains `e085733b`.
-Its actual terminal result remains required before release clearance.
+That setup passes all 14 command stages, the fresh seed and the exact
+12-service runtime snapshot, then its first full readiness request returns
+503. No quiet-window or browser execution occurs; owned cleanup passes with
+zero remnants. The request arrives 57.235 seconds after the logged Beat start,
+before the configured first 60-second heartbeat interval. This is compatible
+with a pending worker round trip; the failed component remains unassigned.
+The [original setup result](evidence/2026-10-09-final-review/native-ui-isolated-first-setup.json)
+and [independent admission assessment](evidence/2026-10-09-final-review/native-ui-readiness-admission.json)
+preserve these limits and distinguish actual logged responses from source
+semantics.
+
+Helper revision `a57e2fb2` waits for valid startup 503 responses within the
+same original 240-second background-start window. Each read uses at most
+15 seconds of the remaining window; 200/`ok:true` remains mandatory. Other
+statuses, malformed responses and late success fail closed. All 39 helper and
+fixture controls pass after this correction. Application timers, browser
+contexts, assertions, captures and resource limits remain unchanged. The
+[fresh isolated qualification](https://github.com/PatrikSi/threatlens/actions/runs/38068110917)
+uses the browser budget left unused by the earlier setup failures. Its actual
+terminal result remains required before release clearance.
 
 ### Earlier native candidate `aa92f8e7` — retained
 
