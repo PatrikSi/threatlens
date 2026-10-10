@@ -1,0 +1,32 @@
+{
+  "application_revision": "c591c3a8e30a6ef1fc38956317f0b0b41a12285b",
+  "changed_application_files": [
+    "backend/app/scripts/seed_admin.py"
+  ],
+  "committed_files": [
+    "README.md",
+    "backend/app/scripts/seed_admin.py",
+    "backend/tests/unit/test_seed_admin.py",
+    "bootstrap.sh",
+    "docs/reference/configuration.md",
+    "tests/recovery/test_bootstrap.py"
+  ],
+  "existing_capacity_candidate_retained": "aa92f8e7f9baf495f02c9bce89160b7a02f39514",
+  "new_native_and_capacity_results_required": true,
+  "previous_application_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "readiness_claim": false,
+  "runtime_scope": "Email validation and canonicalization only when administrator seeding runs, before database access.",
+  "schema": "threatlens-administrator-email-source-delta-v1",
+  "settings_unmodified": true,
+  "unchanged_groups": [
+    "backend/alembic",
+    "web",
+    "docker",
+    "docker-compose.yml",
+    "docker-compose.build.yml",
+    "backend/requirements-lock.txt",
+    "backend/requirements.txt",
+    "LICENSE"
+  ],
+  "version": "2.1.0"
+}

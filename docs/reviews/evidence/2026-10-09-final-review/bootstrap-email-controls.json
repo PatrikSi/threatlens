@@ -1,0 +1,67 @@
+{
+  "schema": "threatlens-bootstrap-email-controls-v1",
+  "status": "passed",
+  "owner": "hosted_helper_review",
+  "artifact_namespace": "bootstrap-reserved-email",
+  "application_revision": "c591c3a8e30a6ef1fc38956317f0b0b41a12285b",
+  "scope": "Administrator email validation regression and complete bootstrap suite. Source applicability verified against the committed application.",
+  "before_fix": {
+    "evidence_kind": "Actual targeted unittest tool result before the production fix",
+    "exit_code": 1,
+    "test_methods": 1,
+    "reserved_domain_subcases": 24,
+    "failed_subcases": 18,
+    "already_rejected_exact_single_label_subcases": 6,
+    "unittest_reported_seconds": 0.784,
+    "bootstrap_source_sha256": "c264671c8b894cab32177e96d434bd3b5940d415f9e3ad14a5fb4a73df420d62",
+    "raw_log_file_available": false
+  },
+  "after_fix": {
+    "exit_code": 0,
+    "suite_test_methods": 16,
+    "suite_passed": 16,
+    "suite_failed": 0,
+    "suite_skipped": 0,
+    "reserved_domain_subcases_passed": 24,
+    "valid_suffix_boundary_subcases_passed": 4,
+    "unittest_reported_seconds": 2.54,
+    "elapsed_seconds": 2.577472,
+    "complete_suite_log_sha256": "54ede5522ad25302fda723eb11ad30f406f07313dc86cb9b86150175be0b4668"
+  },
+  "reserved_domains_matched_to_actual_pinned_login_validator": [
+    "arpa",
+    "invalid",
+    "local",
+    "localhost",
+    "onion",
+    "test"
+  ],
+  "control_properties": {
+    "exact_subdomain_and_case_variants_covered": true,
+    "reserved_domain_exit_code_required": 2,
+    "invalid_case_stdout_empty": true,
+    "invalid_case_envfile_absent": true,
+    "invalid_case_actionable_error": true,
+    "invalid_case_error_excludes_password": true,
+    "valid_example_suffix_and_reserved_word_boundaries_preserved": true,
+    "readonly_compose_config_and_version_controls_executed": true,
+    "docker_workloads_executed": false,
+    "database_workloads_executed": false,
+    "browser_workloads_executed": false
+  },
+  "application_source_sha256": {
+    "bootstrap.sh": "5885738b09ee87e2459ae46de526f2ef41777fd5ba04df3d065cec2478015be1",
+    "tests/recovery/test_bootstrap.py": "a13579327692d8f2dd7c0a0cd70de6f0202bd6d2c777de6ea9b3007c8a071935",
+    "backend/app/scripts/seed_admin.py": "a16a385010bf83296b980d69817f7ddd9088cd92d08fe15c28180d671f2a7c28",
+    "backend/tests/unit/test_seed_admin.py": "bdcd21e7db043a7f600cd1cbafe9bf6e0be7fdfb960d73d07399ceabeb80c077",
+    "backend/app/schemas/auth.py": "b1a63634e13df646d00c846319969aeb5ac5fe999832a7833711462b43be1d00"
+  },
+  "original_private_control_record_sha256": "703d0e5f680a336130c29c3c8b11443747e304970e5fe0162c92bc7fe5a05377",
+  "credential_privacy": {
+    "credential_values_in_public_projection": false,
+    "private_home_paths_in_public_projection": false,
+    "private_commands_in_public_projection": false,
+    "raw_test_output_in_public_projection": false,
+    "generated_envfile_contents_in_public_projection": false
+  }
+}

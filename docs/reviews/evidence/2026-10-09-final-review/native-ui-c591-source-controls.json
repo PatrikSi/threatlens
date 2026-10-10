@@ -1,0 +1,141 @@
+{
+  "schema": "threatlens-native-ui-source-applicability-controls-v1",
+  "status": "passed",
+  "application_revision": "c591c3a8e30a6ef1fc38956317f0b0b41a12285b",
+  "baseline_auxiliary_revision": "c7c4a2da4e8434c1c4a3a2006a30194747071689",
+  "auxiliary_revision_at_review": "00e6034e9c1f65eb160b3e2772046252485020fe",
+  "scope": "Source applicability and pure controls only; no Docker, browser, CI dispatch or network workload",
+  "image_source_groups": [
+    {
+      "path": "backend/app",
+      "application_object": "e37e52561eede431c2ed8cfb8a31406d86cf9164",
+      "auxiliary_object": "e37e52561eede431c2ed8cfb8a31406d86cf9164",
+      "identical": true
+    },
+    {
+      "path": "backend/alembic",
+      "application_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "auxiliary_object": "d4b8f88eb2a1803e5d0dc518173af8e7b3c001a6",
+      "identical": true
+    },
+    {
+      "path": "backend/alembic.ini",
+      "application_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "auxiliary_object": "1811b99b28c6123323e4b6fe16d66dac6062e05f",
+      "identical": true
+    },
+    {
+      "path": "backend/scripts",
+      "application_object": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+      "auxiliary_object": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+      "identical": true
+    },
+    {
+      "path": "backend/compliance",
+      "application_object": "529e143333d0075b32f4c5a51845ad0a0fb57abf",
+      "auxiliary_object": "529e143333d0075b32f4c5a51845ad0a0fb57abf",
+      "identical": true
+    },
+    {
+      "path": "backend/.dockerignore",
+      "application_object": "991a8472a31f63c8dcdfc22ee735e83b7d03dd26",
+      "auxiliary_object": "991a8472a31f63c8dcdfc22ee735e83b7d03dd26",
+      "identical": true
+    },
+    {
+      "path": "backend/requirements-lock.txt",
+      "application_object": "53c239ffd4679ce835cd86d122df93ba9a11862a",
+      "auxiliary_object": "53c239ffd4679ce835cd86d122df93ba9a11862a",
+      "identical": true
+    },
+    {
+      "path": "backend/requirements.txt",
+      "application_object": "73b8e55f452a248483fd118fe2265b09f8f034f1",
+      "auxiliary_object": "73b8e55f452a248483fd118fe2265b09f8f034f1",
+      "identical": true
+    },
+    {
+      "path": "web",
+      "application_object": "cf5489d2a203de14a09ff4fb6337df87a3bb3b28",
+      "auxiliary_object": "cf5489d2a203de14a09ff4fb6337df87a3bb3b28",
+      "identical": true
+    },
+    {
+      "path": "docker",
+      "application_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "auxiliary_object": "301ac1bfb0b167a11412a5b21bff4c8ce737cc69",
+      "identical": true
+    },
+    {
+      "path": "docker-compose.yml",
+      "application_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "auxiliary_object": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "identical": true
+    },
+    {
+      "path": "docker-compose.build.yml",
+      "application_object": "15b1b8a21d80a46680fdf528635b216383285131",
+      "auxiliary_object": "15b1b8a21d80a46680fdf528635b216383285131",
+      "identical": true
+    },
+    {
+      "path": "VERSION",
+      "application_object": "7ec1d6db40877765247db18e7f9a4e36a0def4ad",
+      "auxiliary_object": "7ec1d6db40877765247db18e7f9a4e36a0def4ad",
+      "identical": true
+    },
+    {
+      "path": "LICENSE",
+      "application_object": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab",
+      "auxiliary_object": "e6ab010e8d795ca3a97f1a4d06f1db82300b08ab",
+      "identical": true
+    }
+  ],
+  "source_reference_changes_only": [
+    {
+      "path": "scripts/operations/run_native_ui_qualification.py",
+      "source_reference_count": 1
+    },
+    {
+      "path": "scripts/operations/seed_native_ui_review.py",
+      "source_reference_count": 1
+    },
+    {
+      "path": ".github/workflows/native-ui-qualification.yml",
+      "source_reference_count": 3
+    }
+  ],
+  "unchanged_controls": {
+    "driver_byte_identical": true,
+    "driver_sha256": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c",
+    "config_byte_identical": true,
+    "helper_and_seeder_other_bytes_identical": true,
+    "original_cap_and_deadline_bytes_identical": true,
+    "fixture_schema_admission_bytes_identical": true,
+    "expected_native_workflows": 33,
+    "browser_workload_executed": false
+  },
+  "pure_controls": {
+    "executed": 44,
+    "passed": 44,
+    "failed": 0,
+    "exit_code": 0,
+    "elapsed_seconds": 0.07686,
+    "log_sha256": "b73a29790d0bde8af91d80c705f83e644cb5b05ada1255a88e73449ad908912d"
+  },
+  "source_sha256": {
+    "scripts/operations/native_ui_review.mjs": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c",
+    "scripts/operations/native_ui_config.py": "21c979d0b45cfc7ff4da9118933e911aae892b97b82fafedf6143f2285f58f21",
+    "tests/operations/test_native_ui_qualification.py": "e104f15b13934521a9bc798c363c2d1082addf95c41cbc2ca4b58342be9ce09e",
+    "tests/operations/test_seed_native_ui_review.py": "4c6e5afcbf9d4b36f5c0e6f0dec2ca7976ee71bc813e3d5f546935d84ff648d2",
+    ".github/native-ui-review-certificate.pem": "bc51f6ba81d86302d3e5e911f9f533a1872b39b210b7f3514ffdd5aab3e38656",
+    "scripts/operations/run_native_ui_qualification.py": "86af549a34c82209f0dc5fd27ca0083d949d91199103fbb41d47492ed3e466d1",
+    "scripts/operations/seed_native_ui_review.py": "35274c8f40e39f13a8b17b0497ffc0ccaee48439a1edbb0808566e6987ddca80",
+    ".github/workflows/native-ui-qualification.yml": "e697b58fce657b1a483abb27c88476039addd626f2908b1fcfdfa7772f08daa9"
+  },
+  "privacy": {
+    "private_command_paths_included": false,
+    "credential_values_included": false,
+    "private_runtime_identifiers_included": false
+  }
+}
