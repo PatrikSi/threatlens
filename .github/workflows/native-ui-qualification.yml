@@ -1,0 +1,97 @@
+name: Native UI qualification on isolated AMD64 runner
+
+on:
+  push:
+    branches:
+      - review/native-ui-qualification-20261009
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: Frozen full application commit for this qualification
+        required: true
+        type: string
+        default: e085733b1200b8308f0011cf50d3abe79fa792b4
+
+permissions:
+  contents: read
+
+jobs:
+  qualify-ui:
+    name: Original native UI checks on isolated AMD64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    env:
+      THREATLENS_NATIVE_FROZEN_SOURCE: e085733b1200b8308f0011cf50d3abe79fa792b4
+      THREATLENS_NATIVE_CANDIDATE: ${{ inputs.candidate || 'e085733b1200b8308f0011cf50d3abe79fa792b4' }}
+      THREATLENS_NATIVE_UI_EVIDENCE: ${{ runner.temp }}/threatlens-native-ui-${{ github.run_id }}
+      NODE_OPTIONS: --max-old-space-size=640
+    steps:
+      - name: Checkout qualification helpers and application history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify frozen application and workflow revisions
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+
+          candidate = os.environ["THREATLENS_NATIVE_CANDIDATE"]
+          frozen = os.environ["THREATLENS_NATIVE_FROZEN_SOURCE"]
+          assert re.fullmatch(r"[0-9a-f]{40}", candidate)
+          assert candidate == frozen
+          resolved = subprocess.check_output([
+              "git", "rev-parse", "--verify", "--end-of-options", candidate + "^{commit}",
+          ], text=True, timeout=30).strip()
+          workflow = subprocess.check_output([
+              "git", "rev-parse", "HEAD",
+          ], text=True, timeout=30).strip()
+          assert resolved == candidate and workflow == os.environ["GITHUB_SHA"]
+          subprocess.run([
+              "git", "merge-base", "--is-ancestor", candidate, workflow,
+          ], check=True, timeout=30)
+          print(json.dumps({
+              "application_source_revision": candidate,
+              "workflow_source_revision": workflow,
+              "source_guard": "passed",
+          }))
+          PY
+
+      - name: Set up exact Node.js for locked browser dependencies
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22.23.0"
+
+      - name: Set up qualification helper Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12.3"
+
+      - name: Build frozen images and run the original native UI checks
+        run: |
+          umask 077
+          helper_log="${RUNNER_TEMP}/threatlens-native-ui-helper-${GITHUB_RUN_ID}.log"
+          set +e
+          python scripts/operations/run_native_ui_qualification.py \
+            --source-revision "$THREATLENS_NATIVE_CANDIDATE" \
+            --evidence-dir "$THREATLENS_NATIVE_UI_EVIDENCE" \
+            > "$helper_log" 2>&1
+          helper_exit=$?
+          set -e
+          printf 'Native qualification helper exit: %s\n' "$helper_exit"
+          exit "$helper_exit"
+
+      - name: Preserve sanitized projection and encrypted diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-ui-qualification-${{ github.run_id }}
+          path: |
+            ${{ env.THREATLENS_NATIVE_UI_EVIDENCE }}/public-projection.json
+            ${{ env.THREATLENS_NATIVE_UI_EVIDENCE }}/private-evidence.cms
+          if-no-files-found: error
+          retention-days: 90
