@@ -4,7 +4,9 @@ from __future__ import annotations
 import copy
 from email.headerregistry import Address
 import importlib.util
+import hashlib
 import json
+import os
 from pathlib import Path
 import struct
 import sys
@@ -116,6 +118,39 @@ class NativeFixtureLoginInput(unittest.TestCase):
         self.assertEqual(address.addr_spec, value)
         self.assertIn(address.domain, {"example.com", "example.net", "example.org"})
         self.assertRegex(address.username, r"^[A-Za-z0-9][A-Za-z0-9_.+-]*$")
+
+
+class NativePublisherPermissions(unittest.TestCase):
+    def test_nonroot_publisher_can_traverse_under_private_evidence_umask(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            private_parent = Path(temporary)
+            private_parent.chmod(0o700)
+            previous_umask = os.umask(0o077)
+            try:
+                publisher = private_parent / "publisher"
+                QUALIFY.prepare_publisher(publisher)
+            finally:
+                os.umask(previous_umask)
+            self.assertEqual(publisher.stat().st_mode & 0o777, 0o755)
+            self.assertEqual((publisher / "article.html").stat().st_mode & 0o777, 0o644)
+            self.assertEqual(private_parent.stat().st_mode & 0o777, 0o700)
+            self.assertIn("Synthetic defensive intelligence", (publisher / "article.html").read_text())
+
+    def test_only_exact_successful_owned_publisher_content_is_admitted(self):
+        body = QUALIFY.PUBLISHER_HTML.encode()
+        response = {"http_status": 200, "response_bytes": len(body),
+                    "response_sha256": hashlib.sha256(body).hexdigest()}
+        self.assertIsNone(QUALIFY.admit_publisher(response))
+        for key, value in [
+            ("http_status", 404), ("http_status", 302), ("http_status", True),
+            ("response_bytes", 65537), ("response_bytes", True),
+            ("response_sha256", hashlib.sha256(b"File not found").hexdigest()),
+        ]:
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                QUALIFY.admit_publisher({**response, key: value})
+        for value in [None, {}, {**response, "unexpected": "value"}]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                QUALIFY.admit_publisher(value)
 
 
 class NativeReadinessAdmission(unittest.TestCase):

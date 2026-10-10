@@ -47,6 +47,29 @@ CHECKS = ["/settings/access", "article preview and team assessment navigation",
 BACKGROUND = ["beat", "worker", "worker-ai", "worker-notifications", "worker-exports", "worker-maintenance"]
 CERTIFICATE = ROOT / ".github/native-ui-review-certificate.pem"
 FIXTURE_EMAIL = "native-review@example.com"
+PUBLISHER_HTML = "<!doctype html><html><head><title>Synthetic defensive intelligence</title></head><body><h1>Synthetic defensive intelligence</h1><p>Owned disposable publisher fixture.</p></body></html>"
+
+
+def prepare_publisher(directory: Path) -> None:
+    directory.mkdir(mode=0o755)
+    directory.chmod(0o755)
+    article = directory / "article.html"
+    article.write_text(PUBLISHER_HTML)
+    article.chmod(0o644)
+
+
+def admit_publisher(response: dict) -> None:
+    expected = PUBLISHER_HTML.encode()
+    if (
+        not isinstance(response, dict)
+        or set(response) != {"http_status", "response_bytes", "response_sha256"}
+        or type(response.get("http_status")) is not int
+        or response["http_status"] != 200
+        or type(response.get("response_bytes")) is not int
+        or response["response_bytes"] != len(expected)
+        or response.get("response_sha256") != hashlib.sha256(expected).hexdigest()
+    ):
+        raise ValueError("Owned publisher fixture is not ready")
 
 
 def readiness_admission(status: int, content_type: str, body: bytes) -> bool:
@@ -482,9 +505,7 @@ def main() -> None:
             raise ValueError("Unexpected Compose port recipe")
         base_file.write_text(original.replace(old_port, '"127.0.0.1:' + str(port) + ':3000"'))
         publisher = evidence / "publisher"
-        publisher.mkdir(mode=0o755)
-        (publisher / "article.html").write_text("<!doctype html><html><head><title>Synthetic defensive intelligence</title></head><body><h1>Synthetic defensive intelligence</h1><p>Owned disposable publisher fixture.</p></body></html>")
-        (publisher / "article.html").chmod(0o644)
+        prepare_publisher(publisher)
         overrides = {"services": {}}
         for service, (cpu, mib, pids) in CAPS.items():
             row = {"cpus": str(cpu), "mem_limit": str(mib) + "m", "memswap_limit": str(mib) + "m", "pids_limit": pids}
@@ -505,6 +526,20 @@ def main() -> None:
                    "--project-name", project, "--file", str(base_file), "--file", str(override)]
         run("compose-config", [*compose, "config", "--quiet"], 60)
         run("stack-bootstrap", [*compose, "up", "--no-build", "--detach", "--wait", "--wait-timeout", "240", "db", "redis", "migrate", "api", "web", "review-source"], 300)
+        publisher_probe = "\n".join([
+            "import hashlib, json",
+            "from urllib.request import HTTPRedirectHandler, ProxyHandler, build_opener",
+            "class NoRedirect(HTTPRedirectHandler):",
+            "    def redirect_request(self, request, fp, code, msg, headers, newurl):",
+            "        return None",
+            "with build_opener(ProxyHandler({}), NoRedirect()).open('http://review-source:8765/article.html', timeout=10) as response:",
+            "    body = response.read(65537)",
+            "    result = {'http_status': response.status, 'response_bytes': len(body), 'response_sha256': hashlib.sha256(body).hexdigest()}",
+            "print(json.dumps(result, sort_keys=True))",
+        ])
+        publisher_response = json.loads(run("publisher-ready", [*compose, "exec", "--no-TTY", "api", "python", "-c", publisher_probe], 30))
+        admit_publisher(publisher_response)
+        record["publisher_admission"] = publisher_response
         seed_code = (ROOT / "scripts/operations/seed_native_ui_review.py").read_bytes()
         seed = json.loads(run("seed", [*compose, "exec", "--no-TTY", "--interactive", "-e", "REVIEW_DISPOSABLE_DATABASE=1", "-e", "REVIEW_SOURCE_SHA=" + SOURCE,
                                       "-e", "REVIEW_PUBLISHER_ORIGIN=http://review-source:8765", "api", "python", "-"], 90, seed_code))
