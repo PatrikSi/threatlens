@@ -85,16 +85,47 @@ try {
     'Analyst Login',
     'Production login heading did not render',
   )
-  assert.equal(
-    dom.window.document.querySelector('#login-email')?.getAttribute('type'),
-    'email',
-    'Production login email field did not render',
+  const emailInput = dom.window.document.querySelector('#login-email')
+  const passwordInput = dom.window.document.querySelector('#login-password')
+  assert.equal(emailInput?.getAttribute('type'), 'text', 'Production login email text field did not render')
+  assert.equal(emailInput.getAttribute('inputmode'), 'email', 'Production login email keyboard hint is missing')
+  assert.equal(emailInput.getAttribute('autocomplete'), 'email', 'Production login email autocomplete is missing')
+  assert.equal(emailInput.required, true, 'Production login email field must remain required')
+  assert.ok(
+    Array.from(emailInput.labels ?? []).some((label) => label.textContent?.trim() === 'Email'),
+    'Production login email field is missing its associated Email label',
   )
   assert.equal(
-    dom.window.document.querySelector('#login-password')?.getAttribute('type'),
+    passwordInput?.getAttribute('type'),
     'password',
     'Production login password field did not render',
   )
+  assert.equal(passwordInput.required, true, 'Production login password field must remain required')
+
+  const loginForm = emailInput.form
+  assert.ok(loginForm, 'Production login email field is not associated with a form')
+  assert.equal(passwordInput.form, loginForm, 'Production login credentials must share the same form')
+  const initialEmail = emailInput.value
+  const initialPassword = passwordInput.value
+  try {
+    passwordInput.value = 'production-smoke-control'
+    for (const [category, email] of [
+      ['Unicode local part', 'revi\u00e9w@example.com'],
+      ['Unicode domain', 'review@\u00e9xample.com'],
+      ['Unicode astral local part', '\u{1f512}@example.com'],
+    ]) {
+      emailInput.value = email
+      assert.equal(loginForm.checkValidity(), true, `Production login form blocks an API-supported ${category}`)
+    }
+    emailInput.value = ''
+    assert.equal(loginForm.checkValidity(), false, 'Production login form must block an empty email')
+    emailInput.value = 'review@example.com'
+    passwordInput.value = ''
+    assert.equal(loginForm.checkValidity(), false, 'Production login form must block an empty password')
+  } finally {
+    emailInput.value = initialEmail
+    passwordInput.value = initialPassword
+  }
 
   console.log('Production bundle rendered the login screen successfully.')
 } catch (error) {
