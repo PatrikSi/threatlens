@@ -136,8 +136,53 @@ retains those counts, exact engine order, image identities, limits and hash-only
 capture evidence. The
 [read-only capture-source assessment](evidence/2026-10-09-final-review/native-firefox-e085-capture-source.json)
 retains the pinned SDK await order and original call-log markers. Screenshot
-preparation/evaluation versus scheduling cause is unassigned. A focused diagnostic is prepared; no identical full-suite retry,
-capture bypass or weakened assertion is authorized.
+preparation/evaluation versus scheduling cause is unassigned.
+
+The subsequent single focused Firefox diagnostic preserves the original light
+five then dark login/access/article workflows and unchanged limits. It executes
+all eight checks: **five passed / three failed**, with both logins passing.
+All three primary failures are navigation timeouts; the dark article/team
+workflow never reaches the original failed capture. Its driver records 31 stages
+and 23 frame events without drops/errors, while whole-container numeric capture
+has 47 separate five-second Docker-inspection timeouts. The 114 successful
+samples leave a 106.640-second observation gap. Kernel-recorded peak whole-container
+memory is 735,498,240 bytes, with no observed OOM/restarts/quota throttling.
+A separate point sampled during the run records severe CPU, memory and I/O
+pressure; it is not atomic with the browser stages. Neither the diagnostic nor
+these observations establish the original screenshot cause or justify an
+application/font/timeout change. The
+[failed diagnostic](evidence/2026-10-09-final-review/native-firefox-e085-capture-diagnostic.json)
+retains separate workload/capture outcomes, exact inputs, bounded stages and
+privacy-safe numeric observations.
+
+The first owned-background environment procedure finds seven historical Beat
+restarts before any quiet-window or browser execution. Its graceful pause
+command succeeds, but the zero-restart guard rejects the state; all six services
+restore successfully. Exact current readiness and OpenAPI checks pass afterward.
+Retained Beat logs identify six failed Redis heartbeat reads and one stale
+heartbeat as watchdog recovery triggers, without assigning their underlying
+cause. The seven historical restarts remain recorded. The second procedure
+passes the pause guard but fails its declared ten-minute host check: all 40
+samples have less than 3 GiB available memory and excessive full I/O pressure.
+No browser runs. All six services restore; the exact 12-service stack has
+11 running and 10 healthy services, with the original image/resource controls.
+The [environment result](evidence/2026-10-09-final-review/native-ui-local-environment.json)
+preserves the failed host check and the unused browser budget. A separate
+[read-only check on October 10](evidence/2026-10-09-final-review/native-runtime-e085-resumed.json)
+confirms current zero restarts/OOM, resource controls, readiness and exact live
+OpenAPI without erasing historical failures.
+
+The remaining qualification is moving to a fresh isolated AMD64 runner with
+new synthetic credentials/database, the exact original 33-case driver and
+unchanged actions, assertions, capture deadlines and container limits.
+Qualification-specific helpers remain on the auxiliary review branch.
+Their 29 pure fixture/evidence controls pass; they do not count as browser
+results. GitHub rejects the first auxiliary workflow before any job runs
+because a runner context appears in job-level environment configuration.
+The context-only correction starts the
+[isolated qualification](https://github.com/PatrikSi/threatlens/actions/runs/38067158775)
+at helper revision `3994b4df`; application/image source remains `e085733b`.
+Its actual terminal result remains required before release clearance.
 
 ### Earlier native candidate `aa92f8e7` — retained
 

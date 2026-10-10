@@ -1,0 +1,858 @@
+{
+  "actual_images": {
+    "backend": "sha256:2c1bd249517c35540f4accb1273b74437a5e78b7d31b24379b700fc5bbfe3dc5",
+    "web": "sha256:5793441258dec702b2ff54c25d86dae35b2ef1cfa88e628eee0476f4f273a9a6"
+  },
+  "actual_outcomes": {
+    "api_server_errors": 0,
+    "browser_status": "failed",
+    "driver_capture_errors": 0,
+    "driver_dropped_records": 0,
+    "driver_stage_frame_capture_status": "passed",
+    "executed": 8,
+    "expected": 8,
+    "external_requests": 0,
+    "failed": 3,
+    "generic_console_errors": 0,
+    "generic_page_errors": 0,
+    "missing": 0,
+    "original_cli_exit": 1,
+    "original_container_exit": 1,
+    "passed": 5,
+    "synthetic_resources_created": 0,
+    "ui_cleanup_failures": 0,
+    "whole_container_capture_error_categories": [
+      {
+        "count": 47,
+        "error_type": "TimeoutExpired",
+        "phase": "numeric_capture"
+      }
+    ],
+    "whole_container_capture_errors": 47,
+    "whole_container_capture_status": "failed"
+  },
+  "application_source_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "caps": {
+    "Memory": 3221225472,
+    "MemorySwap": 3221225472,
+    "NanoCpus": 2000000000,
+    "PidsLimit": 768,
+    "ShmSize": 268435456
+  },
+  "cleanup": {
+    "owned_containers_remaining": 0,
+    "owned_containers_removed": 1,
+    "status": "passed"
+  },
+  "controls_proof_sha256": "b6bcff9ce8696141a3fc44b08f7e3c329e0d8d028cc4d74f468e6da0d8da6ad8",
+  "driver_stages": [
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 0,
+        "main_route": "not_created"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 0,
+        "main_route": "not_created"
+      },
+      "elapsed_ms": 1.024,
+      "end_ms": 1.141,
+      "label": "await_numeric_sampler",
+      "start_ms": 0.117,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 0,
+        "main_route": "not_created"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 0,
+        "main_route": "not_created"
+      },
+      "elapsed_ms": 1045.124,
+      "end_ms": 1047.004,
+      "label": "launch_firefox",
+      "start_ms": 1.88,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "blank"
+      },
+      "elapsed_ms": 2591.162,
+      "end_ms": 5169.767,
+      "label": "case:firefox:light:desktop:real-local-cookie-login",
+      "start_ms": 2578.605,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "elapsed_ms": 2132.459,
+      "end_ms": 7313.656,
+      "label": "navigation:access_settings",
+      "start_ms": 5181.197,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "elapsed_ms": 25.639,
+      "end_ms": 7343.186,
+      "label": "overflow:firefox:light:desktop:route-settings-access",
+      "start_ms": 7317.547,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "elapsed_ms": 5455.136,
+      "end_ms": 12799.576,
+      "label": "axe:firefox:light:desktop:route-settings-access",
+      "start_ms": 7344.44,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "elapsed_ms": 114.43,
+      "end_ms": 12934.897,
+      "label": "screenshot:firefox:light:desktop:route-settings-access",
+      "start_ms": 12820.467,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "elapsed_ms": 7758.307,
+      "end_ms": 12935.998,
+      "label": "case:firefox:light:desktop:route-settings-access",
+      "start_ms": 5177.691,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "elapsed_ms": 1592.362,
+      "end_ms": 14531.074,
+      "label": "navigation:dashboard",
+      "start_ms": 12938.712,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [
+          "publisher_preview"
+        ],
+        "frame_count": 2,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [
+          "publisher_preview"
+        ],
+        "frame_count": 2,
+        "main_route": "dashboard"
+      },
+      "elapsed_ms": 8.304,
+      "end_ms": 15071.04,
+      "label": "overflow:firefox:light:desktop:article-preview",
+      "start_ms": 15062.736,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [
+          "publisher_preview"
+        ],
+        "frame_count": 2,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [
+          "publisher_preview"
+        ],
+        "frame_count": 2,
+        "main_route": "dashboard"
+      },
+      "elapsed_ms": 3065.63,
+      "end_ms": 18140.25,
+      "label": "axe:firefox:light:desktop:article-preview",
+      "start_ms": 15074.62,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [
+          "publisher_preview"
+        ],
+        "frame_count": 2,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [
+          "publisher_preview"
+        ],
+        "frame_count": 2,
+        "main_route": "dashboard"
+      },
+      "elapsed_ms": 1591.444,
+      "end_ms": 19739.853,
+      "label": "screenshot:firefox:light:desktop:article-preview",
+      "start_ms": 18148.409,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "elapsed_ms": 38.129,
+      "end_ms": 28545.282,
+      "label": "overflow:firefox:light:desktop:article-team-assessment",
+      "start_ms": 28507.153,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "elapsed_ms": 20334.53,
+      "end_ms": 48890.033,
+      "label": "axe:firefox:light:desktop:article-team-assessment",
+      "start_ms": 28555.503,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "elapsed_ms": 5844.08,
+      "end_ms": 54801.877,
+      "label": "screenshot:firefox:light:desktop:article-team-assessment",
+      "start_ms": 48957.797,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "elapsed_ms": 42030.617,
+      "end_ms": 54968.722,
+      "label": "case:firefox:light:desktop:article-preview-and-team-assessment-navigation",
+      "start_ms": 12938.105,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "elapsed_ms": 49406.987,
+      "end_ms": 104671.032,
+      "failure_flags": {
+        "closed": false,
+        "error_type": "TimeoutError",
+        "fonts_loaded": false,
+        "operation_timer": true,
+        "taking_screenshot": false,
+        "waiting_fonts": false
+      },
+      "label": "navigation:other",
+      "start_ms": 55264.045,
+      "status": "failed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "elapsed_ms": 49594.728,
+      "end_ms": 104801.758,
+      "failure_flags": {
+        "closed": false,
+        "error_type": "TimeoutError",
+        "fonts_loaded": false,
+        "operation_timer": true,
+        "taking_screenshot": false,
+        "waiting_fonts": false
+      },
+      "label": "case:firefox:light:desktop:reviewed-publication-preview-and-consumer-contrast",
+      "start_ms": 55207.03,
+      "status": "failed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "elapsed_ms": 2741.476,
+      "end_ms": 107602.993,
+      "label": "screenshot:firefox:light:desktop:reviewed-publication-preview-and-consumer-contrast-failure",
+      "start_ms": 104861.517,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "blank"
+      },
+      "elapsed_ms": 1491.854,
+      "end_ms": 110486.096,
+      "label": "navigation:access_settings",
+      "start_ms": 108994.242,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "elapsed_ms": 14.332,
+      "end_ms": 110907.579,
+      "label": "overflow:firefox:light:mobile:mobile-route-settings-access",
+      "start_ms": 110893.247,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "elapsed_ms": 1500.266,
+      "end_ms": 112410.828,
+      "label": "axe:firefox:light:mobile:mobile-route-settings-access",
+      "start_ms": 110910.562,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "elapsed_ms": 62.935,
+      "end_ms": 112486.202,
+      "label": "screenshot:firefox:light:mobile:mobile-route-settings-access",
+      "start_ms": 112423.267,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "blank"
+      },
+      "elapsed_ms": 3493.551,
+      "end_ms": 112486.707,
+      "label": "case:firefox:light:mobile:mobile-route-settings-access",
+      "start_ms": 108993.156,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "blank"
+      },
+      "elapsed_ms": 1761.74,
+      "end_ms": 114579.651,
+      "label": "case:firefox:dark:desktop:real-local-cookie-login",
+      "start_ms": 112817.911,
+      "status": "passed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "elapsed_ms": 52613.637,
+      "end_ms": 167210.241,
+      "failure_flags": {
+        "closed": false,
+        "error_type": "TimeoutError",
+        "fonts_loaded": false,
+        "operation_timer": true,
+        "taking_screenshot": false,
+        "waiting_fonts": false
+      },
+      "label": "navigation:access_settings",
+      "start_ms": 114596.604,
+      "status": "failed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "elapsed_ms": 52670.798,
+      "end_ms": 167267.133,
+      "failure_flags": {
+        "closed": false,
+        "error_type": "TimeoutError",
+        "fonts_loaded": false,
+        "operation_timer": true,
+        "taking_screenshot": false,
+        "waiting_fonts": false
+      },
+      "label": "case:firefox:dark:desktop:route-settings-access",
+      "start_ms": 114596.335,
+      "status": "failed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "access_settings"
+      },
+      "elapsed_ms": 57096.494,
+      "end_ms": 224375.406,
+      "failure_flags": {
+        "closed": false,
+        "error_type": "TimeoutError",
+        "fonts_loaded": false,
+        "operation_timer": true,
+        "taking_screenshot": true,
+        "waiting_fonts": true
+      },
+      "label": "screenshot:firefox:dark:desktop:route-settings-access-failure",
+      "start_ms": 167278.912,
+      "status": "failed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "blank"
+      },
+      "elapsed_ms": 34953.836,
+      "end_ms": 329011.959,
+      "failure_flags": {
+        "closed": false,
+        "error_type": "TimeoutError",
+        "fonts_loaded": false,
+        "operation_timer": true,
+        "taking_screenshot": false,
+        "waiting_fonts": false
+      },
+      "label": "navigation:dashboard",
+      "start_ms": 294058.123,
+      "status": "failed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "blank"
+      },
+      "elapsed_ms": 35076.348,
+      "end_ms": 329132.195,
+      "failure_flags": {
+        "closed": false,
+        "error_type": "TimeoutError",
+        "fonts_loaded": false,
+        "operation_timer": true,
+        "taking_screenshot": false,
+        "waiting_fonts": false
+      },
+      "label": "case:firefox:dark:desktop:article-preview-and-team-assessment-navigation",
+      "start_ms": 294055.847,
+      "status": "failed"
+    },
+    {
+      "after": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "before": {
+        "child_categories": [],
+        "frame_count": 1,
+        "main_route": "dashboard"
+      },
+      "elapsed_ms": 30292.695,
+      "end_ms": 359433.154,
+      "failure_flags": {
+        "closed": false,
+        "error_type": "TimeoutError",
+        "fonts_loaded": true,
+        "operation_timer": true,
+        "taking_screenshot": true,
+        "waiting_fonts": true
+      },
+      "label": "screenshot:firefox:dark:desktop:article-preview-and-team-assessment-navigation-failure",
+      "start_ms": 329140.459,
+      "status": "failed"
+    }
+  ],
+  "frame_event_summary": {
+    "count": 23,
+    "max_observed_frame_count": 2,
+    "types": {
+      "frameattached": 1,
+      "framedetached": 1,
+      "framenavigated": 21
+    }
+  },
+  "frozen_plan_sha256": "0d106baf2277699cbfbebfefb6bd835754ab147838182662e8c0a05a98991f44",
+  "host_pressure_point": {
+    "load_average": [
+      186.25390625,
+      126.3056640625,
+      104.9677734375
+    ],
+    "psi_percentages": {
+      "cpu": {
+        "full": {
+          "avg10": 0.0,
+          "avg300": 0.0,
+          "avg60": 0.0
+        },
+        "some": {
+          "avg10": 83.68,
+          "avg300": 64.48,
+          "avg60": 85.38
+        }
+      },
+      "io": {
+        "full": {
+          "avg10": 2.17,
+          "avg300": 3.08,
+          "avg60": 1.18
+        },
+        "some": {
+          "avg10": 65.97,
+          "avg300": 53.74,
+          "avg60": 73.07
+        }
+      },
+      "memory": {
+        "full": {
+          "avg10": 33.72,
+          "avg300": 37.9,
+          "avg60": 51.1
+        },
+        "some": {
+          "avg10": 72.49,
+          "avg300": 63.64,
+          "avg60": 89.6
+        }
+      }
+    },
+    "scope": "Single point collected during this run on a separate clock; not atomic with driver stages and not prior-failure-time evidence",
+    "source_sha256": "67ee73a04f728ab1f591a6770059f3a2d11403388a75ed508863586aba62cf7c"
+  },
+  "interpretation": {
+    "application_defect_confirmed": false,
+    "diagnostic_limit": "Three new page.goto failures and two recovery screenshot failures do not establish the cause of the earlier second-article screenshot timeout. No application or font-wait change is supported. Diagnostic outcome does not clear any failed release gate.",
+    "earlier_failed_native_qualification_retained_sha256": "a0b17d16b1c22fe6ae8d301517f317a150a70fe142cbe9e089922c7418a085ce",
+    "environment_observation_contract_failed": true,
+    "original_failed_target_cause": "unassigned",
+    "recommended_next_action": "Hold further heavy browser work on this demonstrably stressed host. Prepare one predeclared unchanged qualification on a fresh isolated runner or after a material, measured execution-environment correction; preserve all failures, original budgets/actions/caps, strict capture acceptance, and no automatic retries.",
+    "target_dark_article_team_capture_reached": false,
+    "timing_limit": "Driver stages share one monotonic clock. Case stages contain nested navigation/Axe/screenshot/persistence; never sum them. Stage elapsed stops before final snapshot/persist. Host numeric observations use a separate process clock, are non-atomic, and have gaps up to the recorded maximum.",
+    "whole_container_limit_exhaustion_observed": false
+  },
+  "locked_dependencies_sha256": "ff0c8a90497ff530bc41335654a59f644226e0782773f1454ab0a42afda8e64b",
+  "manifest_sha256": "053fb03b46398b5db14705f43b1231bf23220475bbc093e54ca63cceab2ce71b",
+  "overall_status": "failed",
+  "qualification": false,
+  "retained_artifact_hashes": {
+    "browser_result": "26dbfb58fb879b74fdfed3b43b6001d75174aa202f05163c501bb2c6b7f842a8",
+    "driver_stage_frame_capture": "acc89857600c752b9139d654b710980f76a54919fb79c05067ed7a6f293aa9c1",
+    "launch_result": "0087c0606a51ac82207ec59483deb583914c06e73bc1e50ce64c73f6c13a2185",
+    "raw_browser_log": "ed81b9f93a124564e5adaaad3a11a4d2d283a50e1d1c1ad28eab3cf07f316276"
+  },
+  "root_prelaunch_record_sha256": "91443f6372d7bc46ce0ac98683c8aa0d059d23113c25d57ed89b1d5301b1b2de",
+  "schema": "threatlens-firefox-capture-diagnostic-public-v1",
+  "source_and_manifest_inputs_unchanged": true,
+  "steps": [
+    {
+      "layout": "desktop",
+      "name": "real local cookie login",
+      "observed_case_seconds": 2.61,
+      "status": "passed",
+      "theme": "light"
+    },
+    {
+      "layout": "desktop",
+      "name": "route /settings/access",
+      "observed_case_seconds": 7.76,
+      "status": "passed",
+      "theme": "light"
+    },
+    {
+      "layout": "desktop",
+      "name": "article preview and team assessment navigation",
+      "observed_case_seconds": 42.12,
+      "status": "passed",
+      "theme": "light"
+    },
+    {
+      "layout": "desktop",
+      "name": "reviewed publication preview and consumer contrast",
+      "observed_case_seconds": 53.73,
+      "status": "failed",
+      "theme": "light"
+    },
+    {
+      "layout": "mobile",
+      "name": "mobile route /settings/access",
+      "observed_case_seconds": 3.5,
+      "status": "passed",
+      "theme": "light"
+    },
+    {
+      "layout": "desktop",
+      "name": "real local cookie login",
+      "observed_case_seconds": 1.78,
+      "status": "passed",
+      "theme": "dark"
+    },
+    {
+      "layout": "desktop",
+      "name": "route /settings/access",
+      "observed_case_seconds": 179.45,
+      "status": "failed",
+      "theme": "dark"
+    },
+    {
+      "layout": "desktop",
+      "name": "article preview and team assessment navigation",
+      "observed_case_seconds": 103.12,
+      "status": "failed",
+      "theme": "dark"
+    }
+  ],
+  "whole_container_numeric_samples": {
+    "cpu_period_us": 100000,
+    "cpu_quota_us": 200000,
+    "first_observer_start_ms": 906.472,
+    "last_observer_end_ms": 398944.592,
+    "max_successful_sample_collection_ms": 5003.777,
+    "max_successful_sample_gap_ms": 106640.373,
+    "memory_limit_bytes": 3221225472,
+    "observed_cpu_counter_delta": {
+      "nr_periods": 3977,
+      "nr_throttled": 0,
+      "system_usec": 54004349,
+      "throttled_usec": 0,
+      "usage_usec": 73677309,
+      "user_usec": 19672961
+    },
+    "sampled_memory_oom_events": 0,
+    "sampled_memory_peak_bytes": 735498240,
+    "sampled_oom_kills": 0,
+    "sampled_process_peak": 9,
+    "sampled_restarts": 0,
+    "sampled_task_peak": 186,
+    "successful_samples": 114,
+    "swap_limit_bytes": 0
+  },
+  "workflow_failures": [
+    {
+      "allowlisted_transport_codes": [],
+      "call_log_markers": {
+        "navigating_to": true,
+        "original_30_second_timer": true,
+        "waiting_load": true
+      },
+      "error_sha256": "b9e4b2f017c6be3d6355d0b967445552ecf0672cbff05f1de6dff3cb1f3c792f",
+      "layout": "desktop",
+      "name": "reviewed publication preview and consumer contrast",
+      "operation": "page.goto",
+      "theme": "light"
+    },
+    {
+      "allowlisted_transport_codes": [],
+      "call_log_markers": {
+        "navigating_to": true,
+        "original_30_second_timer": true,
+        "waiting_load": true
+      },
+      "error_sha256": "420a4a64de6044237e373372bc1d5ddee3923eface94033bac0670bd2338c131",
+      "layout": "desktop",
+      "name": "route /settings/access",
+      "operation": "page.goto",
+      "theme": "dark"
+    },
+    {
+      "allowlisted_transport_codes": [],
+      "call_log_markers": {
+        "navigating_to": true,
+        "original_30_second_timer": true,
+        "waiting_load": true
+      },
+      "error_sha256": "689743809f563eca4e07850a6644e14585f238a3e05f7d1617b7f5d3d81b677f",
+      "layout": "desktop",
+      "name": "article preview and team assessment navigation",
+      "operation": "page.goto",
+      "theme": "dark"
+    }
+  ]
+}

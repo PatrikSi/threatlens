@@ -1,0 +1,77 @@
+{
+  "schema": "threatlens-local-native-environment-independent-public-review-v1",
+  "application_revision": "e085733b1200b8308f0011cf50d3abe79fa792b4",
+  "status": "failed",
+  "qualification": false,
+  "browser_attempted": false,
+  "browser_calls": 0,
+  "executed_browser_cases": 0,
+  "predeclared_browser_attempts": 1,
+  "prior_failed_runs_retained": true,
+  "original_stages": [
+    {
+      "stage": "pause",
+      "original_exit": 0,
+      "status": "passed",
+      "elapsed_seconds": 9.12316045100306
+    },
+    {
+      "stage": "quiet",
+      "original_exit": 1,
+      "status": "failed",
+      "elapsed_seconds": 600.071950133999
+    },
+    {
+      "stage": "restore",
+      "original_exit": 0,
+      "status": "passed",
+      "elapsed_seconds": 26.870289259997662
+    }
+  ],
+  "quiet_window": {
+    "status": "failed",
+    "elapsed_seconds": 600.0001365490025,
+    "required_continuous_seconds": 60,
+    "samples": 40,
+    "eligible_samples": 0,
+    "capture_errors": 0,
+    "memory_available_min_bytes": 2035187712,
+    "memory_available_max_bytes": 2643116032,
+    "required_memory_available_bytes": 3221225472,
+    "threshold_failure_sample_counts": {
+      "memory_available_bytes": 40,
+      "cpu_some_avg10": 1,
+      "memory_some_avg10": 9,
+      "memory_full_avg10": 10,
+      "io_some_avg10": 27,
+      "io_full_avg10": 40,
+      "docker_response_seconds": 0
+    },
+    "maximum_docker_response_seconds": 0.45957767300569685
+  },
+  "owned_background_pause": {
+    "services": 6,
+    "status": "passed",
+    "unrelated_services_mutated": false
+  },
+  "restoration": {
+    "status": "passed",
+    "services": 12,
+    "running": 11,
+    "healthy": 10,
+    "restart_count_sum": 0,
+    "oom_killed": false,
+    "source_image_ids_and_resource_caps_unchanged": true,
+    "read_only": true,
+    "worker_exports_pids_limit": 128,
+    "http_readiness_after_restoration": "not checked in this procedure; requires separate current observation"
+  },
+  "source_artifacts": {
+    "native-ui-environment-sequence.json": "17e65c86d9064b657bad788d98584744ad114c1e986b53d75d36e31c43cd9c71",
+    "native-ui-environment-plan.json": "16db0ed456c2d2d51b423ad99f8552e5dfce62544744f00f750dd30e5dd14397",
+    "native-ui-background-pause.json": "9408c02edd4e359e14371890252ebf25c2cc30c730e51d01e8b58b2478913c0b",
+    "native-ui-quiet-window.json": "c23f9c3432feab384618e36088b7ee8dff2c532a457f8e325428232e3e4fbc79",
+    "native-ui-background-restore.json": "45768ccfcdc7177cb0c1c6bf9f95abc226489bdf183adc54023db7d7c4df3bf0"
+  },
+  "interpretation": "The local host never met the predeclared quiet preconditions during this 600-second procedure. No native UI qualification ran. This observation does not assign the cause of any earlier browser or Beat failure."
+}
