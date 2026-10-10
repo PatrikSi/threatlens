@@ -159,6 +159,13 @@ valid_admin_email() {
   local domain="${admin_email#*@}"
   local label
   local -a labels
+  # Special-use domains are rejected by the login API's email validator.
+  # Keep the authoritative validation in seed_admin for all deployment paths.
+  case "${domain,,}" in
+    arpa|*.arpa|invalid|*.invalid|local|*.local|localhost|*.localhost|onion|*.onion|test|*.test)
+      return 1
+      ;;
+  esac
   # The login API rejects dot-boundary errors and invalid domain labels.
   # Catch these before seeding an administrator who cannot sign in.
   if [[ "$local_part" == .* || "$local_part" == *. || "$local_part" == *..* ||
