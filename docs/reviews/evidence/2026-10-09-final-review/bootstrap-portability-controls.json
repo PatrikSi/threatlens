@@ -1,0 +1,26 @@
+{
+  "schema": "threatlens-bootstrap-portable-domain-normalization-controls-v1",
+  "application_revision": "5f370197e96b944831c7837cb58f470cb004fbfb",
+  "status": "passed",
+  "bootstrap_sha256": "49ce9d52b4cc81e2b5d3a597f967a0909375e168f08e6841ce647988d583e1db",
+  "tests_sha256": "a13579327692d8f2dd7c0a0cd70de6f0202bd6d2c777de6ea9b3007c8a071935",
+  "test_file": "tests/recovery/test_bootstrap.py",
+  "actual_result": {
+    "passed": 16,
+    "failed": 0,
+    "skipped": 0,
+    "elapsed_seconds": 2.968,
+    "original_exit": 0,
+    "log_sha256": "72a69317599d5ddb0b053ccd49a7d9197011e17bd676dd989d89bb0a7f461da0"
+  },
+  "bash_syntax_exit": 0,
+  "case_folding_uses_existing_printf_tr_dependencies": true,
+  "bash_3_runtime_available": false,
+  "bash_3_runtime_test_claimed": false,
+  "earlier_incorrect_operations_selector": {
+    "tests_executed": 0,
+    "qualification_claim": false,
+    "log_sha256": "e70fec2825d9bf206d27463a792768195039599cb39bcca66339f47283f84cce"
+  },
+  "scope": "Existing lowercase suffix admission preserved without a Bash-4-only expansion; actual runtime controls use installed Bash."
+}

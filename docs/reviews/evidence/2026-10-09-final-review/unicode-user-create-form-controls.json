@@ -1,0 +1,125 @@
+{
+  "schema": "threatlens-unicode-user-create-form-controls-v1",
+  "owner": "hosted_helper_review",
+  "artifact_namespace": "unicode-user-create-form",
+  "application_revision_before_fix": "c591c3a8e30a6ef1fc38956317f0b0b41a12285b",
+  "after_application_commit_pending": false,
+  "scope": "Pinned jsdom UsersPage controlled inputs, native form submit click, review confirmation, production mutationFn and stubbed API adapter; no actual browser, HTTP, or database workload",
+  "actual_api_schema": {
+    "UserCreateRequest_unicode_email_cases_admitted_and_preserved": 3,
+    "source": "backend/app/schemas/user.py:16",
+    "source_sha256": "cab208f1bed0cd158290ebd4f29f251903a7bf8e11964f5bfc70a302d22fbfdf",
+    "public_admission_proof_sha256": "ed628b052dd262608b87f1ade8b692e7a88aa066ceaf60c230b92c5c75b9877c"
+  },
+  "before": {
+    "new_controls": 5,
+    "failed": 3,
+    "passed": 2,
+    "existing_controls_skipped": 29,
+    "failed_categories": [
+      "unicode_local_part",
+      "unicode_domain",
+      "unicode_astral_local_part"
+    ],
+    "failure_observation_each": {
+      "constraint_admitted": false,
+      "submit_events": 0,
+      "api_requests_before_confirmation": 0
+    },
+    "elapsed_seconds": 1.710628,
+    "peak_sampled_owned_process_group_rss_bytes": 391360512,
+    "log_sha256": "fbda1825fc64cbc911430660df5fb2f18bcb89d9b9a09d1b886202badd0e5667",
+    "source_sha256": {
+      "web/src/pages/UsersPage.tsx": "117316588dbb0409c867e02dcc66e875cf518c262b764f3738d36aefd74a5d59",
+      "web/src/pages/UsersPage.dom.test.tsx": "58a96b3665c02a52e636b5287eff0bc1d9cd7563c0f9402f2b5d720bb901ae80"
+    }
+  },
+  "first_after_attempt": {
+    "passed": 45,
+    "failed": 1,
+    "cause": "New test asserted the scheduled credential-mutation cleanup before its timer completed; assertion corrected to wait for the established cleanup contract",
+    "log_sha256": "4decea7f7011d6705aa9a7b75a4a7d7e3242b0eb0ce2a35a4f3036362b3d62c6",
+    "production_post_payloads_admitted": 3,
+    "production_source_unchanged_for_final_rerun": true,
+    "source_sha256": {
+      "web/src/pages/UsersPage.tsx": "aff857dff736f0825b5dcd35fad860f7439b9022ac38fd8a2e7fdbfc83476489",
+      "web/src/pages/UsersPage.dom.test.tsx": "58a96b3665c02a52e636b5287eff0bc1d9cd7563c0f9402f2b5d720bb901ae80"
+    }
+  },
+  "after": {
+    "affected_suites": 2,
+    "affected_controls_passed": 46,
+    "affected_controls_failed": 0,
+    "new_unicode_success_controls": 3,
+    "new_required_empty_controls": 2,
+    "unicode_observation_each": {
+      "constraint_admitted": true,
+      "submit_events": 1,
+      "api_requests_before_confirmation": 0,
+      "api_requests_after_confirmation": 1,
+      "exact_payload_preserved": true,
+      "credential_mutation_cleared": true,
+      "form_reset_after_success": true
+    },
+    "empty_observation_each": {
+      "constraint_admitted": false,
+      "submit_events": 0,
+      "confirmation_opened": false,
+      "api_requests": 0
+    },
+    "stages": [
+      {
+        "stage": "user-regressions",
+        "exit_code": 0,
+        "elapsed_seconds": 2.256164,
+        "peak_sampled_owned_process_group_rss_bytes": 413585408,
+        "termination": null,
+        "log_sha256": "1fcc5b5e0cc111883dec2202d462ae404410b9cd4db4d7ee864a850f07148d70"
+      },
+      {
+        "stage": "lint",
+        "exit_code": 0,
+        "elapsed_seconds": 7.051175,
+        "peak_sampled_owned_process_group_rss_bytes": 422670336,
+        "termination": null,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "stage": "typescript",
+        "exit_code": 0,
+        "elapsed_seconds": 11.648948,
+        "peak_sampled_owned_process_group_rss_bytes": 735485952,
+        "termination": null,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "source_sha256": {
+      "web/src/pages/UsersPage.tsx": "aff857dff736f0825b5dcd35fad860f7439b9022ac38fd8a2e7fdbfc83476489",
+      "web/src/pages/UsersPage.dom.test.tsx": "7f30b2aa9cf757addbc727ae86410f320ae34f70da05fb1c46ad71e3cde53785"
+    }
+  },
+  "bounds": {
+    "heap_limit_mib": 640,
+    "workers": 1,
+    "watchdog_seconds_each": 120,
+    "sampled_rss_limit_bytes": 1073741824
+  },
+  "primary_source": {
+    "title": "WHATWG HTML email input state",
+    "url": "https://html.spec.whatwg.org/multipage/input.html#email-state-(type=email)",
+    "scope": "Native email local-part grammar excludes Unicode local parts accepted by EmailStr. Unicode-domain result is a pinned jsdom control; the standard allows user-agent domain-to-punycode conversion."
+  },
+  "private_proof_sha256": {
+    "unicode-user-create-before-controls.json": "ea2df0a3a3598497db019638bda3520d277f362d8d30d0681617a7ba737faad9",
+    "unicode-user-create-after-controls.json": "1ecdeb006e1f246a2f93f69a8fd68685d2908312640a5fe2af864f3b00d4dd4c",
+    "unicode-user-create-after-attempt2-controls.json": "db3a97d4cdb63e2dcc0cae66cc26a5f06826fe87278d578126153ce25fbdbc88"
+  },
+  "privacy": {
+    "credentials_or_addresses_included": false,
+    "private_paths_included": false,
+    "raw_logs_included": false
+  },
+  "browser_native_qualification_remains_separate": true,
+  "application_revision_after_fix": "5f370197e96b944831c7837cb58f470cb004fbfb",
+  "tested_sources_match_application_revision": true
+}
