@@ -23,8 +23,8 @@ from urllib.error import HTTPError
 from native_ui_config import build_config
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = "5f370197e96b944831c7837cb58f470cb004fbfb"
-DRIVER_SHA = "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c"
+SOURCE = "1d057bc17529af724160c28479ca7d641b725d73"
+DRIVER_SHA = "f5746b89ab1fc074dc180538c6e5868522b3522bd9ab8895a19423bd648f5d1f"
 LOCK_SHA = "ff0c8a90497ff530bc41335654a59f644226e0782773f1454ab0a42afda8e64b"
 PLAYWRIGHT = "mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27"
 POSTGRES = "postgres@sha256:b6ccf02e9b47eac0d67b5eaa0ef56fd59163bffa5506f64e96ceb5053130ec86"
@@ -437,7 +437,7 @@ def main() -> None:
             record["image_source_groups"].append({"path": group, "tested_object": left, "workflow_object": right, "identical": True})
         record["helpers"] = {name: digest(ROOT / "scripts/operations" / name) for name in ["run_native_ui_qualification.py", "native_ui_config.py", "native_ui_review.mjs", "seed_native_ui_review.py"]}
         if record["helpers"]["native_ui_review.mjs"] != DRIVER_SHA:
-            raise ValueError("Original browser workload changed")
+            raise ValueError("Frozen native browser driver changed")
         archive = run("source-archive", ["git", "archive", SOURCE], 60, binary_output=True)
         source.mkdir(mode=0o700)
         with tarfile.open(fileobj=io.BytesIO(archive)) as handle:

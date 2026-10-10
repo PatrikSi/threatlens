@@ -1,4 +1,4 @@
-"""Nonsecret configuration for the unchanged native UI review driver."""
+"""Nonsecret configuration for the native UI review checks."""
 from __future__ import annotations
 
 from copy import deepcopy

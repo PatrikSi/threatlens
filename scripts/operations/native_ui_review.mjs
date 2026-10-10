@@ -28,9 +28,32 @@ const evidence = {
   version: config.version, sourceSha: process.env.REVIEW_SOURCE_SHA ?? 'not_supplied',
   startedAt: new Date().toISOString(), baseURL: config.baseURL,
   runtime: { node: process.version, playwright: '1.63.0', image: 'mcr.microsoft.com/playwright:v1.63.0-noble' },
-  scope: config, selectedChecks, expectedCheckCount, steps: [], pageErrors: [], consoleErrors: [], apiServerErrors: [], blockedExternalRequests: [], createdSyntheticResources: [], cleanup: [],
+  scope: config, selectedChecks, expectedCheckCount, steps: [], pageErrors: [], consoleErrors: [], apiServerErrors: [], blockedExternalRequests: [], createdSyntheticResources: [], cleanup: [], diagnostics: [], diagnosticsDropped: 0,
 }
-let page, context, engineName, themeName, layoutName
+let page, context, engineName, themeName, layoutName, activeCheck = null
+const diagnosticsStarted = performance.now()
+const maxDiagnostics = 1000
+function diagnosticURL(value) {
+  if (!value) return ''
+  try {
+    const url = new URL(value, config.baseURL)
+    if (!['http:', 'https:'].includes(url.protocol)) return url.protocol
+    return sanitize(`${url.origin}${url.pathname}`).slice(0, 2048)
+  } catch { return '[invalid-url]' }
+}
+function diagnosticText(value, limit = 4096) {
+  return sanitize(value).replace(/\bhttps?:\/\/[^\s"'<>]+/g, diagnosticURL).slice(0, limit)
+}
+function diagnosticContext(created) {
+  return { timestamp: new Date().toISOString(), elapsedMs: Math.round(performance.now() - diagnosticsStarted), engine: engineName, theme: themeName, layout: layoutName, activeCheck, path: sanitize(new URL(created.url()).pathname).slice(0, 2048) }
+}
+function recordDiagnostic(kind, details) {
+  if (evidence.diagnostics.length >= maxDiagnostics) {
+    evidence.diagnostics.shift()
+    evidence.diagnosticsDropped += 1
+  }
+  evidence.diagnostics.push({ kind, ...details })
+}
 const slug = value => value.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 110)
 const stepKey = name => `${engineName}-${themeName}-${layoutName}-${slug(name)}`
 async function screenshot(name) {
@@ -42,7 +65,8 @@ async function persist() { await fs.writeFile(`${output}/results.json`, JSON.str
 async function step(name, action) {
   if (selectedChecks && name !== 'real local cookie login' && !selectedChecks.some(pattern => name.includes(pattern))) return true
   const started = performance.now()
-  const value = { name, engine: engineName, theme: themeName, layout: layoutName }
+  const value = { name, engine: engineName, theme: themeName, layout: layoutName, startedAt: new Date().toISOString() }
+  activeCheck = name
   console.log(JSON.stringify({ ...value, status: 'started' }))
   try {
     value.details = await action()
@@ -55,17 +79,34 @@ async function step(name, action) {
     try { await page.close(); page = await newReviewPage(context) } catch (recoveryError) { value.recoveryError = sanitize(recoveryError.message) }
   }
   value.elapsedSeconds = +((performance.now() - started) / 1000).toFixed(2)
+  value.finishedAt = new Date().toISOString()
   evidence.steps.push(value)
   await persist()
   console.log(JSON.stringify({ name, engine: engineName, theme: themeName, layout: layoutName, status: value.status, elapsedSeconds: value.elapsedSeconds }))
+  activeCheck = null
   return value.status === 'passed'
 }
 async function newReviewPage(browserContext) {
   const created = await browserContext.newPage()
   created.setDefaultTimeout(config.defaultTimeoutMs)
-  created.on('pageerror', error => evidence.pageErrors.push({ engine: engineName, theme: themeName, path: new URL(created.url()).pathname, message: sanitize(error.message) }))
-  created.on('console', message => { if (message.type() === 'error') evidence.consoleErrors.push({ engine: engineName, theme: themeName, path: new URL(created.url()).pathname, message: sanitize(message.text()) }) })
-  created.on('response', response => { const url = new URL(response.url()); if (url.pathname.startsWith('/api/') && response.status() >= 500) evidence.apiServerErrors.push({ engine: engineName, theme: themeName, path: url.pathname, status: response.status(), method: response.request().method() }) })
+  created.on('pageerror', error => {
+    const details = { ...diagnosticContext(created), message: sanitize(error.message), stack: diagnosticText(error.stack ?? '', 8192) }
+    evidence.pageErrors.push(details)
+    recordDiagnostic('pageerror', { ...details, message: diagnosticText(error.message) })
+  })
+  created.on('console', message => {
+    if (message.type() !== 'error') return
+    const location = message.location()
+    const details = { ...diagnosticContext(created), message: sanitize(message.text()), location: { url: diagnosticURL(location.url), lineNumber: location.lineNumber, columnNumber: location.columnNumber } }
+    evidence.consoleErrors.push(details)
+    recordDiagnostic('console', { ...details, message: diagnosticText(message.text()) })
+  })
+  created.on('response', response => {
+    const url = new URL(response.url()), request = response.request()
+    if (url.pathname.startsWith('/api/') && response.status() >= 500) evidence.apiServerErrors.push({ ...diagnosticContext(created), path: url.pathname, status: response.status(), method: request.method() })
+    if (url.origin === new URL(config.baseURL).origin && ['script', 'stylesheet', 'font', 'image'].includes(request.resourceType())) recordDiagnostic('static-response', { ...diagnosticContext(created), url: diagnosticURL(response.url()), status: response.status(), method: request.method(), resourceType: request.resourceType() })
+  })
+  created.on('requestfailed', request => recordDiagnostic('requestfailed', { ...diagnosticContext(created), url: diagnosticURL(request.url()), method: request.method(), resourceType: request.resourceType(), reason: diagnosticText(request.failure()?.errorText ?? '') }))
   return created
 }
 
@@ -127,6 +168,10 @@ async function login() {
   await page.locator('form button[type=submit]').click()
   await page.waitForURL(url => url.pathname !== '/login' && url.pathname !== '/start')
   await page.waitForLoadState('networkidle', { timeout: config.defaultTimeoutMs })
+  const dashboardTimeRange = page.getByRole('combobox', { name: 'Dashboard time range', exact: true })
+  await expect(dashboardTimeRange).toBeVisible()
+  await expect(dashboardTimeRange).toBeEnabled()
+  await expect(page.getByRole('heading', { name: /^Page failed/ })).toHaveCount(0)
 }
 async function articleWorkflow() {
   await goto('/')
