@@ -19,6 +19,7 @@ export type AdminMFAResetDraft = {
 
 type AdminMFAResetDialogProps = {
   target: AdminUser | null
+  targetAvailable?: boolean
   draft: AdminMFAResetDraft
   ownMfa: MFAStatusResponse | undefined
   currentAuthentication: CurrentAuthentication | undefined
@@ -42,6 +43,7 @@ type AdminMFAResetDialogProps = {
 
 export function AdminMFAResetDialog({
   target,
+  targetAvailable = true,
   draft,
   ownMfa,
   currentAuthentication,
@@ -86,6 +88,7 @@ export function AdminMFAResetDialog({
     (fallbackSessionRequired && Boolean(sessionsError)) ||
     !sessionState.tracked
   const confirmDisabled =
+    !targetAvailable ||
     securityStateUnavailable ||
     draft.reason.trim().length < 3 ||
     (localSession &&
@@ -110,6 +113,7 @@ export function AdminMFAResetDialog({
       onConfirm={onConfirm}
     >
       <div className="space-y-3 text-sm">
+        {!targetAvailable && <p role="status">Refresh the selected account metadata before resetting MFA. Your recovery draft is preserved.</p>}
         <div>
           <label htmlFor="admin-mfa-reset-reason" className="font-semibold">
             Recovery reason

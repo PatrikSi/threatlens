@@ -15,6 +15,7 @@ import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { usePendingEntityActions } from '../hooks/usePendingEntityActions'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import {
   AdminMFAResetResponse,
@@ -25,10 +26,10 @@ import {
   MFAStatusResponse,
   User,
   UserCreateRequest,
-  UserDirectoryResponse,
   UserUpdateRequest,
 } from '../types/api'
 import { AdminMFAResetDialog } from './AdminMFAResetDialog'
+import { useUserDirectoryReadAccess } from './useUserDirectoryReadAccess'
 import {
   resolveOIDCReauthNotice,
   resolveOIDCReauthStartError,
@@ -82,11 +83,18 @@ const DIRECTORY_PAGE_SIZE = 100
 type DirectoryNotice = {
   tone: 'success' | 'error'
   message: string
+  generation?: number
 }
 
 type HiddenUserDraftTarget = {
   userId: string
   email: string | null
+}
+
+type UserDraftLabel = { email: string; generation: number }
+
+function currentUserDraftLabel(label: UserDraftLabel | undefined, generation: number, denied: boolean) {
+  return !denied && label?.generation === generation ? label.email : null
 }
 
 function forgetCredentialMutation(
@@ -115,6 +123,7 @@ function forgetCredentialMutationAfterSettlement(
 
 export function UsersPage() {
   const queryClient = useQueryClient()
+  const directoryAccess = useQueryAccessScope(['users', 'directory'])
   const navigate = useNavigate()
   const location = useLocation()
   const { markLoggedOut } = useAuth()
@@ -136,6 +145,7 @@ export function UsersPage() {
         tone: 'success' | 'error'
         message: string
         action: 'settings' | 'password'
+        generation: number
       }
     >
   >({})
@@ -157,7 +167,9 @@ export function UsersPage() {
   const settingsDraftBaselinesByUserIdRef = useRef<
     Record<string, UserSettingsDraft>
   >({})
-  const knownUserEmailsByIdRef = useRef<Record<string, string>>({})
+  const knownUserEmailsByIdRef = useRef<
+    Record<string, UserDraftLabel>
+  >({})
   const [createForm, setCreateForm] = useState<UserCreateRequest>(
     DEFAULT_CREATE_USER_FORM,
   )
@@ -166,10 +178,11 @@ export function UsersPage() {
   const [pendingHiddenDraftDiscard, setPendingHiddenDraftDiscard] =
     useState<HiddenUserDraftTarget | null>(null)
   const [createUserOpen, setCreateUserOpen] = useState(false)
-  const [mfaResetTarget, setMfaResetTarget] = useState<AdminUser | null>(null)
   const [mfaResetDraft, setMfaResetDraft] = useState(EMPTY_MFA_RESET_DRAFT)
-  const [directoryNotice, setDirectoryNotice] =
+  const [directoryNoticeState, setDirectoryNotice] =
     useState<DirectoryNotice | null>(null)
+  const directoryNotice = directoryNoticeState?.generation !== undefined
+    && (directoryAccess.denied || directoryNoticeState.generation !== directoryAccess.generation) ? null : directoryNoticeState
   const [createUserError, setCreateUserError] = useState('')
   const [mfaResetError, setMfaResetError] = useState('')
   const [reauthNavigation] = useState(() =>
@@ -191,18 +204,13 @@ export function UsersPage() {
       }),
     [accountFilter, directoryOffset, roleFilter, search],
   )
-  const usersQuery = useQuery({
-    queryKey: [
-      'users',
-      'directory',
-      search,
-      roleFilter,
-      accountFilter,
-      directoryOffset,
-    ],
-    queryFn: ({ signal }) =>
-      apiFetch<UserDirectoryResponse>(directoryPath, { signal }),
-  })
+  const directoryRead = useUserDirectoryReadAccess([
+    'users', 'directory', search, roleFilter, accountFilter, directoryOffset,
+  ], directoryPath)
+  const usersQuery = directoryRead.query
+  const { mfaResetTarget, setMfaResetTarget } = directoryRead
+  const restoreTargetRef = useRef(directoryRead.captureRestoredTarget)
+  restoreTargetRef.current = directoryRead.captureRestoredTarget
   const ownMfaQuery = useQuery({
     queryKey: ['auth', 'security', 'mfa'],
     queryFn: () => apiFetch<MFAStatusResponse>('/auth/security/mfa'),
@@ -255,11 +263,13 @@ export function UsersPage() {
   const updateUser = useMutation({
     mutationKey: UPDATE_USER_MUTATION_KEY,
     gcTime: 0,
-    mutationFn: (payload: { id: string; body: UserUpdateRequest }) =>
-      apiFetch<AdminUserUpdateResponse>(`/users/${payload.id}`, {
+    mutationFn: (payload: { id: string; body: UserUpdateRequest }) => {
+      if (!canManageUsers || !directoryRead.readableUser(payload.id)) throw new Error('Refresh this directory account before changing it.')
+      return apiFetch<AdminUserUpdateResponse>(`/users/${payload.id}`, {
         method: 'PATCH',
         body: JSON.stringify(payload.body),
-      }),
+      })
+    },
     onMutate: (payload) => {
       userUpdatePending.begin('update', payload.id)
       setRowNoticeByUserId((current) => {
@@ -267,13 +277,16 @@ export function UsersPage() {
         delete next[payload.id]
         return next
       })
+      return { admission: directoryAccess.captureResult()(true), generation: directoryAccess.generation }
     },
-    onSuccess: (user, payload) => {
+    onSuccess: (user, payload, context) => {
       if (payload.body.password) {
-        setPasswordDraftsByUserId((current) => ({
-          ...current,
-          [payload.id]: '',
-        }))
+        setPasswordDraftsByUserId((current) => current[payload.id] === payload.body.password
+          ? { ...current, [payload.id]: '' } : current)
+      }
+      if (directoryAccess.currentData(context.admission) !== true) {
+        void queryClient.invalidateQueries({ queryKey: ['users', 'directory'] })
+        return
       }
       setRowNoticeByUserId((current) => ({
         ...current,
@@ -281,6 +294,7 @@ export function UsersPage() {
           tone: 'success',
           message: formatUserUpdateSuccess(user, payload.body),
           action: payload.body.password ? 'password' : 'settings',
+          generation: context.generation,
         },
       }))
       void queryClient.invalidateQueries({ queryKey: ['users', 'directory'] })
@@ -288,13 +302,14 @@ export function UsersPage() {
         void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
       }
     },
-    onError: (error, payload) => {
+    onError: (error, payload, context) => {
       setRowNoticeByUserId((current) => ({
         ...current,
         [payload.id]: {
           tone: 'error',
           message: resolveUsersMutationError(error),
           action: payload.body.password ? 'password' : 'settings',
+          generation: context?.generation ?? -1,
         },
       }))
       if (isUserSecurityVersionConflict(error)) {
@@ -319,8 +334,9 @@ export function UsersPage() {
     }: {
       target: AdminUser
       draft: typeof EMPTY_MFA_RESET_DRAFT
-    }) =>
-      apiFetch<AdminMFAResetResponse>(`/users/${target.id}/mfa/reset`, {
+    }) => {
+      if (!canManageUsers || !directoryRead.canActOnMfaTarget(target)) throw new Error('Verify the selected directory account before resetting MFA.')
+      return apiFetch<AdminMFAResetResponse>(`/users/${target.id}/mfa/reset`, {
         method: 'POST',
         body: JSON.stringify({
           reason: draft.reason.trim(),
@@ -329,12 +345,16 @@ export function UsersPage() {
             : {}),
           ...(draft.code.trim() ? { code: draft.code.trim() } : {}),
         }),
-      }),
-    onMutate: () => setMfaResetError(''),
-    onSuccess: async (result, { target }) => {
-      setMfaResetTarget(null)
-      setMfaResetDraft(EMPTY_MFA_RESET_DRAFT)
+      })
+    },
+    onMutate: () => {
+      setMfaResetError('')
+      return directoryAccess.captureResult()(true)
+    },
+    onSuccess: async (result, { target }, admission) => {
       if (target.id === currentUserQuery.data?.id) {
+        setMfaResetTarget(null)
+        setMfaResetDraft(EMPTY_MFA_RESET_DRAFT)
         markLoggedOut()
         navigate('/login', {
           replace: true,
@@ -345,9 +365,16 @@ export function UsersPage() {
         })
         return
       }
+      if (directoryAccess.currentData(admission) !== true || !directoryRead.isMfaTargetCurrent(target)) {
+        await queryClient.invalidateQueries({ queryKey: ['users', 'directory'] })
+        return
+      }
+      setMfaResetTarget(null)
+      setMfaResetDraft(EMPTY_MFA_RESET_DRAFT)
       setDirectoryNotice({
         tone: 'success',
         message: `MFA reset for ${target.email}. ${result.revoked_auth_sessions} browser session${result.revoked_auth_sessions === 1 ? '' : 's'} and ${result.revoked_api_tokens} API token${result.revoked_api_tokens === 1 ? '' : 's'} revoked.`,
+        generation: admission.generation,
       })
       await queryClient.invalidateQueries({ queryKey: ['users', 'directory'] })
     },
@@ -376,7 +403,10 @@ export function UsersPage() {
   useEffect(() => {
     const users = usersQuery.data?.users ?? []
     for (const user of users) {
-      knownUserEmailsByIdRef.current[user.id] = user.email
+      knownUserEmailsByIdRef.current[user.id] = {
+        email: user.email,
+        generation: directoryAccess.generation,
+      }
     }
     const synced = syncUserSettingsDrafts(
       users,
@@ -432,7 +462,7 @@ export function UsersPage() {
       ) as Record<string, string>
       return next
     })
-  }, [usersQuery.data?.users])
+  }, [usersQuery.data?.users, directoryAccess.generation])
 
   useEffect(() => {
     const context = reauthNavigation?.context
@@ -452,10 +482,10 @@ export function UsersPage() {
     }
     let cancelled = false
     const targetPath = `/users/${encodeURIComponent(context.targetUserId)}`
+    const restoreTarget = restoreTargetRef.current()
     void apiFetch<AdminUser>(targetPath)
       .then((target) => {
-        if (cancelled) return
-        setMfaResetTarget(target)
+        if (cancelled || !restoreTarget(target)) return
         setMfaResetDraft({
           ...EMPTY_MFA_RESET_DRAFT,
           reason: context.reason ?? '',
@@ -463,11 +493,10 @@ export function UsersPage() {
       })
       .catch((error) => {
         if (cancelled) return
-        const targetDescription = context.targetEmail
-          ? ` for ${context.targetEmail}`
-          : ''
+        const targetDescription = context.targetEmail ? ` for ${context.targetEmail}` : ''
         setDirectoryNotice({
           tone: 'error',
+          generation: restoreTarget.generation,
           message: resolveApiErrorMessage(
             error,
             `The MFA-reset target${targetDescription} could not be restored after SSO verification`,
@@ -518,9 +547,11 @@ export function UsersPage() {
       .filter((userId) => !visibleUserIds.has(userId))
       .map((userId) => ({
         userId,
-        email: knownUserEmailsByIdRef.current[userId] ?? null,
+        email: currentUserDraftLabel(knownUserEmailsByIdRef.current[userId],
+          directoryAccess.generation, directoryAccess.denied),
       }))
-  }, [filteredUsers, passwordDraftsByUserId, settingsDraftsByUserId])
+  }, [filteredUsers, passwordDraftsByUserId, settingsDraftsByUserId,
+    directoryAccess.denied, directoryAccess.generation])
   const firstHiddenUserDraft = hiddenUserDrafts[0] ?? null
   const confirmDiscardUnsavedUserSettingsChanges = useUnsavedChangesWarning(
     hasUnsavedUserSettingsChanges ||
@@ -597,7 +628,7 @@ export function UsersPage() {
     !search.trim() && roleFilter === 'all' && accountFilter === 'all'
   const createUserFormVisible = shouldShowCreateUserForm({
     canManage: canManageUsers,
-    directoryReady: usersQuery.isSuccess,
+    directoryReady: directoryRead.ready,
     createUserOpen,
     directoryIsUnfiltered,
     totalUsers: usersQuery.data?.total ?? 0,
@@ -617,8 +648,8 @@ export function UsersPage() {
           data={usersQuery.data}
           filteredCount={filteredUsers.length}
           isLoading={usersQuery.isLoading}
-          isError={usersQuery.isError}
-          isSuccess={usersQuery.isSuccess}
+          isError={directoryRead.unavailable}
+          isSuccess={directoryRead.ready}
           createUserFormVisible={createUserFormVisible}
           hasCreateUserDraft={hasUnsavedCreateUserChanges}
           canManage={canManageUsers}
@@ -704,7 +735,7 @@ export function UsersPage() {
 
         <CreateUserForm
           canManage={canManageUsers}
-          directoryReady={usersQuery.isSuccess}
+          directoryReady={directoryRead.ready}
           visible={createUserFormVisible}
           form={createForm}
           error={createUserError}
@@ -716,7 +747,7 @@ export function UsersPage() {
         <UserRoleDefinitions />
 
         <div className="mt-3 space-y-2">
-          {usersQuery.isSuccess &&
+          {directoryRead.ready &&
             filteredUsers.map((user) => (
               <UserDirectoryRow
                 key={user.id}
@@ -753,7 +784,8 @@ export function UsersPage() {
                 actingUser={currentUserQuery.data ?? null}
                 onSave={(body) => updateUser.mutate({ id: user.id, body })}
                 saving={userUpdatePending.isPending('update', user.id)}
-                notice={rowNoticeByUserId[user.id] ?? null}
+                notice={rowNoticeByUserId[user.id]?.generation === directoryAccess.generation && !directoryAccess.denied
+                  ? rowNoticeByUserId[user.id] : null}
                 settingsConflict={settingsConflictsByUserId[user.id] ?? null}
                 onUseServerSettings={() => {
                   const conflict = settingsConflictsByUserId[user.id]
@@ -810,9 +842,9 @@ export function UsersPage() {
             filteredUsers={filteredUsers}
             directoryIsUnfiltered={directoryIsUnfiltered}
             isLoading={usersQuery.isLoading}
-            isError={usersQuery.isError}
+            isError={directoryRead.unavailable}
             isFetching={usersQuery.isFetching}
-            error={usersQuery.error}
+            error={directoryRead.error}
             onRetry={() => void usersQuery.refetch()}
             onOffsetChange={setDirectoryOffset}
           />
@@ -821,7 +853,11 @@ export function UsersPage() {
       </div>
 
       <HiddenDraftDiscardDialog
-        target={pendingHiddenDraftDiscard}
+        target={pendingHiddenDraftDiscard && {
+          userId: pendingHiddenDraftDiscard.userId,
+          email: currentUserDraftLabel(knownUserEmailsByIdRef.current[pendingHiddenDraftDiscard.userId],
+            directoryAccess.generation, directoryAccess.denied),
+        }}
         isPending={(userId) => userUpdatePending.isPending('update', userId)}
         onCancel={() => setPendingHiddenDraftDiscard(null)}
         onConfirm={discardHiddenUserDraft}
@@ -859,6 +895,7 @@ export function UsersPage() {
       </ConfirmDialog>
       <AdminMFAResetDialog
         target={mfaResetTarget}
+        targetAvailable={!directoryRead.targetUnavailable}
         draft={mfaResetDraft}
         ownMfa={ownMfaQuery.data}
         currentAuthentication={currentUserQuery.data?.authentication}
@@ -873,7 +910,7 @@ export function UsersPage() {
         onRetryOwnMfa={() => void ownMfaQuery.refetch()}
         onRetrySessions={() => void currentSessionsQuery.refetch()}
         onStartOIDCReauth={() => {
-          if (!mfaResetTarget) return
+          if (!mfaResetTarget || !directoryRead.isMfaTargetCurrent(mfaResetTarget)) return
           oidcReauthentication.mutate({
             target: mfaResetTarget,
             reason: mfaResetDraft.reason,
@@ -1118,7 +1155,7 @@ function HiddenDraftDiscardDialog({
     >
       {target && (
         <p className="break-words font-semibold text-ink [overflow-wrap:anywhere] dark:text-white">
-          {target.email ?? target.userId}
+          {target.email ?? 'Hidden account draft'}
         </p>
       )}
     </ConfirmDialog>

@@ -66,7 +66,7 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
       {controller.roleError && (
         <div role="alert" className="m-3 rounded border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
           <p>{controller.roleError}</p>
-          {controller.roleRevisionConflict && (
+          {controller.canReadPolicies && (
             <button
               type="button"
               className="mt-2 inline-flex min-h-11 items-center justify-center gap-2 rounded border border-red-400/50 px-3 py-2 font-semibold disabled:opacity-60 sm:min-h-0"
@@ -83,7 +83,7 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
         <div className="space-y-4 px-4 py-3.5">
           {!controller.canManagePolicies && (
             <p className="rounded border border-slate/20 bg-slate/5 px-3 py-2 text-sm text-slate dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-300">
-              Read-only organization policy. Changes require durable workspace-management permission.
+              Read-only organization policy. Changes require durable workspace-management permission and a current policy read.
             </p>
           )}
           <WorkspaceCompatibilityWarnings warnings={controller.selectedPolicyWarnings} />

@@ -12,6 +12,7 @@ import { apiFetch } from '../api/client'
 import type { SavedView } from '../types/api'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type {
   WorkspaceEffectiveResponse,
   WorkspaceRole,
@@ -45,6 +46,7 @@ interface RoleDraftEdit {
   role: WorkspaceRole
   baseline: WorkspaceRolePolicyResponse
   draft: RolePolicyDraft
+  generation: number
 }
 
 interface PersonalDraftEdit {
@@ -60,16 +62,17 @@ export function useWorkspaceSettingsController() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
   const workspace = useWorkspace()
+  const policiesAccess = useQueryAccessScope(['workspace', 'role-policies'])
   const [selectedRole, setSelectedRole] = useState<WorkspaceRole>('analyst')
   const [roleEdit, setRoleEdit] = useState<RoleDraftEdit | null>(null)
   const [personalEdit, setPersonalEdit] = useState<PersonalDraftEdit | null>(null)
-  const [roleFeedback, setRoleFeedback] = useState('')
-  const [roleError, setRoleError] = useState('')
+  const [roleFeedbackState, setRoleFeedbackState] = useState<Awaited<ReturnType<typeof policiesAccess.read<string>>> | null>(null)
+  const [roleErrorState, setRoleErrorState] = useState<Awaited<ReturnType<typeof policiesAccess.read<string>>> | null>(null)
   const [roleRevisionConflict, setRoleRevisionConflict] = useState(false)
   const [personalFeedback, setPersonalFeedback] = useState('')
   const [personalError, setPersonalError] = useState('')
   const [personalRevisionConflict, setPersonalRevisionConflict] = useState(false)
-  const [resetRoleRequested, setResetRoleRequested] = useState(false)
+  const [resetRoleIntent, setResetRoleIntent] = useState<Awaited<ReturnType<typeof policiesAccess.read<{ role: WorkspaceRole; revision: number }>>> | null>(null)
   const [resetPersonalRequested, setResetPersonalRequested] = useState(false)
   const [discardReloadRequested, setDiscardReloadRequested] = useState(false)
   const [roleReloadPending, setRoleReloadPending] = useState(false)
@@ -85,16 +88,37 @@ export function useWorkspaceSettingsController() {
   )
   const canReadPolicies = hasRequiredPermissions(permissions, ['read:workspace'])
   const canManagePolicies = canManageWorkspacePolicies(durablePermissions)
+  const policiesRead = policiesAccess.queryOptions(getWorkspaceRolePolicies, 30_000)
   const rolePoliciesQuery = useQuery({
     queryKey: workspaceQueryKeys.rolePolicies,
-    queryFn: getWorkspaceRolePolicies,
+    ...policiesRead,
     enabled: canReadPolicies,
-    staleTime: 30_000,
   })
-  const selectedPolicy = rolePoliciesQuery.data?.find((policy) => policy.role === selectedRole)
+  const roleFeedback = workspaceRoleNotice(policiesAccess, roleFeedbackState)
+  const roleError = workspaceRoleNotice(policiesAccess, roleErrorState)
+  const resetIntent = policiesAccess.currentData(resetRoleIntent ?? undefined)
+  const resetRoleRequested = resetIntent?.role === selectedRole
+  const { selectedPolicy, roleReadAvailable, roleDraftNeedsReload, rolePolicyError } = workspaceRoleReadState(
+    rolePoliciesQuery, selectedRole, roleEdit, policiesAccess.generation, policiesAccess.denied, meQuery.isError,
+  )
+  function setRoleFeedback(message: string) { setRoleFeedbackState(policiesAccess.captureResult()(message)) }
+  function setRoleError(message: string) { setRoleErrorState(policiesAccess.captureResult()(message)) }
+  function roleEditIsCurrent() {
+    return !roleEdit || Boolean(policiesAccess.currentData({ generation: roleEdit.generation, value: true }))
+  }
+  function setResetRoleRequested(requested: boolean) {
+    const policy = currentRolePolicy()
+    setResetRoleIntent(requested && policy ? policiesAccess.captureResult()({ role: selectedRole, revision: policy.revision }) : null)
+  }
+  function currentRolePolicy() {
+    const state = queryClient.getQueryState<Awaited<ReturnType<typeof policiesRead.queryFn>>>(workspaceQueryKeys.rolePolicies)
+    if (state?.status !== 'success' || state.fetchStatus !== 'idle') return undefined
+    return policiesAccess.currentData(state.data)?.find((policy) => policy.role === selectedRole)
+  }
+  const viewsAccess = useQueryAccessScope(['views'])
   const templateViewsQuery = useQuery({
-    queryKey: ['views'], queryFn: ({ signal }) => apiFetch<SavedView[]>('/views', { signal }),
-    enabled: canManagePolicies && hasRequiredPermissions(permissions, ['read:views']), staleTime: 60_000,
+    queryKey: ['views'], ...viewsAccess.queryOptions(({ signal }) => apiFetch<SavedView[]>('/views', { signal }), 60_000),
+    enabled: canManagePolicies && hasRequiredPermissions(permissions, ['read:views']),
   })
   const { draft: roleDraft, baseline: roleBaseline } = useMemo(
     () => resolveRoleEditor(canManagePolicies ? roleEdit : null, selectedRole, selectedPolicy),
@@ -113,9 +137,10 @@ export function useWorkspaceSettingsController() {
         ? nextValue(currentDraft)
         : nextValue
       if (!resolved || !baseline || !rolePolicyDraftIsDirty(baseline, resolved)) return null
-      return { role: selectedRole, baseline, draft: resolved }
+      return { role: selectedRole, baseline, draft: resolved,
+        generation: currentEdit?.role === selectedRole ? currentEdit.generation : policiesAccess.generation }
     })
-  }, [canManagePolicies, selectedPolicy, selectedRole])
+  }, [canManagePolicies, selectedPolicy, selectedRole, policiesAccess.generation])
 
   const { draft: personalDraft, baseline: personalBaseline } = useMemo(
     () => resolvePersonalEditor(personalEdit, workspace.effective, workspace.preferences),
@@ -161,23 +186,36 @@ export function useWorkspaceSettingsController() {
       if (!roleBaseline || !roleDraft) {
         throw new Error('The selected role policy is not loaded.')
       }
-      return updateWorkspaceRolePolicy(selectedRole, buildRolePolicyPayload(roleBaseline, roleDraft))
+      if (meQuery.isError || !currentRolePolicy() || !roleEditIsCurrent()) {
+        throw new Error('Reload current role policy access before saving this draft.')
+      }
+      const capture = policiesAccess.captureResult()
+      const updated = await updateWorkspaceRolePolicy(selectedRole, buildRolePolicyPayload(roleBaseline, roleDraft))
+      return capture({ updated, submittedDraft: roleDraft })
     },
     onMutate: () => {
       setRoleFeedback('')
       setRoleError('')
+      return policiesAccess.captureResult()(selectedRole)
     },
-    onSuccess: (updated) => {
+    onSuccess: (result) => {
+      const completed = policiesAccess.currentData(result)
+      if (!completed || !currentRolePolicy()) { void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.root }); return }
+      const { updated, submittedDraft } = completed
       queryClient.setQueryData(
         workspaceQueryKeys.rolePolicies,
-        (current: typeof rolePoliciesQuery.data) => current?.map((policy) => policy.role === updated.role ? updated : policy),
+        (current: Awaited<ReturnType<typeof policiesRead.queryFn>> | undefined) => {
+          const policies = policiesAccess.currentData(current)
+          return policies ? { generation: result.generation, value: policies.map((policy) => policy.role === updated.role ? updated : policy) } : current
+        },
       )
-      setRoleEdit(null)
+      setRoleEdit((current) => current?.draft === submittedDraft ? null : current)
       setRoleRevisionConflict(false)
       setRoleFeedback(`${capitalize(updated.role)} workspace policy saved at revision ${updated.revision}.`)
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.root })
     },
-    onError: (error) => {
+    onError: (error, _variables, admission) => {
+      if (policiesAccess.currentData(admission) !== selectedRole) return
       const conflict = isRevisionConflict(error)
       setRoleRevisionConflict(conflict)
       setRoleError(withConflictRecovery(
@@ -194,24 +232,38 @@ export function useWorkspaceSettingsController() {
       if (!roleBaseline) {
         throw new Error('The selected role policy is not loaded.')
       }
-      return resetWorkspaceRolePolicy(selectedRole, { expected_revision: roleBaseline.revision })
+      const intent = policiesAccess.currentData(resetRoleIntent ?? undefined)
+      if (meQuery.isError || !currentRolePolicy() || !roleEditIsCurrent() || intent?.role !== selectedRole || intent.revision !== roleBaseline.revision) {
+        throw new Error('Review the current role policy before resetting its defaults.')
+      }
+      const capture = policiesAccess.captureResult()
+      const updated = await resetWorkspaceRolePolicy(selectedRole, { expected_revision: roleBaseline.revision })
+      return capture({ updated, submittedDraft: roleDraft })
     },
     onMutate: () => {
       setRoleFeedback('')
       setRoleError('')
+      return policiesAccess.captureResult()(selectedRole)
     },
-    onSuccess: (updated) => {
+    onSuccess: (result) => {
+      const completed = policiesAccess.currentData(result)
+      if (!completed || !currentRolePolicy()) { void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.root }); return }
+      const { updated, submittedDraft } = completed
       queryClient.setQueryData(
         workspaceQueryKeys.rolePolicies,
-        (current: typeof rolePoliciesQuery.data) => current?.map((policy) => policy.role === updated.role ? updated : policy),
+        (current: Awaited<ReturnType<typeof policiesRead.queryFn>> | undefined) => {
+          const policies = policiesAccess.currentData(current)
+          return policies ? { generation: result.generation, value: policies.map((policy) => policy.role === updated.role ? updated : policy) } : current
+        },
       )
-      setRoleEdit(null)
+      setRoleEdit((current) => current?.draft === submittedDraft ? null : current)
       setResetRoleRequested(false)
       setRoleRevisionConflict(false)
       setRoleFeedback(`${capitalize(updated.role)} workspace policy reset to defaults.`)
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.root })
     },
-    onError: (error) => {
+    onError: (error, _variables, admission) => {
+      if (policiesAccess.currentData(admission) !== selectedRole) return
       const conflict = isRevisionConflict(error)
       setResetRoleRequested(false)
       setRoleRevisionConflict(conflict)
@@ -240,9 +292,6 @@ export function useWorkspaceSettingsController() {
     'You have unsaved workspace changes. Leave without saving?',
   )
 
-  const rolePolicyError = rolePoliciesQuery.isError
-    ? resolveApiErrorMessage(rolePoliciesQuery.error, 'Organization workspace policies could not be loaded')
-    : ''
   const workspaceError = workspace.error
     ? resolveApiErrorMessage(workspace.error, 'Workspace configuration could not be loaded')
     : ''
@@ -413,7 +462,7 @@ export function useWorkspaceSettingsController() {
   return {
     discardDialog: confirmDiscardChanges.discardDialog,
     canReadPolicies,
-    canManagePolicies,
+    canManagePolicies: canManagePolicies && roleReadAvailable && !roleDraftNeedsReload,
     templateViewsQuery,
     meQuery,
     personalDraft,
@@ -458,6 +507,32 @@ export function useWorkspaceSettingsController() {
     confirmRoleSelection,
     hasUnsavedChanges: roleDirty || personalDirty,
     isRefreshing: workspace.isRefreshing || rolePoliciesQuery.isFetching || roleReloadPending || personalReloadPending,
+  }
+}
+
+function workspaceRoleNotice(
+  access: ReturnType<typeof useQueryAccessScope>,
+  notice: Awaited<ReturnType<typeof access.read<string>>> | null,
+) {
+  return access.currentData(notice ?? undefined) ?? ''
+}
+
+function workspaceRoleReadState(
+  query: { data?: WorkspaceRolePolicyResponse[]; isError: boolean; isSuccess: boolean; isFetching: boolean; error: unknown },
+  role: WorkspaceRole,
+  edit: RoleDraftEdit | null,
+  generation: number,
+  denied: boolean,
+  userReadError: boolean,
+) {
+  const roleDraftNeedsReload = Boolean(edit && edit.generation !== generation)
+  return {
+    selectedPolicy: query.data?.find((policy) => policy.role === role),
+    roleReadAvailable: !userReadError && query.isSuccess && !query.isFetching && query.data !== undefined,
+    roleDraftNeedsReload,
+    rolePolicyError: query.isError
+      ? resolveApiErrorMessage(query.error, 'Organization workspace policies could not be loaded')
+      : denied || roleDraftNeedsReload ? 'Reload current role policy access before saving this draft.' : '',
   }
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   AlertTriangle,
   LockKeyhole,
@@ -31,13 +31,11 @@ import {
   addIAMGroupRole,
   createIAMGroup,
   deleteIAMGroup,
-  loadIAMGroupMembers,
-  loadIAMGroupRoles,
-  loadIAMMemberCandidates,
   removeIAMGroupMember,
   removeIAMGroupRole,
   updateIAMGroup,
 } from './accessGovernanceApi'
+import { useAccessGroupReadAccess } from './useAccessGroupReadAccess'
 
 interface GroupDraft {
   key: string
@@ -51,18 +49,6 @@ interface GroupDeleteRequest {
   revision: number
   memberCount: number
   roleCount: number
-}
-
-interface MemberRemovalRequest {
-  member: IAMGroupMember
-  groupId: string
-  groupRevision: number
-}
-
-interface RoleRemovalRequest {
-  assignment: IAMGroupRoleAssignment
-  groupId: string
-  groupRevision: number
 }
 
 const EMPTY_GROUP: GroupDraft = { key: '', name: '', description: '' }
@@ -97,15 +83,11 @@ export function AccessGroupsPanel({
   const [deleteRequest, setDeleteRequest] = useState<GroupDeleteRequest | null>(null)
   const [memberSearch, setMemberSearch] = useState('')
   const [memberOffset, setMemberOffset] = useState(0)
-  const [selectedUserId, setSelectedUserId] = useState('')
   const [selectedRoleId, setSelectedRoleId] = useState('')
-  const [memberRemoval, setMemberRemoval] = useState<MemberRemovalRequest | null>(null)
-  const [roleRemoval, setRoleRemoval] = useState<RoleRemovalRequest | null>(null)
 
   useEffect(() => {
     setMemberSearch('')
     setMemberOffset(0)
-    setSelectedUserId('')
     setSelectedRoleId('')
   }, [selectedGroupId])
 
@@ -148,27 +130,12 @@ export function AccessGroupsPanel({
     )
   }, [catalog.groups, search])
 
-  const membersQuery = useQuery({
-    queryKey: [
-      'governance',
-      'iam-groups',
-      selectedGroup?.id,
-      'members',
-      memberOffset,
-    ],
-    queryFn: () => loadIAMGroupMembers(selectedGroup!.id, memberOffset),
-    enabled: Boolean(selectedGroup),
-  })
-  const groupRolesQuery = useQuery({
-    queryKey: ['governance', 'iam-groups', selectedGroup?.id, 'roles'],
-    queryFn: () => loadIAMGroupRoles(selectedGroup!.id),
-    enabled: Boolean(selectedGroup),
-  })
-  const memberCandidatesQuery = useQuery({
-    queryKey: ['governance', 'iam-member-candidates', memberSearch],
-    queryFn: () => loadIAMMemberCandidates(memberSearch),
-    enabled: Boolean(selectedGroup && canAddMember && canReadUsers && !dirty),
-  })
+  const {
+    membersQuery, groupRolesQuery, memberCandidatesQuery, currentMembers, currentRoles,
+    currentCandidate, currentMemberRemoval, currentRoleRemoval, selectedUserId, setSelectedUserId,
+    memberRemoval, setMemberRemoval, roleRemoval, setRoleRemoval,
+  } = useAccessGroupReadAccess(selectedGroup?.id ?? '', memberOffset, memberSearch,
+    canAddMember && canReadUsers && !dirty)
 
   const refreshGroup = async () => {
     await Promise.all([
@@ -207,8 +174,10 @@ export function AccessGroupsPanel({
     onError: refreshGroup,
   })
   const addMember = useMutation({
-    mutationFn: () =>
-      addIAMGroupMember(selectedGroup!.id, selectedUserId, draftRevision!),
+    mutationFn: () => {
+      if (!canAddMember || dirty || !currentCandidate(selectedUserId)) throw new Error('Verify the selected user before adding a member.')
+      return addIAMGroupMember(selectedGroup!.id, selectedUserId, draftRevision!)
+    },
     onSuccess: async () => {
       setSelectedUserId('')
       await refreshGroup()
@@ -219,12 +188,14 @@ export function AccessGroupsPanel({
     },
   })
   const removeMember = useMutation({
-    mutationFn: (membershipId: string) =>
-      removeIAMGroupMember(
+    mutationFn: (membershipId: string) => {
+      if (!canRemoveSelectedMember(membershipId)) throw new Error('Reload this membership before removing it.')
+      return removeIAMGroupMember(
         memberRemoval!.groupId,
         membershipId,
         memberRemoval!.groupRevision,
-      ),
+      )
+    },
     onSuccess: async () => {
       setMemberRemoval(null)
       await refreshGroup()
@@ -234,7 +205,7 @@ export function AccessGroupsPanel({
   const addRole = useMutation({
     mutationFn: () => {
       const role = catalog.roles.find((candidate) => candidate.id === selectedRoleId)
-      if (!role) throw new Error('Select a role before assigning it.')
+      if (!role || !mutableGroup || dirty || !currentRoles()) throw new Error('Reload role grants before assigning a role.')
       return addIAMGroupRole(selectedGroup!.id, role, draftRevision!)
     },
     onSuccess: async () => {
@@ -247,12 +218,14 @@ export function AccessGroupsPanel({
     },
   })
   const removeRole = useMutation({
-    mutationFn: (assignmentId: string) =>
-      removeIAMGroupRole(
+    mutationFn: (assignmentId: string) => {
+      if (!canRemoveSelectedRole(assignmentId)) throw new Error('Reload this role grant before removing it.')
+      return removeIAMGroupRole(
         roleRemoval!.groupId,
         assignmentId,
         roleRemoval!.groupRevision,
-      ),
+      )
+    },
     onSuccess: async () => {
       setRoleRemoval(null)
       await refreshGroup()
@@ -281,22 +254,23 @@ export function AccessGroupsPanel({
     addMember.error,
     addRole.error,
   ].some(isAmbiguousMutationError)
-  const currentMemberIds = new Set(
-    (membersQuery.data ?? []).map((member) => member.user_id),
+  const { memberCandidates, roleCandidates } = groupAssignmentCandidates(
+    membersQuery.data, memberCandidatesQuery.data?.users, groupRolesQuery.data,
+    catalog.roles, durablePermissions,
   )
-  const memberCandidates = (memberCandidatesQuery.data?.users ?? []).filter(
-    (user) =>
-      user.is_active && user.is_approved && !currentMemberIds.has(user.id),
-  )
-  const assignedRoleIds = new Set(
-    (groupRolesQuery.data ?? []).map((assignment) => assignment.role_id),
-  )
-  const roleCandidates = catalog.roles.filter(
-    (role) =>
-      !role.is_system &&
-      rolePermissionsAreDurable(role, durablePermissions) &&
-      !assignedRoleIds.has(role.id),
-  )
+
+  function canRemoveSelectedMember(id: string) {
+    const intent = currentMemberRemoval()
+    if (!mutableGroup || dirty || !intent) return false
+    return intent.groupRevision === draftRevision
+      && Boolean(currentMembers()?.some((member) => member.id === id && member.id === intent.member.id))
+  }
+  function canRemoveSelectedRole(id: string) {
+    const intent = currentRoleRemoval()
+    if (!mutableGroup || dirty || !intent) return false
+    return intent.groupRevision === draftRevision
+      && Boolean(currentRoles()?.some((role) => role.id === id && role.id === intent.assignment.id))
+  }
 
   const chooseGroup = (groupId: string | 'new') => {
     if (busy || groupId === selectedGroupId) return
@@ -372,6 +346,7 @@ export function AccessGroupsPanel({
           members={membersQuery.data}
           membersLoading={membersQuery.isLoading}
           membersError={membersQuery.error}
+          onRetryMembers={() => void membersQuery.refetch()}
           memberOffset={memberOffset}
           onMemberOffsetChange={setMemberOffset}
           memberSearch={memberSearch}
@@ -393,7 +368,7 @@ export function AccessGroupsPanel({
             removeMember.reset()
             setMemberRemoval(
               (() => {
-                const member = membersQuery.data?.find(
+                const member = currentMembers()?.find(
                   (candidate) => candidate.id === membershipId,
                 )
                 return member
@@ -409,6 +384,7 @@ export function AccessGroupsPanel({
           groupRoles={groupRolesQuery.data}
           groupRolesLoading={groupRolesQuery.isLoading}
           groupRolesError={groupRolesQuery.error}
+          onRetryGroupRoles={() => void groupRolesQuery.refetch()}
           roleCandidates={roleCandidates}
           selectedRoleId={selectedRoleId}
           onSelectRole={(roleId) => {
@@ -420,7 +396,7 @@ export function AccessGroupsPanel({
             removeRole.reset()
             setRoleRemoval(
               (() => {
-                const assignment = groupRolesQuery.data?.find(
+                const assignment = currentRoles()?.find(
                   (candidate) => candidate.id === assignmentId,
                 )
                 return assignment
@@ -474,7 +450,7 @@ export function AccessGroupsPanel({
         confirmLabel="Remove member"
         confirmTone="danger"
         isConfirming={removeMember.isPending}
-        confirmDisabled={removeMember.error != null}
+        confirmDisabled={removeMember.error != null || !canRemoveSelectedMember(memberRemoval?.member.id ?? '')}
         onConfirm={() => memberRemoval && removeMember.mutate(memberRemoval.member.id)}
         onCancel={() => {
           setMemberRemoval(null)
@@ -494,7 +470,7 @@ export function AccessGroupsPanel({
         confirmLabel="Remove role grant"
         confirmTone="danger"
         isConfirming={removeRole.isPending}
-        confirmDisabled={removeRole.error != null}
+        confirmDisabled={removeRole.error != null || !canRemoveSelectedRole(roleRemoval?.assignment.id ?? '')}
         onConfirm={() => roleRemoval && removeRole.mutate(roleRemoval.assignment.id)}
         onCancel={() => {
           setRoleRemoval(null)
@@ -510,6 +486,23 @@ export function AccessGroupsPanel({
       {confirmDiscard.discardDialog}
     </section>
   )
+}
+
+function groupAssignmentCandidates(
+  members: IAMGroupMember[] | undefined,
+  candidates: AdminUser[] | undefined,
+  assignments: IAMGroupRoleAssignment[] | undefined,
+  roles: IAMRole[],
+  durablePermissions: string[],
+) {
+  const currentMemberIds = new Set((members ?? []).map((member) => member.user_id))
+  const assignedRoleIds = new Set((assignments ?? []).map((assignment) => assignment.role_id))
+  return {
+    memberCandidates: (candidates ?? []).filter((user) =>
+      user.is_active && user.is_approved && !currentMemberIds.has(user.id)),
+    roleCandidates: roles.filter((role) => !role.is_system
+      && rolePermissionsAreDurable(role, durablePermissions) && !assignedRoleIds.has(role.id)),
+  }
 }
 
 function GroupsHeader({
@@ -618,6 +611,7 @@ interface GroupWorkspaceProps {
   members: IAMGroupMember[] | undefined
   membersLoading: boolean
   membersError: unknown
+  onRetryMembers: () => void
   memberOffset: number
   onMemberOffsetChange: (offset: number) => void
   memberSearch: string
@@ -633,6 +627,7 @@ interface GroupWorkspaceProps {
   groupRoles: IAMGroupRoleAssignment[] | undefined
   groupRolesLoading: boolean
   groupRolesError: unknown
+  onRetryGroupRoles: () => void
   roleCandidates: IAMRole[]
   selectedRoleId: string
   onSelectRole: (roleId: string) => void
@@ -775,6 +770,7 @@ function GroupMembersSection({
   members,
   membersLoading,
   membersError,
+  onRetryMembers,
   memberOffset,
   onMemberOffsetChange,
   memberSearch,
@@ -825,6 +821,7 @@ function GroupMembersSection({
           mutableGroup={mutableGroup}
           disabled={busy || dirty}
           onRemove={onRemoveMember}
+          onRetry={onRetryMembers}
         />
       </div>
       {group.member_count > 100 && (

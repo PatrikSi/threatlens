@@ -14,6 +14,7 @@ import type {
 } from '../types/workspace'
 import { resolveWorkspaceModel } from '../workspace/workspaceModel'
 import { WorkspaceSettingsPage } from './WorkspaceSettingsPage'
+import { ApiError } from '../api/client'
 import { TRUSTED_WORKSPACE_MODULES } from '../workspace/moduleRegistry'
 import type { WorkspaceContextValue } from '../workspace/workspaceContext'
 
@@ -142,6 +143,40 @@ afterEach(() => {
 })
 
 describe('useWorkspaceSettingsController', () => {
+  it('keeps denied saved role policies private through a later workspace read outage', async () => {
+    let status = 200
+    controllerMocks.getRolePolicies.mockImplementation(() => status === 200
+      ? Promise.resolve(controllerMocks.serverPolicies)
+      : Promise.reject(new ApiError('Role policy read unavailable', status, '/workspace/role-policies')))
+    renderController()
+    await waitForController()
+    expect(controller().selectedPolicy?.revision).toBe(2)
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => { await queryClient?.refetchQueries({ queryKey: ['workspace', 'role-policies'] }) })
+      await vi.waitFor(() => expect((queryClient?.getQueryState(['workspace', 'role-policies'])?.error as ApiError | undefined)?.status).toBe(next))
+      expect(controller().selectedPolicy).toBeUndefined()
+      expect(container?.textContent).toContain('no-policy')
+    }
+  })
+
+  it('preserves a dirty role draft during an ordinary outage while blocking a direct policy write', async () => {
+    let unavailable = false
+    controllerMocks.getRolePolicies.mockImplementation(() => unavailable
+      ? Promise.reject(new ApiError('Role policy temporarily unavailable', 503, '/workspace/role-policies'))
+      : Promise.resolve(controllerMocks.serverPolicies))
+    renderController()
+    await waitForController()
+    act(() => controller().setRoleDraft((current) => current ? { ...current, landingModuleId: 'primary.alerts' } : current))
+    unavailable = true
+    await act(async () => { await queryClient?.refetchQueries({ queryKey: ['workspace', 'role-policies'] }) })
+    await vi.waitFor(() => expect((queryClient?.getQueryState(['workspace', 'role-policies'])?.error as ApiError | undefined)?.status).toBe(503))
+    expect(controller().roleDraft?.landingModuleId).toBe('primary.alerts')
+    expect(controller().roleDirty).toBe(true)
+    await act(async () => { controller().updateRolePolicy.mutate(); await new Promise((resolve) => setTimeout(resolve, 15)) })
+    expect(controllerMocks.updateRolePolicy).not.toHaveBeenCalled()
+  })
+
   it('allows policy inspection but not editing from temporary elevation alone', async () => {
     controllerMocks.currentUserAccess = {
       permissions: ['read:workspace', 'write:workspace'],
@@ -238,8 +273,8 @@ describe('useWorkspaceSettingsController', () => {
       policy.role === 'analyst' ? { ...policy, revision: 9 } : policy,
     )
     controllerMocks.serverPolicies = refreshedPolicies
-    act(() => {
-      queryClient?.setQueryData(['workspace', 'role-policies'], refreshedPolicies)
+    await act(async () => {
+      await queryClient?.refetchQueries({ queryKey: ['workspace', 'role-policies'] })
       rerenderController()
     })
 

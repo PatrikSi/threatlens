@@ -715,6 +715,29 @@ run is retained as fixture evidence. Independent final 15-source review proof:
 Current whole-project types, lint and source-size checks pass. Final full frontend,
 reporting retention and artifact/release checks remain open.
 
+### N23 — directory, access groups and workspace role policies
+
+User-directory reads and group member candidates share authority history, with
+independent per-group membership/role reads. Cached sibling pages, selected MFA
+reset targets, removal confirmations and copied feedback retire after read loss.
+Live RPC checks close event-to-render gaps. Own-account MFA/session operations
+retain their independent contracts. Group member rows distinguish loading and
+unverified cached state from a genuinely empty result.
+
+Workspace role-policy edits and reset intents retain their read generation;
+ordinary personal preferences remain independent. Shared saved-view readers now
+use the common scoped envelope. Dirty edits retain their baseline until explicit
+reload. Small pure selectors preserve the existing complexity threshold.
+
+All 37 user-directory, 21 access-group and 20 workspace cases pass. Final group
+and workspace logs are `45d84b91e6639ea603b0de477d2f528066d6d88847ec784a4414bb5d94cbf7af`
+and `ac5b4161e568552bc8b098b40ddfe546048b5279eb755160019e78370fe97119`.
+Independent final source proofs: directory `9bd48b9021c86dbf4d36e1f1feaef95ca99e53c687e9ef3c4d76e11d51ff2fd8`,
+groups `ddd68f6d90b1667f0732e850ccccb76d0959e002172d87556fdd70405a5d1e70`,
+workspace `6b48d37b9f21c8a628c28d4801c0fa1c15697c352c1547f4bae8a5d3a17bee91`.
+Whole-project types, lint and source-size checks pass for this snapshot. Full
+frontend, remaining reporting retention and native web checks remain open.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

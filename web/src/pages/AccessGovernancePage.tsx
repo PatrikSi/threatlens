@@ -15,6 +15,7 @@ import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type { EffectiveAccess } from '../types/access'
 import type { CurrentAuthentication } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
@@ -132,29 +133,34 @@ export function AccessGovernancePage() {
     queryKey: ['governance', 'iam-catalog'],
     queryFn: loadIAMCatalog,
   })
+  const policyAccess = useQueryAccessScope(['governance', 'data-policy'])
+  const accountsAccess = useQueryAccessScope(['governance', 'service-accounts'])
+  const reviewsAccess = useQueryAccessScope(['governance', 'access-reviews'])
+  const elevationsAccess = useQueryAccessScope(['governance', 'elevations'])
+  const approvalsAccess = useQueryAccessScope(['governance', 'action-approvals'])
   const dataPolicyQuery = useQuery({
     queryKey: ['governance', 'data-policy'],
-    queryFn: loadDataPolicyOverview,
+    ...policyAccess.queryOptions(loadDataPolicyOverview),
     enabled: canReadDataPolicy,
   })
   const serviceAccountsQuery = useQuery({
     queryKey: ['governance', 'service-accounts'],
-    queryFn: loadServiceAccounts,
+    ...accountsAccess.queryOptions(loadServiceAccounts),
     enabled: canReadServiceAccounts,
   })
   const accessReviewsQuery = useQuery({
     queryKey: ['governance', 'access-reviews'],
-    queryFn: loadAccessReviews,
+    ...reviewsAccess.queryOptions(loadAccessReviews),
     enabled: canReadAccessReviews,
   })
   const elevationsQuery = useQuery({
     queryKey: ['governance', 'elevations'],
-    queryFn: loadTemporaryElevations,
+    ...elevationsAccess.queryOptions(loadTemporaryElevations),
     enabled: canReadElevations,
   })
   const approvalsQuery = useQuery({
     queryKey: ['governance', 'action-approvals'],
-    queryFn: loadActionApprovals,
+    ...approvalsAccess.queryOptions(loadActionApprovals),
     enabled: canReadApprovals,
   })
 
@@ -503,7 +509,7 @@ function GovernanceOverview({
         {errors.length > 0 && (
           <div role="status" className="mt-3 flex items-start gap-2 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            One or more permitted governance inventories could not be loaded. Counts and queue rows from those inventories are omitted; core IAM data remains available.
+            One or more permitted governance inventories could not be refreshed. Previously verified context may remain during an outage; inventories with denied access stay hidden. Core IAM data remains available.
           </div>
         )}
       </section>

@@ -52,7 +52,7 @@ export function MemberPicker({
           aria-label="User to add"
           className="min-h-11 min-w-0 flex-1 rounded border border-slate/25 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
           value={selectedUserId}
-          disabled={disabled || loading}
+          disabled={disabled || loading || error != null}
           onChange={(event) => onSelectUser(event.target.value)}
         >
           <option value="">{loading ? 'Loading users…' : 'Select user'}</option>
@@ -63,7 +63,7 @@ export function MemberPicker({
         <button
           type="button"
           className="inline-flex min-h-11 items-center justify-center gap-2 rounded border border-slate/25 px-3 py-2 text-sm font-semibold disabled:opacity-60 dark:border-cyan-900/40"
-          disabled={!selectedUserId || disabled}
+          disabled={!selectedUserId || disabled || loading || error != null}
           onClick={onAdd}
         >
           <UserPlus className="h-4 w-4" aria-hidden="true" />
@@ -87,6 +87,7 @@ interface MemberListProps {
   mutableGroup: boolean
   disabled: boolean
   onRemove: (membershipId: string) => void
+  onRetry?: () => void
 }
 
 export function MemberList({
@@ -96,9 +97,10 @@ export function MemberList({
   mutableGroup,
   disabled,
   onRemove,
+  onRetry,
 }: MemberListProps) {
   if (loading) return <p className="px-3 py-4 text-sm text-slate dark:text-slate-300">Loading members…</p>
-  if (error) return <InlineError error={error} fallback="Members could not be loaded" />
+  if (error) return <InlineError error={error} fallback="Members could not be loaded" onRetry={onRetry} />
   if (!members?.length) return <p className="px-3 py-4 text-sm text-slate dark:text-slate-300">No direct members.</p>
   return (
     <ul className="divide-y divide-slate/15 dark:divide-white/10">
@@ -138,6 +140,7 @@ interface GroupRolesSectionProps {
   onSelectRole: (roleId: string) => void
   onAddRole: () => void
   onRemoveRole: (assignmentId: string) => void
+  onRetryGroupRoles?: () => void
 }
 
 export function GroupRolesSection({
@@ -153,6 +156,7 @@ export function GroupRolesSection({
   onSelectRole,
   onAddRole,
   onRemoveRole,
+  onRetryGroupRoles,
 }: GroupRolesSectionProps) {
   return (
     <section aria-labelledby="group-roles-heading">
@@ -168,7 +172,7 @@ export function GroupRolesSection({
           roles={roleCandidates}
           selectedRoleId={selectedRoleId}
           onSelectRole={onSelectRole}
-          disabled={busy || dirty}
+          disabled={busy || dirty || groupRolesLoading || groupRolesError != null}
           onAdd={onAddRole}
         />
       )}
@@ -178,8 +182,9 @@ export function GroupRolesSection({
           loading={groupRolesLoading}
           error={groupRolesError}
           mutableGroup={mutableGroup}
-          disabled={busy || dirty}
+          disabled={busy || dirty || groupRolesLoading || groupRolesError != null}
           onRemove={onRemoveRole}
+          onRetry={onRetryGroupRoles}
         />
       </div>
     </section>
@@ -235,6 +240,7 @@ interface RoleGrantListProps {
   mutableGroup: boolean
   disabled: boolean
   onRemove: (assignmentId: string) => void
+  onRetry?: () => void
 }
 
 function RoleGrantList({
@@ -244,9 +250,10 @@ function RoleGrantList({
   mutableGroup,
   disabled,
   onRemove,
+  onRetry,
 }: RoleGrantListProps) {
   if (loading) return <p className="px-3 py-4 text-sm text-slate dark:text-slate-300">Loading role grants…</p>
-  if (error) return <InlineError error={error} fallback="Role grants could not be loaded" />
+  if (error) return <InlineError error={error} fallback="Role grants could not be loaded" onRetry={onRetry} />
   if (!assignments?.length) return <p className="px-3 py-4 text-sm text-slate dark:text-slate-300">No role grants.</p>
   return (
     <ul className="divide-y divide-slate/15 dark:divide-white/10">
@@ -273,10 +280,11 @@ function RoleGrantList({
   )
 }
 
-function InlineError({ error, fallback }: { error: unknown; fallback: string }) {
+function InlineError({ error, fallback, onRetry }: { error: unknown; fallback: string; onRetry?: () => void }) {
   return (
     <p role="alert" className="px-3 py-4 text-sm text-red-700 dark:text-red-200">
       {resolveApiErrorMessage(error, fallback)}
+      {onRetry && <button type="button" className="ml-2 font-semibold underline" onClick={onRetry}>Retry assignments</button>}
     </p>
   )
 }

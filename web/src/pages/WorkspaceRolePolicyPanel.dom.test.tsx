@@ -291,6 +291,7 @@ describe('WorkspaceRolePolicyPanel', () => {
       setRoleDraft: vi.fn(),
       rolePoliciesLoading: false,
       roleError: 'A stale revision was rejected.',
+      canReadPolicies: true,
       roleFeedback: '',
       roleValidation: '',
       selectedPolicyWarnings: [],

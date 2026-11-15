@@ -20,6 +20,7 @@ const usersPageDomMocks = vi.hoisted(() => ({
   userLookupError: null as unknown,
   mutationRecords: [] as Array<{
     mutationKey: unknown[]
+    onMutateResult?: unknown
     state: {
       status: 'pending' | 'success' | 'error'
       variables: unknown
@@ -41,6 +42,11 @@ const usersPageDomMocks = vi.hoisted(() => ({
   },
   queryClient: {
     invalidateQueries: vi.fn(),
+    getQueryState: () => ({
+      status: usersPageDomMocks.directoryStatus === 'success' ? 'success' : usersPageDomMocks.directoryStatus === 'error' ? 'error' : 'pending',
+      fetchStatus: usersPageDomMocks.directoryStatus === 'loading' ? 'fetching' : 'idle',
+      data: usersPageDomMocks.directoryStatus === 'success' ? { users: usersPageDomMocks.usersData } : undefined,
+    }),
     getMutationCache: () => usersPageDomMocks.mutationCache,
   },
   queryRefetch: vi.fn(),
@@ -164,6 +170,15 @@ const routerMocks = vi.hoisted(() => {
 
 vi.mock('../api/client', () => ({ apiFetch: usersPageDomMocks.apiFetch }))
 
+// Existing directory/query doubles exercise editor and security-gate workflows.
+// UserDirectoryAccess uses the real QueryClient and resource-scope implementation.
+vi.mock('../hooks/useQueryAccessScope', () => ({ useQueryAccessScope: () => ({
+  generation: 0, denied: false,
+  currentData: (value: unknown) => value,
+  captureResult: () => (value: unknown) => value,
+  queryOptions: (request: unknown) => ({ queryFn: request }),
+}) }))
+
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => usersPageDomMocks.queryClient,
   useQuery: (options: { queryKey?: unknown[] }) => {
@@ -215,9 +230,9 @@ vi.mock('@tanstack/react-query', () => ({
     mutationKey?: unknown
     mutationFn?: (variables: never) => unknown
     gcTime?: number
-    onMutate?: (variables: never) => void
-    onSuccess?: (data: never, variables: never) => void
-    onError?: (error: unknown, variables: never) => void
+    onMutate?: (variables: never) => unknown
+    onSuccess?: (data: never, variables: never, onMutateResult: unknown) => void
+    onError?: (error: unknown, variables: never, onMutateResult: unknown) => void
     onSettled?: (data: never, error: unknown, variables: never) => void
   }) => {
     const mutationKey = Array.isArray(options.mutationKey)
@@ -250,19 +265,19 @@ vi.mock('@tanstack/react-query', () => ({
       delete usersPageDomMocks.nextMutationErrors[mutationKey]
       if (error) {
         record.state = { ...record.state, status: 'error', error }
-        options.onError?.(error, variables as never)
+        options.onError?.(error, variables as never, record.onMutateResult)
         options.onSettled?.(undefined as never, error, variables as never)
         return
       }
       record.state = { ...record.state, status: 'success', error: null }
-      options.onSuccess?.(data as never, variables as never)
+      options.onSuccess?.(data as never, variables as never, record.onMutateResult)
       options.onSettled?.(data as never, null, variables as never)
     }
     if (mutationKey === 'users:create') {
       return {
         mutate: (payload: unknown) => {
           const record = createRecord(payload)
-          options.onMutate?.(payload as never)
+          record.onMutateResult = options.onMutate?.(payload as never)
           usersPageDomMocks.mutate(payload)
           void Promise.resolve(options.mutationFn?.(payload as never)).then(
             (data) => finish(record, payload, data),
@@ -283,7 +298,7 @@ vi.mock('@tanstack/react-query', () => ({
       return {
         mutate: (payload: { id: string; body: unknown }) => {
           const record = createRecord(payload)
-          options.onMutate?.(payload as never)
+          record.onMutateResult = options.onMutate?.(payload as never)
           usersPageDomMocks.mutate(payload)
           usersPageDomMocks.pendingUserUpdates[payload.id] = (
             error?: unknown,
@@ -305,7 +320,7 @@ vi.mock('@tanstack/react-query', () => ({
           payload: NonNullable<typeof usersPageDomMocks.mfaResetPayload>,
         ) => {
           const record = createRecord(payload)
-          options.onMutate?.(payload as never)
+          record.onMutateResult = options.onMutate?.(payload as never)
           usersPageDomMocks.mfaResetPayload = payload
           finish(record, payload, {
             status: 'ok',
