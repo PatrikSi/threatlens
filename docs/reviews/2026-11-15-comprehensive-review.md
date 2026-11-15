@@ -947,6 +947,34 @@ image. The fixed image must now be rebuilt from the committed Dockerfile, then
 rescanned and its final OS inventory, notices and API/proxy runtime rechecked.
 Application source is unchanged from the passing 1,718-case full suite.
 
+### N33 — workflow dependency and scanner maintenance
+
+Reviewed all 57 external action uses against the 12 official stable families,
+updated six stale major families and pinned every external use to its reviewed
+immutable commit with a release comment. Three Trivy steps explicitly select
+CLI 0.76.2; their action's default 0.70.0 lags security fixes. Registry attestations
+explicitly disable v4's optional storage records, preserving existing permissions
+and registry-only behavior. Dependabot now includes both `/` and `/docker`, so
+actual build Dockerfiles receive updates.
+
+Four semantic static regressions fail before correction and pass afterward:
+immutable refs, safe explicit scanner/failure gates, registry-only attestations
+and actual Docker-context coverage. All 15 dependency/Compose contract cases and
+two existing fake-process capacity-workflow safety tests pass; these tests do not
+run a capacity workload or Docker daemon. The new test passes Ruff. Independent
+checks verify exact upstream input schemas and the complete normalized YAML AST,
+including unchanged permissions, scripts, artifact handoffs and reusable inputs.
+
+Final seven-source proofs are
+`6e001d92c263cf243867546c9830e3a05f083bc57808799a0336c7b3fb1cf0ca`
+and `54353d1875f9929df6a7694e80e6a48356f9bdcd706ebddf4ec89518ee76c36e`.
+Actual 15-case log: `53265fa255c36d4f4312a17caa20d10ec1ef42ceda66f5454c37e29292d828bd`;
+two fake-process controls: `19c9f83b47e055964858e6b44515074ca5b3728d23c31da92fc59ba97e9ce307`.
+Hosted Actions, OIDC/GHCR publishing and the installed self-hosted runner version
+remain unexecuted. Node 24-capable runner support is an existing requirement.
+Application/build inputs remain unchanged; the new backend test is excluded from
+images by the existing Docker ignore policy.
+
 ## Next executable steps
 
 Build the fixed web image from the committed source, verify its actual scan and

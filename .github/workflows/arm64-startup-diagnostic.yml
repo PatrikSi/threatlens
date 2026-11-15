@@ -25,7 +25,7 @@ jobs:
       BOOTSTRAP_ADMIN_PASSWORD: 'ci-bootstrap-$literal-${not_expanded}-''single''-"double"-\ # end'
     steps:
       - name: Checkout external diagnostic source
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Preserve code-only diagnostic outside runtime build contexts
         run: |
@@ -66,7 +66,7 @@ jobs:
           PY
 
       - name: Checkout frozen runtime source
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: 1251826fa113aca4e084f0dd7239d056d97be3b2
           clean: true
@@ -78,7 +78,7 @@ jobs:
           git diff --cached --exit-code
 
       - name: Set up ARM64 emulation
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           platforms: arm64
 
@@ -648,7 +648,7 @@ jobs:
 
       - name: Retain diagnostic evidence including failures
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: arm64-startup-diagnostic
           path: |

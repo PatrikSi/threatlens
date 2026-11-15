@@ -63,6 +63,18 @@ pair, so dependency additions cannot silently leave release notices stale.
 These source-build checks supplement the publication workflow's exact-digest
 checks; they do not replace them.
 
+External workflow actions use reviewed immutable commit references with release
+version comments. Dependabot checks those actions weekly and scans both `/` and
+`/docker` for container dependencies. Keep the Trivy CLI version explicit in
+addition to the scanner action reference; the action's default CLI can lag
+security fixes. Registry attestation steps explicitly disable optional artifact
+storage records, preserving their existing permissions and registry behavior.
+
+JavaScript actions require a Node 24-capable runner, including Actions runner
+2.327.1 or newer as documented by [Checkout](https://github.com/actions/checkout/blob/v7.0.1/README.md).
+The self-hosted capacity runner must satisfy that existing requirement; a local
+configuration review does not validate its installed runner version.
+
 Published images:
 
 - `ghcr.io/patriksi/threatlens-backend`
