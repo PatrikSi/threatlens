@@ -342,6 +342,20 @@ cases and both official MCP 2.3.0 modes against the authenticated ASGI route
 (two integration cases, no skips). SDK guards and the operator example now
 match the updated optional dependency. Both isolated environments pass `pip check`.
 
+### Remaining ASGI scratch fixture and complete rerun checkpoint
+
+The next broad run reaches 847 passes and three skips with no failures before
+being stopped proactively: an independent closed sweep of direct file-response
+fixtures found the same immediate-return receiver in the scratch-download unit
+module. That module was already loaded in the running process, so editing it
+could not correct the pending tests. The partial run is retained and is not a
+full-suite pass. The scratch receiver now waits cancellably, preserving legacy
+ASGI 2.0 coverage and every descriptor-lifetime, range-response and disconnect
+assertion. The other two direct transport fixture modules already use blocking
+receivers and explicit ASGI 2.4 scopes. All 18 scratch/transport/policy-lifetime
+cases pass afterward, and Ruff passes. This is test-client compatibility; the
+production transfer deadline and cleanup implementation are unchanged.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

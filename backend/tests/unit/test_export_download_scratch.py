@@ -43,7 +43,9 @@ def test_plaintext_has_no_directory_entry_and_cannot_touch_other_files(tmp_path,
 
 
 async def receive():
-    return {"type": "http.request", "body": b"", "more_body": False}
+    # The body was consumed before returning the file response. A connection
+    # stays open here until the stream finishes or its disconnect is signalled.
+    await anyio.sleep_forever()
 
 
 def test_stream_keeps_its_descriptor_until_all_bytes_are_sent(tmp_path):
