@@ -836,6 +836,28 @@ positive control: all four health reads must finish before disclosure/actions
 recover. That control is retained. Full types/lint/test/audit/build/bundle checks
 are running again on an immutable source snapshot; their result remains pending.
 
+### N28 — compatible frontend dependency refresh
+
+Updated 24 direct dependencies and the minimatch override, including React,
+Query, router, Vite/Vitest, jsdom, lint/type tooling and the browser test toolchain.
+The web build uses Node 22.23.5 and nginx 1.31.7. TypeScript stays on supported
+5.9: the current typescript-eslint peer range excludes TypeScript 7.
+
+The regenerated lock resolves 114 runtime package entries. All installed runtime
+packages have complete top-level legal files available to the artifact generator;
+Lucide's full composite ISC/Feather MIT notice is retained. Exact upstream archive
+integrity and selected newly changed notices were independently checked. This is
+engineering license triage, without legal clearance. Native image/OS inventories
+and the nginx-specific copyright notice still require actual-image inspection.
+
+An initial npm 10 lock resolution failed inside Arborist. Private npm 11 resolved
+the lock successfully, then the bundled npm 10.9.9 clean install with lifecycle
+scripts disabled passed. The native build must additionally verify ordinary
+`npm ci`. The candidate audit had zero advisories; the final audit/build pipeline
+is still running. Independent exact package/lock/Dockerfile pre-native proof:
+`e83d87e9f95fd19429f5a753294c7cce03263e2d08b67855824de768901471b5`.
+No application version bump, publication or deployment is included.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM node:22.23.1-alpine AS build
+FROM --platform=$BUILDPLATFORM node:22.23.5-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -40,7 +40,7 @@ RUN mkdir -p /tmp/frontend-docs \
       --legal-output-dir /tmp/frontend-docs/frontend-runtime-package-legal
 RUN npm run build
 
-FROM nginx:1.31.3-alpine
+FROM nginx:1.31.7-alpine
 RUN apk upgrade --no-cache libcrypto3 libssl3 libexpat libuuid pcre2 \
     && apk add --no-cache 'tiff>=4.7.2-r0'
 ARG BUILD_DATE=unknown
