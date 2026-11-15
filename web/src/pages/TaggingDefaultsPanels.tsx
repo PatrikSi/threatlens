@@ -25,6 +25,14 @@ export function TaggingPageHeader({ controller }: TaggingPanelProps) {
           </div>
         )}
       </SettingsPageHeader>
+      {(controller.bundleQuery.isError || controller.privateReadHidden) && <p role="alert" className="text-sm text-red-700 dark:text-red-300">
+        {resolveApiErrorMessage(controller.bundleQuery.error, 'Tagging settings must be verified again. Drafts are preserved and actions are paused.')}
+        {' '}<button type="button" className="min-h-11 rounded border px-3 py-2" onClick={() => void controller.bundleQuery.refetch()}>Retry tagging settings</button>
+      </p>}
+      {controller.ruleReadHidden && !controller.privateReadHidden && <p role="status" className="text-sm">
+        The selected rule is no longer in the readable inventory. Your local draft is preserved.
+        {' '}<button type="button" className="min-h-11 rounded border px-3 py-2" onClick={controller.onReloadRule}>Reload rule editor</button>
+      </p>}
       <TaggingRecoveryStatus controller={controller} />
 
       {notice && (
@@ -76,6 +84,7 @@ function TaggingRecoveryStatus({ controller }: TaggingPanelProps) {
 
 export function TaggingDefaultsPanel({ controller }: TaggingPanelProps) {
   const { canManageTagging, onSaveSettings, saveSettings, setSettingsDraft, settingsDraft } = controller
+  if (controller.privateReadHidden) return null
 
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
@@ -89,7 +98,7 @@ export function TaggingDefaultsPanel({ controller }: TaggingPanelProps) {
           </div>
           <button
             className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
-            disabled={saveSettings.isPending || !canManageTagging}
+            disabled={saveSettings.isPending || !canManageTagging || controller.settingsNeedsReload}
             onClick={onSaveSettings}
           >
             Save defaults
@@ -164,6 +173,10 @@ export function TaggingDefaultsPanel({ controller }: TaggingPanelProps) {
           </p>
         )}
       </fieldset>
+        {controller.settingsNeedsReload && <p role="status" className="mt-3 text-sm">
+          Verify the current defaults before submitting this preserved draft.
+          {' '}<button type="button" className="min-h-11 rounded border px-3 py-2" disabled={controller.readUnavailable} onClick={controller.onReloadSettings}>Reload saved defaults</button>
+        </p>}
     </section>
   )
 }
@@ -178,6 +191,7 @@ export function TaggingReapplyPanel({ controller }: TaggingPanelProps) {
     setReapplyDays,
     setReapplyLimit,
   } = controller
+  if (controller.privateReadHidden) return null
 
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">

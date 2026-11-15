@@ -136,7 +136,7 @@ describe('tagging rule asynchronous lifecycle with a real router and cache', () 
     await settle()
     expect(field('name').value).toBe('Created rule')
     expect(button('Save rule')).toBeDefined()
-    expect(client.getQueryData<TaggingSettingsBundleResponse>(['tagging', 'settings'])?.rules).toContainEqual(saved)
+    expect(client.getQueryData<{ generation: number; value: TaggingSettingsBundleResponse }>(['tagging', 'settings'])?.value.rules).toContainEqual(saved)
     // A stale inventory must never own (and clear) the accepted editor baseline.
     await act(async () => inventory.resolve(bundle))
     await settle()

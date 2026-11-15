@@ -125,7 +125,7 @@ vi.mock('../hooks/useCurrentUser', () => ({
 import { TaggingSettingsPage } from './TaggingSettingsPage'
 
 describe('TaggingSettingsPage rendered workflow', () => {
-  it('renders labeled tagging controls and wires the discard warning', () => {
+  it('renders labeled tagging controls and wires the discard warning without inventing an untouched draft', () => {
     const markup = renderToStaticMarkup(createElement(TaggingSettingsPage))
 
     expect(markup).toContain('Content tagging')
@@ -134,6 +134,6 @@ describe('TaggingSettingsPage rendered workflow', () => {
     expect(markup).toContain('Rules')
     expect(markup).toContain('Rule name')
     expect(markup).toContain('Preview rule')
-    expect(taggingPageMocks.useUnsavedChangesWarning).toHaveBeenCalledWith(true, 'Discard unsaved tagging changes?')
+    expect(taggingPageMocks.useUnsavedChangesWarning).toHaveBeenCalledWith(false, 'Discard unsaved tagging changes?')
   })
 })

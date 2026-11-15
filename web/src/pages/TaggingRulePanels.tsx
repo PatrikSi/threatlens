@@ -67,7 +67,7 @@ export function TaggingRulesList({ controller }: TaggingPanelProps) {
             {resolveApiErrorMessage(bundleQuery.error, 'Failed to load tagging settings.')}
           </p>
         )}
-        {!bundleQuery.isLoading && (bundleQuery.data?.rules.length ?? 0) === 0 && (
+        {!bundleQuery.isLoading && !bundleQuery.isError && !controller.privateReadHidden && bundleQuery.data && bundleQuery.data.rules.length === 0 && (
           <p className="rounded-lg border border-dashed border-slate/25 p-3 text-sm text-slate dark:border-cyan-900/40 dark:text-white/70">
             No custom rules yet. Create one to add a new auto-tag based on article text or feed context.
           </p>
@@ -91,6 +91,7 @@ export function TaggingRuleEditor({ controller }: TaggingPanelProps) {
     selectedRule,
     setRuleDraft,
   } = controller
+  if (controller.ruleReadHidden) return null
 
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
@@ -143,14 +144,14 @@ export function TaggingRuleEditor({ controller }: TaggingPanelProps) {
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
             className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
-            disabled={saveRule.isPending || deleteRule.isPending || Boolean(ruleValidationError) || !controller.canManageTagging}
+            disabled={saveRule.isPending || deleteRule.isPending || Boolean(ruleValidationError) || !controller.canManageTagging || controller.ruleNeedsReload}
             onClick={onSaveRule}
           >
             {selectedRule ? 'Save rule' : 'Create rule'}
           </button>
           <button
             className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-cyan-900/40"
-            disabled={previewRule.isPending || Boolean(ruleValidationError) || !controller.canManageTagging}
+            disabled={previewRule.isPending || Boolean(ruleValidationError) || !controller.canManageTagging || controller.ruleNeedsReload}
             onClick={onPreviewRule}
           >
             Preview rule
@@ -158,7 +159,7 @@ export function TaggingRuleEditor({ controller }: TaggingPanelProps) {
           {selectedRule && (
             <button
               className="rounded border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/60 dark:text-red-300"
-              disabled={saveRule.isPending || deleteRule.isPending || Boolean(pendingRuleDelete) || !controller.canManageTagging}
+              disabled={saveRule.isPending || deleteRule.isPending || Boolean(pendingRuleDelete) || !controller.canManageTagging || controller.ruleNeedsReload}
               onClick={() => onRequestDeleteRule(selectedRule)}
             >
               Delete rule
@@ -169,6 +170,10 @@ export function TaggingRuleEditor({ controller }: TaggingPanelProps) {
         {ruleValidationError && <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{ruleValidationError}</p>}
         <RuleMutationErrors controller={controller} />
       </fieldset>
+        {controller.ruleNeedsReload && <p role="status" className="mt-3 text-sm">
+          Verify the saved rule before submitting this preserved draft.
+          {' '}<button type="button" className="min-h-11 rounded border px-3 py-2" disabled={controller.readUnavailable} onClick={controller.onReloadRule}>{selectedRule ? 'Reload saved rule' : 'Discard draft and reload editor'}</button>
+        </p>}
     </section>
   )
 }
@@ -405,6 +410,7 @@ function RuleMutationErrors({ controller }: TaggingPanelProps) {
 
 export function TaggingRulePreview({ controller }: TaggingPanelProps) {
   const { previewResult } = controller
+  if (controller.privateReadHidden) return null
 
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">

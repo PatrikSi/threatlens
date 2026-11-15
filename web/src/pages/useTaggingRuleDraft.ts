@@ -7,20 +7,24 @@ export type TaggingRuleSubmission = {
   ruleId: string | null
   revision: number
   draft: TaggingRuleDraft
+  readGeneration: number
+  baseline: TaggingRule | null
 }
 
 type RuleEditorState = {
   baseline: TaggingRule | null
   revision: number
   draft: TaggingRuleDraft
+  readGeneration: number
 }
 
 /** Selection, baseline and draft travel together across asynchronous completions. */
-export function useTaggingRuleDraft() {
+export function useTaggingRuleDraft(readGeneration = 0) {
   const [state, setState] = useState<RuleEditorState>(() => ({
     baseline: null,
     revision: 0,
     draft: createDefaultRuleDraft(),
+    readGeneration,
   }))
   const stateRef = useRef(state)
   stateRef.current = state
@@ -32,6 +36,7 @@ export function useTaggingRuleDraft() {
 
   return {
     selectedRule: state.baseline,
+    readGeneration: state.readGeneration,
     selectedRuleId: state.baseline?.id ?? null,
     ruleDraft: state.draft,
     baselineRuleDraft: state.baseline ? createDraftFromRule(state.baseline) : createDefaultRuleDraft(),
@@ -43,11 +48,14 @@ export function useTaggingRuleDraft() {
       baseline: rule,
       revision: current.revision + 1,
       draft: rule ? createDraftFromRule(rule) : createDefaultRuleDraft(),
+      readGeneration,
     })),
     captureSubmission: (): TaggingRuleSubmission => ({
       ruleId: state.baseline?.id ?? null,
       revision: state.revision,
       draft: state.draft,
+      readGeneration: state.readGeneration,
+      baseline: state.baseline,
     }),
     isSelectedSubmission,
     isCurrentSubmission,

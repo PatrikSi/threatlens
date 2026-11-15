@@ -10,6 +10,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const taggingPageDomMocks = vi.hoisted(() => ({
   queryClient: {
     invalidateQueries: vi.fn(),
+    cancelQueries: vi.fn(() => Promise.resolve()),
+    getQueryState: vi.fn(() => ({ status: 'success' })),
+    setQueryData: vi.fn(),
   },
   currentUser: {
     data: {
@@ -96,6 +99,19 @@ function taggingMutationResult(mutate: ReturnType<typeof vi.fn>) {
   }
 }
 
+type MockTaggingMutation = {
+  mutationKey?: unknown
+  onMutate?: (variables: unknown) => unknown
+  onSuccess?: (result: unknown, variables?: unknown, context?: unknown) => unknown
+  onSettled?: () => void
+}
+function completeTaggingMutation(options: MockTaggingMutation, saved: unknown, variables: unknown) {
+  const context = options.onMutate?.(variables)
+  const result = options.onSuccess?.(saved, variables, context)
+  if (result instanceof Promise) void result.finally(() => options.onSettled?.())
+  else options.onSettled?.()
+}
+
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => taggingPageDomMocks.queryClient,
   useQuery: ({ queryKey }: { queryKey: unknown[] }) => {
@@ -133,13 +149,13 @@ vi.mock('@tanstack/react-query', () => ({
       data: undefined,
     }
   },
-  useMutation: (options: { mutationKey?: unknown; onSuccess?: (result: unknown, variables?: unknown) => void }) => {
+  useMutation: (options: MockTaggingMutation) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
     if (mutationKey === 'tagging:rules:preview') {
       return taggingMutationResult(
         vi.fn((payload: unknown) => {
           taggingPageDomMocks.previewRuleMutate(payload)
-          options.onSuccess?.({
+          completeTaggingMutation(options, {
             total: 1,
             items: [
               {
@@ -170,7 +186,7 @@ vi.mock('@tanstack/react-query', () => ({
       return taggingMutationResult(
         vi.fn((payload: unknown) => {
           taggingPageDomMocks.reapplyMutate(payload)
-          options.onSuccess?.({ task_id: 'task-retag-1' })
+          completeTaggingMutation(options, { task_id: 'task-retag-1', queued: true, celery_task_id: null, dispatch_token: null }, payload)
         }),
       )
     }
@@ -181,9 +197,9 @@ vi.mock('@tanstack/react-query', () => ({
       return taggingMutationResult(taggingPageDomMocks.saveRuleMutate)
     }
     return taggingMutationResult(
-      vi.fn(() => {
+      vi.fn((payload: unknown) => {
         taggingPageDomMocks.saveSettingsMutate()
-        options.onSuccess?.({})
+        completeTaggingMutation(options, { ...taggingPageDomMocks.bundleData.settings, ...(payload as object) }, payload)
       }),
     )
   },
@@ -480,7 +496,7 @@ describe('TaggingSettingsPage DOM workflows', () => {
     expect(taggingPageDomMocks.reapplyMutate).toHaveBeenCalledWith({ days: 14, limit: 0 })
   })
 
-  it('announces tagging save, preview, and reapply feedback through a polite live region', () => {
+  it('announces tagging save, preview, and reapply feedback through a polite live region', async () => {
     taggingPageDomMocks.previewTagsTruncated = true
     const view = renderPage()
 
@@ -489,7 +505,7 @@ describe('TaggingSettingsPage DOM workflows', () => {
     )
     expect(saveDefaultsButton).not.toBeNull()
 
-    act(() => {
+    await act(async () => {
       saveDefaultsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 

@@ -533,6 +533,27 @@ Independent review of these exact two files reports no finding in scope (proof
 This does not claim a new live SDK proxy run; that native qualification and a
 backend image rebuild containing the migration fix remain pending.
 
+### N15 — tagging saved context and asynchronous writes
+
+Tagging bundle reads and their cache writers now share one scoped contract;
+read-only preview requests retain independent authority. Dirty settings/rule
+drafts stay mounted behind absent saved-content panels during withdrawal and
+require explicit fresh-baseline reload. Open delete/reapply intents and private
+preview receipts retire. Actual RPC entry checks current read health, identity
+and draft signature; late saved responses cannot repair a failed read or replace
+a newer draft. Independent initial write flows retain their existing contract.
+
+The change touches four production files and four changed regression files.
+All 12 new before cases fail on the original behavior; the complete five-file
+after run passes all 43 cases, including existing accepted-create, older-inventory
+cancellation and rebase controls. Log SHA-256:
+`5b5c27b104cf8906ae8a0ff3cfcf911d7bc5738de1caa1ac7578c290e590c38c`.
+Static fixtures now model canonical envelopes/mutation lifecycle; untouched SSR
+defaults are correctly clean, with real typed dirty-navigation controls retained.
+Independent final source/test review matches all freeze hashes (proof
+`169e360b76d711fa0d0b409025f4c7c23b6375989c126a4b117c5d38510ad9f9`).
+Project-wide final type/lint/build validation remains pending.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,
