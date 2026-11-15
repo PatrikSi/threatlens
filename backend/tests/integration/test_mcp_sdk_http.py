@@ -5,9 +5,9 @@ from importlib.metadata import version
 
 import pytest
 
-mcp = pytest.importorskip("mcp", reason="Optional SDK integration needs mcp==2.2.0")
-if version("mcp") != "2.2.0":
-    pytest.skip("SDK integration is pinned to mcp==2.2.0", allow_module_level=True)
+mcp = pytest.importorskip("mcp", reason="Optional SDK integration needs mcp==2.3.0")
+if version("mcp") != "2.3.0":
+    pytest.skip("SDK integration is pinned to mcp==2.3.0", allow_module_level=True)
 
 import httpx2  # noqa: E402
 from mcp.client.streamable_http import streamable_http_client  # noqa: E402

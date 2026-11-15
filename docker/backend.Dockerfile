@@ -1,4 +1,4 @@
-FROM python:3.12.13-slim-bookworm
+FROM python:3.12.16-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -15,6 +15,9 @@ COPY requirements.txt requirements-lock.txt /app/
 RUN pip install --no-cache-dir -r /app/requirements-lock.txt
 
 COPY . /app
+# Compile-only checks do not catch transport dependencies supplied by dev tools.
+# Exercise the actual API, worker and Beat imports in the runtime-only image.
+RUN python -c "import app.main; import app.tasks.celery_app; import app.tasks.beat_scheduler; import app.tasks.bounded_beat"
 RUN chmod +x /app/scripts/start-api.sh \
     && mkdir -p /usr/share/doc/threatlens \
     && mkdir -p /usr/share/doc/threatlens/licenses \

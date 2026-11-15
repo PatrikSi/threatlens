@@ -1,4 +1,4 @@
-"""Optional SDK wire checks; run with the pinned mcp==2.2.0 test dependency.
+"""Optional SDK wire checks; run with the pinned mcp==2.3.0 test dependency.
 
 These exercise the actual SDK Streamable HTTP client against the pure protocol
 adapter through a mock HTTP transport. Route/auth/data access integration is
@@ -26,12 +26,12 @@ from app.services.mcp_protocol import (
 @pytest.fixture
 def sdk():
     module = pytest.importorskip(
-        "mcp", reason="Optional SDK wire test needs mcp==2.2.0"
+        "mcp", reason="Optional SDK wire test needs mcp==2.3.0"
     )
     from importlib.metadata import version
 
-    if version("mcp") != "2.2.0":
-        pytest.skip("SDK wire test is pinned to mcp==2.2.0")
+    if version("mcp") != "2.3.0":
+        pytest.skip("SDK wire test is pinned to mcp==2.3.0")
     return module
 
 

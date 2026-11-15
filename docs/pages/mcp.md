@@ -63,7 +63,7 @@ backend does not need an MCP SDK runtime dependency.
 
 ```bash
 python3 -m venv /tmp/threatlens-mcp-client
-/tmp/threatlens-mcp-client/bin/python -m pip install 'mcp==2.2.0'
+/tmp/threatlens-mcp-client/bin/python -m pip install 'mcp==2.3.0'
 export THREATLENS_MCP_URL='https://threatlens.example/api/v1/mcp'
 export THREATLENS_MCP_TOKEN='<load-from-your-secret-store>'
 ```

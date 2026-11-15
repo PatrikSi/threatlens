@@ -254,9 +254,9 @@ actual API, worker and Beat entrypoints during its runtime-only build.
 Manifests changed: `backend/requirements.txt`, `requirements-lock.txt`,
 `requirements-dev.txt`, `requirements-mcp-test.txt`, `web/package.json` and
 `web/package-lock.json`. Container bases are updated to Python 3.12.16,
-Node 22.23.5 and nginx 1.31.7. Native builds, image inventories and bundled legal
-artifact verification remain pending. Local backend tests use Python 3.12.3;
-the new base interpreter is not yet a local-image pass.
+Node 22.23.5 and nginx 1.31.7. The native backend build and its inventories/legal artifacts now pass the
+checks recorded below; the web image remains pending. Local backend tests use
+Python 3.12.3; native runtime image imports also verify Python 3.12.16.
 
 The frontend lock was refreshed using a private npm 11.21.2 because the bundled
 npm 10 resolver failed with its Arborist `edgesOut` error. The complete lock
@@ -313,8 +313,10 @@ verified against upstream wheels. The image's Debian timezone database reports
 standalone notice was also confirmed; the exact official 4.13.2 BSD copyright
 and conditions are now supplemented under `docs/licenses/` and both compliance
 mirrors, with source URL and digest recorded in the backend compliance README.
-A rebuilt image includes that supplement; final image-pair verification and the
-web build remain pending. These checks do not qualify ARM64, browsers, live
+The rebuilt backend image includes that exact supplement and passes the same
+fixable HIGH/CRITICAL scan. The repository verifier confirms every backend
+reference inventory/legal file matches that image. Final image-pair verification
+and the web build remain pending. These checks do not qualify ARM64, browsers, live
 vendors, sustained capacity or release publication.
 
 ### HTTP client fixture compatibility

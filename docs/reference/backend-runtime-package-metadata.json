@@ -1,7 +1,7 @@
 [
   {
     "name": "alembic",
-    "version": "1.16.4",
+    "version": "1.20.1",
     "license": "MIT",
     "license_source": "license_expression",
     "summary": "A database migration tool for SQLAlchemy.",
@@ -14,9 +14,9 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "alembic-1.16.4.dist-info/licenses/LICENSE",
-        "artifact_path": "alembic/1.16.4/alembic-1.16.4.dist-info/licenses/LICENSE",
-        "sha256": "35ea9c3419b261faf1be448c4f47d9255281bf6b36b5ffea55052227d4ba54de"
+        "source_path": "alembic-1.20.1.dist-info/licenses/LICENSE",
+        "artifact_path": "alembic/1.20.1/alembic-1.20.1.dist-info/licenses/LICENSE",
+        "sha256": "6e68d94a03a0e3e327ddf3e86d1ebedc14eece3922022618fc246a36296fd0cc"
       }
     ],
     "project_urls": [
@@ -32,7 +32,7 @@
   },
   {
     "name": "amqp",
-    "version": "5.3.1",
+    "version": "5.4.2",
     "license": "BSD",
     "license_source": "license",
     "summary": "Low-level AMQP client for Python (fork of amqplib).",
@@ -47,8 +47,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "amqp-5.3.1.dist-info/LICENSE",
-        "artifact_path": "amqp/5.3.1/amqp-5.3.1.dist-info/LICENSE",
+        "source_path": "amqp-5.4.2.dist-info/licenses/LICENSE",
+        "artifact_path": "amqp/5.4.2/amqp-5.4.2.dist-info/licenses/LICENSE",
         "sha256": "f5ef5f1282eae1931c74645f8719b6c69b3d6a2cf277bfda249a8270cd473af3"
       }
     ],
@@ -61,7 +61,7 @@
   },
   {
     "name": "annotated-doc",
-    "version": "0.0.4",
+    "version": "0.0.6",
     "license": "MIT",
     "license_source": "license_expression",
     "summary": "Document parameters, class attributes, return types, and variables inline, with Annotated.",
@@ -74,8 +74,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "annotated_doc-0.0.4.dist-info/licenses/LICENSE",
-        "artifact_path": "annotated-doc/0.0.4/annotated_doc-0.0.4.dist-info/licenses/LICENSE",
+        "source_path": "annotated_doc-0.0.6.dist-info/licenses/LICENSE",
+        "artifact_path": "annotated-doc/0.0.6/annotated_doc-0.0.6.dist-info/licenses/LICENSE",
         "sha256": "fff170779a6acbf65abdb405c087f1cee1786691e4a96a4034517e4a504a0cdf"
       }
     ],
@@ -92,10 +92,11 @@
   },
   {
     "name": "annotated-types",
-    "version": "0.7.0",
+    "version": "0.8.0",
     "license": "MIT",
-    "license_source": "classifier",
+    "license_source": "license_expression",
     "summary": "Reusable constraint types to use with typing.Annotated",
+    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -104,8 +105,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "annotated_types-0.7.0.dist-info/licenses/LICENSE",
-        "artifact_path": "annotated-types/0.7.0/annotated_types-0.7.0.dist-info/licenses/LICENSE",
+        "source_path": "annotated_types-0.8.0.dist-info/licenses/LICENSE",
+        "artifact_path": "annotated-types/0.8.0/annotated_types-0.8.0.dist-info/licenses/LICENSE",
         "sha256": "fe1049884b1a0d9342901e88e07f32925d24b3121d9972b6a6805fb9824b095d"
       }
     ],
@@ -139,7 +140,7 @@
   },
   {
     "name": "anyio",
-    "version": "4.14.2",
+    "version": "4.16.0",
     "license": "MIT",
     "license_source": "license_expression",
     "summary": "High-level concurrency and networking framework on top of asyncio or Trio",
@@ -152,8 +153,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "anyio-4.14.2.dist-info/licenses/LICENSE",
-        "artifact_path": "anyio/4.14.2/anyio-4.14.2.dist-info/licenses/LICENSE",
+        "source_path": "anyio-4.16.0.dist-info/licenses/LICENSE",
+        "artifact_path": "anyio/4.16.0/anyio-4.16.0.dist-info/licenses/LICENSE",
         "sha256": "5361ac9dc58f2ef5fd2e9b09c68297c17f04950909bbc8023bdb82eacf22c2b0"
       }
     ],
@@ -200,7 +201,7 @@
   },
   {
     "name": "argon2-cffi-bindings",
-    "version": "25.1.0",
+    "version": "26.2.0",
     "license": "MIT",
     "license_source": "license_expression",
     "summary": "Low-level CFFI bindings for Argon2",
@@ -213,9 +214,9 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "argon2_cffi_bindings-25.1.0.dist-info/licenses/LICENSE",
-        "artifact_path": "argon2-cffi-bindings/25.1.0/argon2_cffi_bindings-25.1.0.dist-info/licenses/LICENSE",
-        "sha256": "9c158d4f433627f48ac24b6b4d37970afe4172514673c5318014d7cca157c6df"
+        "source_path": "argon2_cffi_bindings-26.2.0.dist-info/licenses/LICENSE",
+        "artifact_path": "argon2-cffi-bindings/26.2.0/argon2_cffi_bindings-26.2.0.dist-info/licenses/LICENSE",
+        "sha256": "88707653d5414f2242d597302a769565107ac139817b8ca321b3928cc1346c50"
       }
     ],
     "project_urls": [
@@ -230,7 +231,7 @@
   },
   {
     "name": "Authlib",
-    "version": "1.7.2",
+    "version": "1.9.6",
     "license": "BSD-3-Clause",
     "license_source": "license",
     "summary": "The ultimate Python library in building OAuth and OpenID Connect servers and clients.",
@@ -243,8 +244,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "authlib-1.7.2.dist-info/licenses/LICENSE",
-        "artifact_path": "Authlib/1.7.2/authlib-1.7.2.dist-info/licenses/LICENSE",
+        "source_path": "authlib-1.9.6.dist-info/licenses/LICENSE",
+        "artifact_path": "Authlib/1.9.6/authlib-1.9.6.dist-info/licenses/LICENSE",
         "sha256": "8e1b48518de9c6cd00cb48c7fe5b8023fd90d5552ca12ebe7362a0df30ddbe45"
       }
     ],
@@ -305,13 +306,11 @@
   },
   {
     "name": "bcrypt",
-    "version": "4.0.1",
+    "version": "4.3.0",
     "license": "Apache-2.0",
     "license_source": "license",
     "summary": "Modern password hashing for your software and your servers",
-    "home_page": "https://github.com/pyca/bcrypt/",
-    "author": "The Python Cryptographic Authority developers",
-    "metadata_license": "Apache License, Version 2.0",
+    "metadata_license": "Apache-2.0",
     "license_files": [
       "LICENSE"
     ],
@@ -320,10 +319,13 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "bcrypt-4.0.1.dist-info/LICENSE",
-        "artifact_path": "bcrypt/4.0.1/bcrypt-4.0.1.dist-info/LICENSE",
+        "source_path": "bcrypt-4.3.0.dist-info/LICENSE",
+        "artifact_path": "bcrypt/4.3.0/bcrypt-4.3.0.dist-info/LICENSE",
         "sha256": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90"
       }
+    ],
+    "project_urls": [
+      "homepage, https://github.com/pyca/bcrypt/"
     ],
     "license_classifiers": [
       "License :: OSI Approved :: Apache Software License"
@@ -334,7 +336,7 @@
   },
   {
     "name": "beautifulsoup4",
-    "version": "4.13.4",
+    "version": "4.15.0",
     "license": "MIT",
     "license_source": "license",
     "summary": "Screen-scraping library",
@@ -347,15 +349,15 @@
       {
         "kind": "authors",
         "file_name": "AUTHORS",
-        "source_path": "beautifulsoup4-4.13.4.dist-info/licenses/AUTHORS",
-        "artifact_path": "beautifulsoup4/4.13.4/beautifulsoup4-4.13.4.dist-info/licenses/AUTHORS",
+        "source_path": "beautifulsoup4-4.15.0.dist-info/licenses/AUTHORS",
+        "artifact_path": "beautifulsoup4/4.15.0/beautifulsoup4-4.15.0.dist-info/licenses/AUTHORS",
         "sha256": "b989238918e1fdac1e46717cb405b63e92497a272413af0d989c1df6c8abcb6f"
       },
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "beautifulsoup4-4.13.4.dist-info/licenses/LICENSE",
-        "artifact_path": "beautifulsoup4/4.13.4/beautifulsoup4-4.13.4.dist-info/licenses/LICENSE",
+        "source_path": "beautifulsoup4-4.15.0.dist-info/licenses/LICENSE",
+        "artifact_path": "beautifulsoup4/4.15.0/beautifulsoup4-4.15.0.dist-info/licenses/LICENSE",
         "sha256": "55b4d8d4b1e5bc86d10efac91b74c87bcb77526b0f5b9edaf8b9cd2adc7397b2"
       }
     ],
@@ -373,7 +375,7 @@
   },
   {
     "name": "billiard",
-    "version": "4.2.4",
+    "version": "4.3.2",
     "license": "BSD",
     "license_source": "license",
     "summary": "Python multiprocessing fork with improvements and bugfixes",
@@ -388,8 +390,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE.txt",
-        "source_path": "billiard-4.2.4.dist-info/LICENSE.txt",
-        "artifact_path": "billiard/4.2.4/billiard-4.2.4.dist-info/LICENSE.txt",
+        "source_path": "billiard-4.3.2.dist-info/licenses/LICENSE.txt",
+        "artifact_path": "billiard/4.3.2/billiard-4.3.2.dist-info/licenses/LICENSE.txt",
         "sha256": "6632e59acabdbbbec262837d44724a065318949f002efd0602d642711ae3a457"
       }
     ],
@@ -402,7 +404,7 @@
   },
   {
     "name": "celery",
-    "version": "5.5.3",
+    "version": "5.7.0",
     "license": "BSD-3-Clause",
     "license_source": "license",
     "summary": "Distributed Task Queue.",
@@ -417,8 +419,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "celery-5.5.3.dist-info/licenses/LICENSE",
-        "artifact_path": "celery/5.5.3/celery-5.5.3.dist-info/licenses/LICENSE",
+        "source_path": "celery-5.7.0.dist-info/licenses/LICENSE",
+        "artifact_path": "celery/5.7.0/celery-5.7.0.dist-info/licenses/LICENSE",
         "sha256": "c358cdf77f28bbab50d4a754e123118339c15230349e82bf66489cece3ac093a"
       }
     ],
@@ -429,16 +431,13 @@
       "Tracker, https://github.com/celery/celery/issues",
       "Funding, https://opencollective.com/celery"
     ],
-    "license_classifiers": [
-      "License :: OSI Approved :: BSD License"
-    ],
     "metadata_license_files": [
       "LICENSE"
     ]
   },
   {
     "name": "certifi",
-    "version": "2026.6.17",
+    "version": "2026.10.23",
     "license": "MPL-2.0",
     "license_source": "license",
     "summary": "Python package for providing Mozilla's CA Bundle.",
@@ -453,8 +452,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "certifi-2026.6.17.dist-info/licenses/LICENSE",
-        "artifact_path": "certifi/2026.6.17/certifi-2026.6.17.dist-info/licenses/LICENSE",
+        "source_path": "certifi-2026.10.23.dist-info/licenses/LICENSE",
+        "artifact_path": "certifi/2026.10.23/certifi-2026.10.23.dist-info/licenses/LICENSE",
         "sha256": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7"
       }
     ],
@@ -470,7 +469,7 @@
   },
   {
     "name": "cffi",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "license": "MIT-0",
     "license_source": "license_expression",
     "summary": "Foreign Function Interface for Python calling C code.",
@@ -484,8 +483,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "cffi-2.1.0.dist-info/licenses/LICENSE",
-        "artifact_path": "cffi/2.1.0/cffi-2.1.0.dist-info/licenses/LICENSE",
+        "source_path": "cffi-2.1.1.dist-info/licenses/LICENSE",
+        "artifact_path": "cffi/2.1.1/cffi-2.1.1.dist-info/licenses/LICENSE",
         "sha256": "5ba24ddc57067f9249add644c3afc41a5d6dc37e23433ef759d95df370b0af63"
       }
     ],
@@ -503,11 +502,13 @@
   },
   {
     "name": "chardet",
-    "version": "7.4.3",
-    "license": "0BSD",
-    "license_source": "license_expression",
-    "summary": "Universal character encoding detector",
-    "metadata_license_expression": "0BSD",
+    "version": "5.2.0",
+    "license": "LGPL",
+    "license_source": "license",
+    "summary": "Universal encoding detector for Python 3",
+    "home_page": "https://github.com/chardet/chardet",
+    "author": "Mark Pilgrim",
+    "metadata_license": "LGPL",
     "license_files": [
       "LICENSE"
     ],
@@ -516,17 +517,18 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "chardet-7.4.3.dist-info/licenses/LICENSE",
-        "artifact_path": "chardet/7.4.3/chardet-7.4.3.dist-info/licenses/LICENSE",
-        "sha256": "0d4cf67e7a26e9957b8948e7dfc0e380e61b427a94b061e618889aba89bb9616"
+        "source_path": "chardet-5.2.0.dist-info/LICENSE",
+        "artifact_path": "chardet/5.2.0/chardet-5.2.0.dist-info/LICENSE",
+        "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
       }
     ],
     "project_urls": [
-      "Homepage, https://github.com/chardet/chardet",
-      "Repository, https://github.com/chardet/chardet",
-      "Bug Tracker, https://github.com/chardet/chardet/issues",
-      "Documentation, https://chardet.readthedocs.io",
-      "Changelog, https://chardet.readthedocs.io/en/latest/changelog.html"
+      "Documentation, https://chardet.readthedocs.io/",
+      "GitHub Project, https://github.com/chardet/chardet",
+      "Issue Tracker, https://github.com/chardet/chardet/issues"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)"
     ],
     "metadata_license_files": [
       "LICENSE"
@@ -534,7 +536,7 @@
   },
   {
     "name": "charset-normalizer",
-    "version": "3.4.9",
+    "version": "3.5.2",
     "license": "MIT",
     "license_source": "license",
     "summary": "The Real First Universal Charset Detector. Open, modern and actively maintained alternative to Chardet.",
@@ -547,8 +549,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "charset_normalizer-3.4.9.dist-info/licenses/LICENSE",
-        "artifact_path": "charset-normalizer/3.4.9/charset_normalizer-3.4.9.dist-info/licenses/LICENSE",
+        "source_path": "charset_normalizer-3.5.2.dist-info/licenses/LICENSE",
+        "artifact_path": "charset-normalizer/3.5.2/charset_normalizer-3.5.2.dist-info/licenses/LICENSE",
         "sha256": "6d0d41bfe170ac6c7dc248c9a63e254d0fb45a60d50a8257d0af92c6e249b887"
       }
     ],
@@ -564,7 +566,7 @@
   },
   {
     "name": "click",
-    "version": "8.4.2",
+    "version": "8.5.1",
     "license": "BSD-3-Clause",
     "license_source": "license_expression",
     "summary": "Composable command line interface toolkit",
@@ -577,8 +579,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE.txt",
-        "source_path": "click-8.4.2.dist-info/licenses/LICENSE.txt",
-        "artifact_path": "click/8.4.2/click-8.4.2.dist-info/licenses/LICENSE.txt",
+        "source_path": "click-8.5.1.dist-info/licenses/LICENSE.txt",
+        "artifact_path": "click/8.5.1/click-8.5.1.dist-info/licenses/LICENSE.txt",
         "sha256": "9a8ad106a394e853bfe21f42f4e72d592819a22805d991b5f3275029292b658d"
       }
     ],
@@ -661,11 +663,11 @@
   },
   {
     "name": "click-repl",
-    "version": "0.3.0",
+    "version": "0.4.1",
     "license": "MIT",
     "license_source": "license",
     "summary": "REPL plugin for Click",
-    "home_page": "https://github.com/untitaker/click-repl",
+    "home_page": "https://github.com/click-contrib/click-repl",
     "author": "Markus Unterwaditzer",
     "metadata_license": "MIT",
     "license_files": [
@@ -676,8 +678,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "click_repl-0.3.0.dist-info/LICENSE",
-        "artifact_path": "click-repl/0.3.0/click_repl-0.3.0.dist-info/LICENSE",
+        "source_path": "click_repl-0.4.1.dist-info/licenses/LICENSE",
+        "artifact_path": "click-repl/0.4.1/click_repl-0.4.1.dist-info/licenses/LICENSE",
         "sha256": "c39a97224173e617907a62d7568484bd83e05a5a655ea942407dc35a321eb431"
       }
     ],
@@ -716,7 +718,7 @@
   },
   {
     "name": "croniter",
-    "version": "3.0.3",
+    "version": "3.0.4",
     "license": "MIT",
     "license_source": "license",
     "summary": "croniter provides iteration for datetime object with cron like format",
@@ -731,8 +733,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "croniter-3.0.3.dist-info/LICENSE",
-        "artifact_path": "croniter/3.0.3/croniter-3.0.3.dist-info/LICENSE",
+        "source_path": "croniter-3.0.4.dist-info/LICENSE",
+        "artifact_path": "croniter/3.0.4/croniter-3.0.4.dist-info/LICENSE",
         "sha256": "a8f952e6c6bb30b0cfcf71c304e3931160d2a9b578d6eddfa5cc18c832e17ed3"
       }
     ],
@@ -745,7 +747,7 @@
   },
   {
     "name": "cryptography",
-    "version": "50.0.0",
+    "version": "50.0.2",
     "license": "Apache-2.0 OR BSD-3-Clause",
     "license_source": "license_expression",
     "summary": "cryptography is a package which provides cryptographic recipes and primitives to Python developers.",
@@ -760,22 +762,22 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "cryptography-50.0.0.dist-info/licenses/LICENSE",
-        "artifact_path": "cryptography/50.0.0/cryptography-50.0.0.dist-info/licenses/LICENSE",
+        "source_path": "cryptography-50.0.2.dist-info/licenses/LICENSE",
+        "artifact_path": "cryptography/50.0.2/cryptography-50.0.2.dist-info/licenses/LICENSE",
         "sha256": "3e0c7c091a948b82533ba98fd7cbb40432d6f1a9acbf85f5922d2f99a93ae6bb"
       },
       {
         "kind": "license",
         "file_name": "LICENSE.APACHE",
-        "source_path": "cryptography-50.0.0.dist-info/licenses/LICENSE.APACHE",
-        "artifact_path": "cryptography/50.0.0/cryptography-50.0.0.dist-info/licenses/LICENSE.APACHE",
+        "source_path": "cryptography-50.0.2.dist-info/licenses/LICENSE.APACHE",
+        "artifact_path": "cryptography/50.0.2/cryptography-50.0.2.dist-info/licenses/LICENSE.APACHE",
         "sha256": "aac73b3148f6d1d7111dbca32099f68d26c644c6813ae1e4f05f6579aa2663fe"
       },
       {
         "kind": "license",
         "file_name": "LICENSE.BSD",
-        "source_path": "cryptography-50.0.0.dist-info/licenses/LICENSE.BSD",
-        "artifact_path": "cryptography/50.0.0/cryptography-50.0.0.dist-info/licenses/LICENSE.BSD",
+        "source_path": "cryptography-50.0.2.dist-info/licenses/LICENSE.BSD",
+        "artifact_path": "cryptography/50.0.2/cryptography-50.0.2.dist-info/licenses/LICENSE.BSD",
         "sha256": "602c4c7482de6479dd2e9793cda275e5e63d773dacd1eca689232ab7008fb4fb"
       }
     ],
@@ -794,11 +796,13 @@
   },
   {
     "name": "cssselect",
-    "version": "1.4.0",
-    "license": "BSD-3-Clause",
-    "license_source": "license_expression",
+    "version": "1.3.0",
+    "license": "BSD",
+    "license_source": "license",
     "summary": "cssselect parses CSS3 Selectors and translates them to XPath 1.0",
-    "metadata_license_expression": "BSD-3-Clause",
+    "home_page": "https://github.com/scrapy/cssselect",
+    "author": "Ian Bicking",
+    "metadata_license": "BSD",
     "license_files": [
       "LICENSE"
     ],
@@ -807,29 +811,29 @@
       {
         "kind": "authors",
         "file_name": "AUTHORS",
-        "source_path": "cssselect-1.4.0.dist-info/licenses/AUTHORS",
-        "artifact_path": "cssselect/1.4.0/cssselect-1.4.0.dist-info/licenses/AUTHORS",
+        "source_path": "cssselect-1.3.0.dist-info/AUTHORS",
+        "artifact_path": "cssselect/1.3.0/cssselect-1.3.0.dist-info/AUTHORS",
         "sha256": "d313a3dc7f22208e8cfca5a6a0361046ecd3ad8acb3db27c2b6915480a10e734"
       },
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "cssselect-1.4.0.dist-info/licenses/LICENSE",
-        "artifact_path": "cssselect/1.4.0/cssselect-1.4.0.dist-info/licenses/LICENSE",
+        "source_path": "cssselect-1.3.0.dist-info/LICENSE",
+        "artifact_path": "cssselect/1.3.0/cssselect-1.3.0.dist-info/LICENSE",
         "sha256": "5c8da9f744e0afba81a48c9b5dbe73048f798b3287d6f1af8a05ee08ebb10892"
       }
     ],
-    "project_urls": [
-      "Homepage, https://github.com/scrapy/cssselect"
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
     ],
     "metadata_license_files": [
-      "AUTHORS",
-      "LICENSE"
+      "LICENSE",
+      "AUTHORS"
     ]
   },
   {
     "name": "dateparser",
-    "version": "1.4.1",
+    "version": "1.5.0",
     "license": "BSD-3-Clause",
     "license_source": "license_expression",
     "summary": "Date parsing library designed to parse dates from HTML pages",
@@ -842,15 +846,15 @@
       {
         "kind": "authors",
         "file_name": "AUTHORS.rst",
-        "source_path": "dateparser-1.4.1.dist-info/licenses/AUTHORS.rst",
-        "artifact_path": "dateparser/1.4.1/dateparser-1.4.1.dist-info/licenses/AUTHORS.rst",
+        "source_path": "dateparser-1.5.0.dist-info/licenses/AUTHORS.rst",
+        "artifact_path": "dateparser/1.5.0/dateparser-1.5.0.dist-info/licenses/AUTHORS.rst",
         "sha256": "c7261e4f6006295aec1d8c683b180313c5e648aed536d24da85cf0db924b1368"
       },
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "dateparser-1.4.1.dist-info/licenses/LICENSE",
-        "artifact_path": "dateparser/1.4.1/dateparser-1.4.1.dist-info/licenses/LICENSE",
+        "source_path": "dateparser-1.5.0.dist-info/licenses/LICENSE",
+        "artifact_path": "dateparser/1.5.0/dateparser-1.5.0.dist-info/licenses/LICENSE",
         "sha256": "b75db655bb7a42a8e8561d0db873158bb9dab9d468af244000f02d7dd83e97f4"
       }
     ],
@@ -865,45 +869,43 @@
   },
   {
     "name": "Deprecated",
-    "version": "1.3.1",
+    "version": "3.0.1",
     "license": "MIT",
-    "license_source": "license",
+    "license_source": "license_expression",
     "summary": "Python @deprecated decorator to deprecate old python classes, functions or methods.",
-    "home_page": "https://github.com/laurent-laporte-pro/deprecated",
-    "author": "Laurent LAPORTE",
-    "metadata_license": "MIT",
+    "metadata_license_expression": "MIT",
     "license_files": [
-      "LICENSE.rst"
+      "LICENSE.md"
     ],
     "notice_files": [],
     "redistribution_files": [
       {
         "kind": "license",
-        "file_name": "LICENSE.rst",
-        "source_path": "deprecated-1.3.1.dist-info/licenses/LICENSE.rst",
-        "artifact_path": "Deprecated/1.3.1/deprecated-1.3.1.dist-info/licenses/LICENSE.rst",
-        "sha256": "1e83edd15be419b5d5bde372e325e527ff4f9915f548e7c75314b41f6699e83c"
+        "file_name": "LICENSE.md",
+        "source_path": "deprecated-3.0.1.dist-info/licenses/LICENSE.md",
+        "artifact_path": "Deprecated/3.0.1/deprecated-3.0.1.dist-info/licenses/LICENSE.md",
+        "sha256": "a210fe0b9e9f2c0123e873f5347e9091f51cfd12863aebbe8da71f24cf804fd2"
       }
     ],
     "project_urls": [
+      "Homepage, https://github.com/laurent-laporte-pro/deprecated",
       "Documentation, https://deprecated.readthedocs.io/en/latest/",
       "Source, https://github.com/laurent-laporte-pro/deprecated",
-      "Bug Tracker, https://github.com/laurent-laporte-pro/deprecated/issues"
-    ],
-    "license_classifiers": [
-      "License :: OSI Approved :: MIT License"
+      "Bug Tracker, https://github.com/laurent-laporte-pro/deprecated/issues",
+      "Changelog, https://github.com/laurent-laporte-pro/deprecated/blob/master/CHANGELOG.md"
     ],
     "metadata_license_files": [
-      "LICENSE.rst"
+      "LICENSE.md"
     ]
   },
   {
     "name": "dnspython",
-    "version": "2.8.0",
+    "version": "2.9.2",
     "license": "ISC",
-    "license_source": "license",
+    "license_source": "license_expression",
     "summary": "DNS toolkit",
-    "metadata_license": "ISC",
+    "author": "Bob Halley",
+    "metadata_license_expression": "ISC",
     "license_files": [
       "LICENSE"
     ],
@@ -912,8 +914,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "dnspython-2.8.0.dist-info/licenses/LICENSE",
-        "artifact_path": "dnspython/2.8.0/dnspython-2.8.0.dist-info/licenses/LICENSE",
+        "source_path": "dnspython-2.9.2.dist-info/licenses/LICENSE",
+        "artifact_path": "dnspython/2.9.2/dnspython-2.9.2.dist-info/licenses/LICENSE",
         "sha256": "c3ea3ff5654b329c19d3bc5f7481af623c3dded4a6145585499f843ad3d741cd"
       }
     ],
@@ -923,16 +925,13 @@
       "documentation, https://dnspython.readthedocs.io/en/stable/",
       "issues, https://github.com/rthalley/dnspython/issues"
     ],
-    "license_classifiers": [
-      "License :: OSI Approved :: ISC License (ISCL)"
-    ],
     "metadata_license_files": [
       "LICENSE"
     ]
   },
   {
-    "name": "email_validator",
-    "version": "2.2.0",
+    "name": "email-validator",
+    "version": "2.4.0",
     "license": "Unlicense",
     "license_source": "license",
     "summary": "A robust email address syntax and deliverability validation library.",
@@ -947,8 +946,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "email_validator-2.2.0.dist-info/LICENSE",
-        "artifact_path": "email_validator/2.2.0/email_validator-2.2.0.dist-info/LICENSE",
+        "source_path": "email_validator-2.4.0.dist-info/licenses/LICENSE",
+        "artifact_path": "email-validator/2.4.0/email_validator-2.4.0.dist-info/licenses/LICENSE",
         "sha256": "672179752e109134a3fb2bdd0780b29fdb7a03974f0f586a13aead5129562d4c"
       }
     ],
@@ -961,7 +960,7 @@
   },
   {
     "name": "fastapi",
-    "version": "0.139.2",
+    "version": "0.163.0",
     "license": "MIT",
     "license_source": "license_expression",
     "summary": "FastAPI framework, high performance, easy to learn, fast to code, ready for production",
@@ -974,8 +973,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "fastapi-0.139.2.dist-info/licenses/LICENSE",
-        "artifact_path": "fastapi/0.139.2/fastapi-0.139.2.dist-info/licenses/LICENSE",
+        "source_path": "fastapi-0.163.0.dist-info/licenses/LICENSE",
+        "artifact_path": "fastapi/0.163.0/fastapi-0.163.0.dist-info/licenses/LICENSE",
         "sha256": "4ec89ffc81485b97fec584b2d4a961032eeffe834453894fd9c1274906cc744e"
       }
     ],
@@ -992,7 +991,7 @@
   },
   {
     "name": "feedparser",
-    "version": "6.0.11",
+    "version": "6.0.14",
     "license": "BSD-2-Clause",
     "license_source": "license",
     "summary": "Universal feed parser, handles RSS 0.9x, RSS 1.0, RSS 2.0, CDF, Atom 0.3, and Atom 1.0 feeds",
@@ -1007,13 +1006,39 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "feedparser-6.0.11.dist-info/LICENSE",
-        "artifact_path": "feedparser/6.0.11/feedparser-6.0.11.dist-info/LICENSE",
-        "sha256": "156aef3a1a0d7c6ecac7c1f060b72191749ce6fe3e3ca2504b37a4c4d51aec2a"
+        "source_path": "feedparser-6.0.14.dist-info/licenses/LICENSE",
+        "artifact_path": "feedparser/6.0.14/feedparser-6.0.14.dist-info/licenses/LICENSE",
+        "sha256": "9f5e92783fd9beb2a9de76acda32a8f96ee8552a2b566e3923f037f0d754222a"
       }
     ],
-    "license_classifiers": [
-      "License :: OSI Approved :: BSD License"
+    "metadata_license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "feedparser-sgmllib",
+    "version": "2.1.0",
+    "license": "PSF-2.0",
+    "license_source": "license_expression",
+    "summary": "sgmllib from Python 2.7. For feedparser use only.",
+    "metadata_license_expression": "PSF-2.0",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "feedparser_sgmllib-2.1.0.dist-info/licenses/LICENSE",
+        "artifact_path": "feedparser-sgmllib/2.1.0/feedparser_sgmllib-2.1.0.dist-info/licenses/LICENSE",
+        "sha256": "de4d1f2d2ad5ad0cfd1657a106476b31cb5db5ef9d1ff842b237c0c81f0c8a23"
+      }
+    ],
+    "project_urls": [
+      "Changelog, https://feedparser-sgmllib.readthedocs.io/en/latest/changelog/",
+      "Documentation, https://feedparser-sgmllib.readthedocs.io",
+      "Source, https://github.com/python-syndication/feedparser-sgmllib"
     ],
     "metadata_license_files": [
       "LICENSE"
@@ -1021,7 +1046,7 @@
   },
   {
     "name": "greenlet",
-    "version": "3.5.3",
+    "version": "3.5.6",
     "license": "MIT AND PSF-2.0",
     "license_source": "license_expression",
     "summary": "Lightweight in-process concurrent programming",
@@ -1035,15 +1060,15 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "greenlet-3.5.3.dist-info/licenses/LICENSE",
-        "artifact_path": "greenlet/3.5.3/greenlet-3.5.3.dist-info/licenses/LICENSE",
+        "source_path": "greenlet-3.5.6.dist-info/licenses/LICENSE",
+        "artifact_path": "greenlet/3.5.6/greenlet-3.5.6.dist-info/licenses/LICENSE",
         "sha256": "769831d6e5dfaf2c20802faccff1fafb4c2025dd8f6253dfa47fcad59d4d0979"
       },
       {
         "kind": "license",
         "file_name": "LICENSE.PSF",
-        "source_path": "greenlet-3.5.3.dist-info/licenses/LICENSE.PSF",
-        "artifact_path": "greenlet/3.5.3/greenlet-3.5.3.dist-info/licenses/LICENSE.PSF",
+        "source_path": "greenlet-3.5.6.dist-info/licenses/LICENSE.PSF",
+        "artifact_path": "greenlet/3.5.6/greenlet-3.5.6.dist-info/licenses/LICENSE.PSF",
         "sha256": "e5ff3c23c110e494cd7d736c10fd96d462457bafeca310840db6527298c7d46b"
       }
     ],
@@ -1090,7 +1115,7 @@
   },
   {
     "name": "htmldate",
-    "version": "1.10.0",
+    "version": "1.11.0",
     "license": "Apache-2.0",
     "license_source": "license_expression",
     "summary": "Fast and robust extraction of original and updated publication dates from URLs and web pages.",
@@ -1103,8 +1128,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "htmldate-1.10.0.dist-info/licenses/LICENSE",
-        "artifact_path": "htmldate/1.10.0/htmldate-1.10.0.dist-info/licenses/LICENSE",
+        "source_path": "htmldate-1.11.0.dist-info/licenses/LICENSE",
+        "artifact_path": "htmldate/1.11.0/htmldate-1.11.0.dist-info/licenses/LICENSE",
         "sha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9"
       }
     ],
@@ -1151,8 +1176,40 @@
     ]
   },
   {
+    "name": "httpcore2",
+    "version": "2.16.0",
+    "license": "BSD-3-Clause",
+    "license_source": "license_expression",
+    "summary": "A minimal low-level HTTP client.",
+    "metadata_license_expression": "BSD-3-Clause",
+    "license_files": [
+      "LICENSE.md"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE.md",
+        "source_path": "httpcore2-2.16.0.dist-info/licenses/LICENSE.md",
+        "artifact_path": "httpcore2/2.16.0/httpcore2-2.16.0.dist-info/licenses/LICENSE.md",
+        "sha256": "c4df125c807b0613501e943a5c92496dd11d2c16604ce396097a8dde396304d9"
+      }
+    ],
+    "project_urls": [
+      "Changelog, https://github.com/pydantic/httpx2/blob/main/src/httpcore2/CHANGELOG.md",
+      "Homepage, https://github.com/pydantic/httpx2",
+      "Source, https://github.com/pydantic/httpx2/blob/main/src/httpcore2"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ],
+    "metadata_license_files": [
+      "LICENSE.md"
+    ]
+  },
+  {
     "name": "httptools",
-    "version": "0.8.0",
+    "version": "0.9.0",
     "license": "MIT",
     "license_source": "license_expression",
     "summary": "A collection of framework independent HTTP protocol utils.",
@@ -1167,22 +1224,22 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "httptools-0.8.0.dist-info/licenses/LICENSE",
-        "artifact_path": "httptools/0.8.0/httptools-0.8.0.dist-info/licenses/LICENSE",
+        "source_path": "httptools-0.9.0.dist-info/licenses/LICENSE",
+        "artifact_path": "httptools/0.9.0/httptools-0.9.0.dist-info/licenses/LICENSE",
         "sha256": "f4573e7cb7676745fb5b8d36fa548aa93e391cfb6872ddacd65130c45ea6a92d"
       },
       {
         "kind": "license",
         "file_name": "LICENSE-MIT",
-        "source_path": "httptools-0.8.0.dist-info/licenses/vendor/http-parser/LICENSE-MIT",
-        "artifact_path": "httptools/0.8.0/httptools-0.8.0.dist-info/licenses/vendor/http-parser/LICENSE-MIT",
+        "source_path": "httptools-0.9.0.dist-info/licenses/vendor/http-parser/LICENSE-MIT",
+        "artifact_path": "httptools/0.9.0/httptools-0.9.0.dist-info/licenses/vendor/http-parser/LICENSE-MIT",
         "sha256": "79e6ba8b687cb54786207342b9b6fcee0ac10218453ed9009b84d949b2233cc0"
       },
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "httptools-0.8.0.dist-info/licenses/vendor/llhttp/LICENSE",
-        "artifact_path": "httptools/0.8.0/httptools-0.8.0.dist-info/licenses/vendor/llhttp/LICENSE",
+        "source_path": "httptools-0.9.0.dist-info/licenses/vendor/llhttp/LICENSE",
+        "artifact_path": "httptools/0.9.0/httptools-0.9.0.dist-info/licenses/vendor/llhttp/LICENSE",
         "sha256": "628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d"
       }
     ],
@@ -1226,8 +1283,40 @@
     ]
   },
   {
+    "name": "httpx2",
+    "version": "2.16.0",
+    "license": "BSD-3-Clause",
+    "license_source": "license_expression",
+    "summary": "The next generation HTTP client.",
+    "metadata_license_expression": "BSD-3-Clause",
+    "license_files": [
+      "LICENSE.md"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE.md",
+        "source_path": "httpx2-2.16.0.dist-info/licenses/LICENSE.md",
+        "artifact_path": "httpx2/2.16.0/httpx2-2.16.0.dist-info/licenses/LICENSE.md",
+        "sha256": "7e7d6dbaf7fe160d39fd6e84fd02c33cab96bcbea34d36998d545bceb4a19c30"
+      }
+    ],
+    "project_urls": [
+      "Changelog, https://github.com/pydantic/httpx2/blob/main/src/httpx2/CHANGELOG.md",
+      "Homepage, https://github.com/pydantic/httpx2",
+      "Source, https://github.com/pydantic/httpx2"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ],
+    "metadata_license_files": [
+      "LICENSE.md"
+    ]
+  },
+  {
     "name": "idna",
-    "version": "3.18",
+    "version": "3.20",
     "license": "BSD-3-Clause",
     "license_source": "license_expression",
     "summary": "Internationalized Domain Names in Applications (IDNA)",
@@ -1240,8 +1329,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE.md",
-        "source_path": "idna-3.18.dist-info/licenses/LICENSE.md",
-        "artifact_path": "idna/3.18/idna-3.18.dist-info/licenses/LICENSE.md",
+        "source_path": "idna-3.20.dist-info/licenses/LICENSE.md",
+        "artifact_path": "idna/3.20/idna-3.20.dist-info/licenses/LICENSE.md",
         "sha256": "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04"
       }
     ],
@@ -1256,7 +1345,7 @@
   },
   {
     "name": "joserfc",
-    "version": "1.7.4",
+    "version": "1.8.0",
     "license": "BSD-3-Clause",
     "license_source": "license",
     "summary": "The ultimate Python library for JOSE RFCs, including JWS, JWE, JWK, JWA, JWT",
@@ -1269,8 +1358,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "joserfc-1.7.4.dist-info/licenses/LICENSE",
-        "artifact_path": "joserfc/1.7.4/joserfc-1.7.4.dist-info/licenses/LICENSE",
+        "source_path": "joserfc-1.8.0.dist-info/licenses/LICENSE",
+        "artifact_path": "joserfc/1.8.0/joserfc-1.8.0.dist-info/licenses/LICENSE",
         "sha256": "19ee1fafcc9ec4217fc32b8a651d820538c789cf4041cb4e46b4b176a5f2a9c8"
       }
     ],
@@ -1318,7 +1407,7 @@
   },
   {
     "name": "kombu",
-    "version": "5.5.4",
+    "version": "5.7.0",
     "license": "BSD-3-Clause",
     "license_source": "license",
     "summary": "Messaging library for Python.",
@@ -1333,16 +1422,13 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "kombu-5.5.4.dist-info/licenses/LICENSE",
-        "artifact_path": "kombu/5.5.4/kombu-5.5.4.dist-info/licenses/LICENSE",
+        "source_path": "kombu-5.7.0.dist-info/licenses/LICENSE",
+        "artifact_path": "kombu/5.7.0/kombu-5.7.0.dist-info/licenses/LICENSE",
         "sha256": "72216de09e6340d2c1aa67f833c3b6aeeee2e6922721366699811b632640fd3b"
       }
     ],
     "project_urls": [
       "Source, https://github.com/celery/kombu"
-    ],
-    "license_classifiers": [
-      "License :: OSI Approved :: BSD License"
     ],
     "metadata_license_files": [
       "LICENSE"
@@ -1350,7 +1436,7 @@
   },
   {
     "name": "lxml",
-    "version": "6.1.1",
+    "version": "6.1.3",
     "license": "BSD-3-Clause",
     "license_source": "license",
     "summary": "Powerful and Pythonic XML processing library combining libxml2/libxslt with the ElementTree API.",
@@ -1366,16 +1452,16 @@
       {
         "kind": "license",
         "file_name": "LICENSE.txt",
-        "source_path": "lxml-6.1.1.dist-info/licenses/LICENSE.txt",
-        "artifact_path": "lxml/6.1.1/lxml-6.1.1.dist-info/licenses/LICENSE.txt",
+        "source_path": "lxml-6.1.3.dist-info/licenses/LICENSE.txt",
+        "artifact_path": "lxml/6.1.3/lxml-6.1.3.dist-info/licenses/LICENSE.txt",
         "sha256": "8fc2b568133516e46845d2147917adeee1648e70ae9ab5ed6c5417afef4ce855"
       },
       {
         "kind": "license",
         "file_name": "LICENSES.txt",
-        "source_path": "lxml-6.1.1.dist-info/licenses/LICENSES.txt",
-        "artifact_path": "lxml/6.1.1/lxml-6.1.1.dist-info/licenses/LICENSES.txt",
-        "sha256": "41d49dd406aa0e1548a6d5f21a30d6bf638b3cd96eb7289dd348d83ed2e40392"
+        "source_path": "lxml-6.1.3.dist-info/licenses/LICENSES.txt",
+        "artifact_path": "lxml/6.1.3/lxml-6.1.3.dist-info/licenses/LICENSES.txt",
+        "sha256": "388fa99f3bde4447cd5a4cbb114037be026854db6cfe89e112691c1d8abdcf3c"
       }
     ],
     "project_urls": [
@@ -1389,7 +1475,7 @@
   },
   {
     "name": "lxml_html_clean",
-    "version": "0.4.5",
+    "version": "0.4.6",
     "license": "BSD-3-Clause",
     "license_source": "license",
     "summary": "HTML cleaner from lxml project",
@@ -1404,8 +1490,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE.txt",
-        "source_path": "lxml_html_clean-0.4.5.dist-info/licenses/LICENSE.txt",
-        "artifact_path": "lxml_html_clean/0.4.5/lxml_html_clean-0.4.5.dist-info/licenses/LICENSE.txt",
+        "source_path": "lxml_html_clean-0.4.6.dist-info/licenses/LICENSE.txt",
+        "artifact_path": "lxml_html_clean/0.4.6/lxml_html_clean-0.4.6.dist-info/licenses/LICENSE.txt",
         "sha256": "69edb445c1335a8312d4c09271847e9956d84f0d9f724d125340cc3fad767b2a"
       }
     ],
@@ -1418,13 +1504,11 @@
   },
   {
     "name": "Mako",
-    "version": "1.3.12",
+    "version": "1.4.3",
     "license": "MIT",
-    "license_source": "license",
+    "license_source": "license_expression",
     "summary": "A super-fast templating language that borrows the best ideas from the existing templating languages.",
-    "home_page": "https://www.makotemplates.org/",
-    "author": "Mike Bayer",
-    "metadata_license": "MIT",
+    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -1433,17 +1517,15 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "mako-1.3.12.dist-info/licenses/LICENSE",
-        "artifact_path": "Mako/1.3.12/mako-1.3.12.dist-info/licenses/LICENSE",
-        "sha256": "68d7064e53e3ffa8e9f420a9e604bd2e2059d9c330492fa6ebd4eb3d48111689"
+        "source_path": "mako-1.4.3.dist-info/licenses/LICENSE",
+        "artifact_path": "Mako/1.4.3/mako-1.4.3.dist-info/licenses/LICENSE",
+        "sha256": "8c1d171bc5d341ad9cd33d5e2c39b96a82c7bd49b3ae89a470c37e5822232054"
       }
     ],
     "project_urls": [
+      "Homepage, https://www.makotemplates.org/",
       "Documentation, https://docs.makotemplates.org",
       "Issue Tracker, https://github.com/sqlalchemy/mako"
-    ],
-    "license_classifiers": [
-      "License :: OSI Approved :: MIT License"
     ],
     "metadata_license_files": [
       "LICENSE"
@@ -1451,7 +1533,7 @@
   },
   {
     "name": "markdown-it-py",
-    "version": "4.0.0",
+    "version": "4.3.0",
     "license": "MIT",
     "license_source": "classifier",
     "summary": "Python port of markdown-it. Markdown parsing, done right!",
@@ -1464,15 +1546,15 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "markdown_it_py-4.0.0.dist-info/licenses/LICENSE",
-        "artifact_path": "markdown-it-py/4.0.0/markdown_it_py-4.0.0.dist-info/licenses/LICENSE",
+        "source_path": "markdown_it_py-4.3.0.dist-info/licenses/LICENSE",
+        "artifact_path": "markdown-it-py/4.3.0/markdown_it_py-4.3.0.dist-info/licenses/LICENSE",
         "sha256": "4a2260d6e2cd0f5a151a1e86dbfe7d3ed552b1e2beabf9941c1ba5c49cbce484"
       },
       {
         "kind": "license",
         "file_name": "LICENSE.markdown-it",
-        "source_path": "markdown_it_py-4.0.0.dist-info/licenses/LICENSE.markdown-it",
-        "artifact_path": "markdown-it-py/4.0.0/markdown_it_py-4.0.0.dist-info/licenses/LICENSE.markdown-it",
+        "source_path": "markdown_it_py-4.3.0.dist-info/licenses/LICENSE.markdown-it",
+        "artifact_path": "markdown-it-py/4.3.0/markdown_it_py-4.3.0.dist-info/licenses/LICENSE.markdown-it",
         "sha256": "792c48c5a849a15fdf9e37e8bcf9e6d1dd13b32b46c642a748a0a46a9919d473"
       }
     ],
@@ -1490,7 +1572,7 @@
   },
   {
     "name": "MarkupSafe",
-    "version": "3.0.3",
+    "version": "3.0.4",
     "license": "BSD-3-Clause",
     "license_source": "license_expression",
     "summary": "Safely add untrusted strings to HTML/XML markup.",
@@ -1503,8 +1585,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE.txt",
-        "source_path": "markupsafe-3.0.3.dist-info/licenses/LICENSE.txt",
-        "artifact_path": "MarkupSafe/3.0.3/markupsafe-3.0.3.dist-info/licenses/LICENSE.txt",
+        "source_path": "markupsafe-3.0.4.dist-info/licenses/LICENSE.txt",
+        "artifact_path": "MarkupSafe/3.0.4/markupsafe-3.0.4.dist-info/licenses/LICENSE.txt",
         "sha256": "489a8e1108509ed98a37bb983e11e0f7e1d31f0bd8f99a79c8448e7ff37d07ea"
       }
     ],
@@ -1546,8 +1628,36 @@
     ]
   },
   {
+    "name": "opentelemetry-api",
+    "version": "1.45.2",
+    "license": "Apache-2.0",
+    "license_source": "license_expression",
+    "summary": "OpenTelemetry Python API",
+    "metadata_license_expression": "Apache-2.0",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "opentelemetry_api-1.45.2.dist-info/licenses/LICENSE",
+        "artifact_path": "opentelemetry-api/1.45.2/opentelemetry_api-1.45.2.dist-info/licenses/LICENSE",
+        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+      }
+    ],
+    "project_urls": [
+      "Homepage, https://github.com/open-telemetry/opentelemetry-python/tree/main/opentelemetry-api",
+      "Repository, https://github.com/open-telemetry/opentelemetry-python"
+    ],
+    "metadata_license_files": [
+      "LICENSE"
+    ]
+  },
+  {
     "name": "packaging",
-    "version": "26.2",
+    "version": "26.3",
     "license": "Apache-2.0 OR BSD-2-Clause",
     "license_source": "license_expression",
     "summary": "Core utilities for Python packages",
@@ -1562,22 +1672,22 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "packaging-26.2.dist-info/licenses/LICENSE",
-        "artifact_path": "packaging/26.2/packaging-26.2.dist-info/licenses/LICENSE",
+        "source_path": "packaging-26.3.dist-info/licenses/LICENSE",
+        "artifact_path": "packaging/26.3/packaging-26.3.dist-info/licenses/LICENSE",
         "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48"
       },
       {
         "kind": "license",
         "file_name": "LICENSE.APACHE",
-        "source_path": "packaging-26.2.dist-info/licenses/LICENSE.APACHE",
-        "artifact_path": "packaging/26.2/packaging-26.2.dist-info/licenses/LICENSE.APACHE",
+        "source_path": "packaging-26.3.dist-info/licenses/LICENSE.APACHE",
+        "artifact_path": "packaging/26.3/packaging-26.3.dist-info/licenses/LICENSE.APACHE",
         "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
       },
       {
         "kind": "license",
         "file_name": "LICENSE.BSD",
-        "source_path": "packaging-26.2.dist-info/licenses/LICENSE.BSD",
-        "artifact_path": "packaging/26.2/packaging-26.2.dist-info/licenses/LICENSE.BSD",
+        "source_path": "packaging-26.3.dist-info/licenses/LICENSE.BSD",
+        "artifact_path": "packaging/26.3/packaging-26.3.dist-info/licenses/LICENSE.BSD",
         "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5"
       }
     ],
@@ -1593,7 +1703,7 @@
   },
   {
     "name": "pillow",
-    "version": "12.3.0",
+    "version": "13.0.0",
     "license": "MIT-CMU",
     "license_source": "license_expression",
     "summary": "Python Imaging Library (fork)",
@@ -1606,8 +1716,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "pillow-12.3.0.dist-info/licenses/LICENSE",
-        "artifact_path": "pillow/12.3.0/pillow-12.3.0.dist-info/licenses/LICENSE",
+        "source_path": "pillow-13.0.0.dist-info/licenses/LICENSE",
+        "artifact_path": "pillow/13.0.0/pillow-13.0.0.dist-info/licenses/LICENSE",
         "sha256": "dda12a98c1979cf3d94df1cff45d27a4cb3f04a60c76f76902ac54cac03ec0ce"
       }
     ],
@@ -1615,9 +1725,10 @@
       "Release notes, https://pillow.readthedocs.io/en/stable/releasenotes/index.html",
       "Changelog, https://github.com/python-pillow/Pillow/releases",
       "Documentation, https://pillow.readthedocs.io",
-      "Funding, https://tidelift.com/subscription/pkg/pypi-pillow?utm_source=pypi-pillow&utm_medium=pypi",
-      "Homepage, https://python-pillow.github.io",
+      "Funding, https://tidelift.com/lifter/search/pypi/pillow",
+      "Homepage, https://python-pillow.org",
       "Mastodon, https://fosstodon.org/@pillow",
+      "Security, https://pillow.readthedocs.io/en/stable/handbook/security.html",
       "Source, https://github.com/python-pillow/Pillow"
     ],
     "metadata_license_files": [
@@ -1667,7 +1778,7 @@
   },
   {
     "name": "prompt_toolkit",
-    "version": "3.0.52",
+    "version": "3.0.53",
     "license": "OSI Approved :: BSD License",
     "license_source": "classifier",
     "summary": "Library for building powerful interactive command lines in Python",
@@ -1680,15 +1791,15 @@
       {
         "kind": "authors",
         "file_name": "AUTHORS.rst",
-        "source_path": "prompt_toolkit-3.0.52.dist-info/licenses/AUTHORS.rst",
-        "artifact_path": "prompt_toolkit/3.0.52/prompt_toolkit-3.0.52.dist-info/licenses/AUTHORS.rst",
+        "source_path": "prompt_toolkit-3.0.53.dist-info/licenses/AUTHORS.rst",
+        "artifact_path": "prompt_toolkit/3.0.53/prompt_toolkit-3.0.53.dist-info/licenses/AUTHORS.rst",
         "sha256": "d3dc62c6bc8436658495ab89aea37511e7fa9391d282657239c9cfb80dbd42e5"
       },
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "prompt_toolkit-3.0.52.dist-info/licenses/LICENSE",
-        "artifact_path": "prompt_toolkit/3.0.52/prompt_toolkit-3.0.52.dist-info/licenses/LICENSE",
+        "source_path": "prompt_toolkit-3.0.53.dist-info/licenses/LICENSE",
+        "artifact_path": "prompt_toolkit/3.0.53/prompt_toolkit-3.0.53.dist-info/licenses/LICENSE",
         "sha256": "303574d9bdd85c757d6025017942bf17baeedf2778f62bd7f425d07d880f4c4a"
       }
     ],
@@ -1706,13 +1817,11 @@
   },
   {
     "name": "psycopg",
-    "version": "3.2.9",
-    "license": "GNU Lesser General Public License v3 (LGPLv3)",
-    "license_source": "license",
+    "version": "3.3.9",
+    "license": "LGPL-3.0-only",
+    "license_source": "license_expression",
     "summary": "PostgreSQL database adapter for Python",
-    "home_page": "https://psycopg.org/psycopg3/",
-    "author": "Daniele Varrazzo",
-    "metadata_license": "GNU Lesser General Public License v3 (LGPLv3)",
+    "metadata_license_expression": "LGPL-3.0-only",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -1721,8 +1830,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE.txt",
-        "source_path": "psycopg-3.2.9.dist-info/licenses/LICENSE.txt",
-        "artifact_path": "psycopg/3.2.9/psycopg-3.2.9.dist-info/licenses/LICENSE.txt",
+        "source_path": "psycopg-3.3.9.dist-info/licenses/LICENSE.txt",
+        "artifact_path": "psycopg/3.3.9/psycopg-3.3.9.dist-info/licenses/LICENSE.txt",
         "sha256": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
       }
     ],
@@ -1732,11 +1841,7 @@
       "Changes, https://psycopg.org/psycopg3/docs/news.html",
       "Code, https://github.com/psycopg/psycopg",
       "Issue Tracker, https://github.com/psycopg/psycopg/issues",
-      "Download, https://pypi.org/project/psycopg/",
       "Funding, https://github.com/sponsors/dvarrazzo"
-    ],
-    "license_classifiers": [
-      "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)"
     ],
     "metadata_license_files": [
       "LICENSE.txt"
@@ -1744,13 +1849,11 @@
   },
   {
     "name": "psycopg-binary",
-    "version": "3.2.9",
-    "license": "GNU Lesser General Public License v3 (LGPLv3)",
-    "license_source": "license",
+    "version": "3.3.9",
+    "license": "LGPL-3.0-only",
+    "license_source": "license_expression",
     "summary": "PostgreSQL database adapter for Python -- C optimisation distribution",
-    "home_page": "https://psycopg.org/psycopg3/",
-    "author": "Daniele Varrazzo",
-    "metadata_license": "GNU Lesser General Public License v3 (LGPLv3)",
+    "metadata_license_expression": "LGPL-3.0-only",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -1759,8 +1862,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE.txt",
-        "source_path": "psycopg_binary-3.2.9.dist-info/licenses/LICENSE.txt",
-        "artifact_path": "psycopg-binary/3.2.9/psycopg_binary-3.2.9.dist-info/licenses/LICENSE.txt",
+        "source_path": "psycopg_binary-3.3.9.dist-info/licenses/LICENSE.txt",
+        "artifact_path": "psycopg-binary/3.3.9/psycopg_binary-3.3.9.dist-info/licenses/LICENSE.txt",
         "sha256": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
       }
     ],
@@ -1770,11 +1873,7 @@
       "Changes, https://psycopg.org/psycopg3/docs/news.html",
       "Code, https://github.com/psycopg/psycopg",
       "Issue Tracker, https://github.com/psycopg/psycopg/issues",
-      "Download, https://pypi.org/project/psycopg-binary/",
       "Funding, https://github.com/sponsors/dvarrazzo"
-    ],
-    "license_classifiers": [
-      "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)"
     ],
     "metadata_license_files": [
       "LICENSE.txt"
@@ -1782,7 +1881,7 @@
   },
   {
     "name": "pwdlib",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "license": "MIT",
     "license_source": "classifier",
     "summary": "Modern password hashing for Python",
@@ -1794,9 +1893,9 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "pwdlib-0.3.0.dist-info/licenses/LICENSE",
-        "artifact_path": "pwdlib/0.3.0/pwdlib-0.3.0.dist-info/licenses/LICENSE",
-        "sha256": "4bdaaafc879717d95eddd23b1ba1c3eccdf1092071805cc515171488f7ff43eb"
+        "source_path": "pwdlib-0.4.0.dist-info/licenses/LICENSE",
+        "artifact_path": "pwdlib/0.4.0/pwdlib-0.4.0.dist-info/licenses/LICENSE",
+        "sha256": "4b353b77f50408bc458ae73b4faf520387c199a37d8e4fd8459321da2e51a5c6"
       }
     ],
     "project_urls": [
@@ -1812,7 +1911,7 @@
   },
   {
     "name": "pycparser",
-    "version": "3.0",
+    "version": "3.12",
     "license": "BSD-3-Clause",
     "license_source": "license_expression",
     "summary": "C parser in Python",
@@ -1825,9 +1924,9 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "pycparser-3.0.dist-info/licenses/LICENSE",
-        "artifact_path": "pycparser/3.0/pycparser-3.0.dist-info/licenses/LICENSE",
-        "sha256": "0c846399369ea76ddd7b5c44fe6d16497415fcf015f5cbb508c24bf98b81c5b1"
+        "source_path": "pycparser-3.12.dist-info/licenses/LICENSE",
+        "artifact_path": "pycparser/3.12/pycparser-3.12.dist-info/licenses/LICENSE",
+        "sha256": "0a9e78156ae8b96caf1b4f11ac2df424b83de29736f9e757630548a6272fdf90"
       }
     ],
     "project_urls": [
@@ -1839,7 +1938,7 @@
   },
   {
     "name": "pydantic",
-    "version": "2.13.4",
+    "version": "2.14.3",
     "license": "MIT",
     "license_source": "license_expression",
     "summary": "Data validation using Python type hints",
@@ -1852,17 +1951,17 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "pydantic-2.13.4.dist-info/licenses/LICENSE",
-        "artifact_path": "pydantic/2.13.4/pydantic-2.13.4.dist-info/licenses/LICENSE",
+        "source_path": "pydantic-2.14.3.dist-info/licenses/LICENSE",
+        "artifact_path": "pydantic/2.14.3/pydantic-2.14.3.dist-info/licenses/LICENSE",
         "sha256": "a9e186f3ca16b5eef84318e7a701721351a00cb7b8ae3a4394b67b49e3529ef3"
       }
     ],
     "project_urls": [
       "Homepage, https://github.com/pydantic/pydantic",
-      "Documentation, https://docs.pydantic.dev",
+      "Documentation, https://pydantic.dev/docs/validation/latest/get-started/",
       "Funding, https://github.com/sponsors/samuelcolvin",
       "Source, https://github.com/pydantic/pydantic",
-      "Changelog, https://docs.pydantic.dev/latest/changelog/"
+      "Changelog, https://pydantic.dev/docs/validation/latest/get-started/changelog/"
     ],
     "metadata_license_files": [
       "LICENSE"
@@ -1870,7 +1969,7 @@
   },
   {
     "name": "pydantic_core",
-    "version": "2.46.4",
+    "version": "2.50.4",
     "license": "MIT",
     "license_source": "license_expression",
     "summary": "Core functionality for Pydantic validation and serialization",
@@ -1884,8 +1983,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "pydantic_core-2.46.4.dist-info/licenses/LICENSE",
-        "artifact_path": "pydantic_core/2.46.4/pydantic_core-2.46.4.dist-info/licenses/LICENSE",
+        "source_path": "pydantic_core-2.50.4.dist-info/licenses/LICENSE",
+        "artifact_path": "pydantic_core/2.50.4/pydantic_core-2.50.4.dist-info/licenses/LICENSE",
         "sha256": "2afdd30d54b4d62b6f488a6bcc1546e84ec5061f13f4209c03d012348783795a"
       }
     ],
@@ -1900,7 +1999,7 @@
   },
   {
     "name": "pydantic-settings",
-    "version": "2.10.1",
+    "version": "2.16.3",
     "license": "MIT",
     "license_source": "license_expression",
     "summary": "Settings management using Pydantic",
@@ -1913,8 +2012,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "pydantic_settings-2.10.1.dist-info/licenses/LICENSE",
-        "artifact_path": "pydantic-settings/2.10.1/pydantic_settings-2.10.1.dist-info/licenses/LICENSE",
+        "source_path": "pydantic_settings-2.16.3.dist-info/licenses/LICENSE",
+        "artifact_path": "pydantic-settings/2.16.3/pydantic_settings-2.16.3.dist-info/licenses/LICENSE",
         "sha256": "eb355a753e020346d33d83bf9769135b89fc610568ac531a01c295bcee7fd998"
       }
     ],
@@ -1969,7 +2068,7 @@
   },
   {
     "name": "pymisp",
-    "version": "2.5.34.1",
+    "version": "2.5.34.4",
     "license": "BSD-2-Clause",
     "license_source": "license_expression",
     "summary": "Python API for MISP.",
@@ -1983,8 +2082,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "pymisp-2.5.34.1.dist-info/licenses/LICENSE",
-        "artifact_path": "pymisp/2.5.34.1/pymisp-2.5.34.1.dist-info/licenses/LICENSE",
+        "source_path": "pymisp-2.5.34.4.dist-info/licenses/LICENSE",
+        "artifact_path": "pymisp/2.5.34.4/pymisp-2.5.34.4.dist-info/licenses/LICENSE",
         "sha256": "d683d256fb3deaa2e36c9562de63e7d32bd6b3ee9aa0817a04d5e2ea95651666"
       }
     ],
@@ -1998,14 +2097,13 @@
     ]
   },
   {
-    "name": "pyotp",
-    "version": "2.9.0",
+    "name": "PyOTP",
+    "version": "2.11.2",
     "license": "MIT",
-    "license_source": "license",
+    "license_source": "license_expression",
     "summary": "Python One Time Password Library",
-    "home_page": "https://github.com/pyotp/pyotp",
-    "author": "PyOTP contributors",
-    "metadata_license": "MIT License",
+    "author": "Andrey Kislyuk",
+    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -2014,19 +2112,17 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "pyotp-2.9.0.dist-info/LICENSE",
-        "artifact_path": "pyotp/2.9.0/pyotp-2.9.0.dist-info/LICENSE",
-        "sha256": "795885123341458172aad6ebfab31b071cc7b40524929e6901662d5dbbf57ea3"
+        "source_path": "pyotp-2.11.2.dist-info/licenses/LICENSE",
+        "artifact_path": "PyOTP/2.11.2/pyotp-2.11.2.dist-info/licenses/LICENSE",
+        "sha256": "be5964e73ece3de8302aba92ab0a6a258fc0f2e2c03c23ee481fdf6685f7de8c"
       }
     ],
     "project_urls": [
-      "Documentation, https://pyauth.github.io/pyotp",
+      "Homepage, https://github.com/pyauth/pyotp",
+      "Documentation, https://github.com/pyauth/pyotp",
       "Source Code, https://github.com/pyauth/pyotp",
       "Issue Tracker, https://github.com/pyauth/pyotp/issues",
-      "Change Log, https://github.com/pyauth/pyotp/blob/master/Changes.rst"
-    ],
-    "license_classifiers": [
-      "License :: OSI Approved :: MIT License"
+      "Change Log, https://github.com/pyauth/pyotp/blob/main/Changes.rst"
     ],
     "metadata_license_files": [
       "LICENSE"
@@ -2068,7 +2164,7 @@
   },
   {
     "name": "python-dotenv",
-    "version": "1.2.2",
+    "version": "1.2.4",
     "license": "BSD-3-Clause",
     "license_source": "license",
     "summary": "Read key-value pairs from a .env file and set them as environment variables",
@@ -2081,8 +2177,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "python_dotenv-1.2.2.dist-info/licenses/LICENSE",
-        "artifact_path": "python-dotenv/1.2.2/python_dotenv-1.2.2.dist-info/licenses/LICENSE",
+        "source_path": "python_dotenv-1.2.4.dist-info/licenses/LICENSE",
+        "artifact_path": "python-dotenv/1.2.4/python_dotenv-1.2.4.dist-info/licenses/LICENSE",
         "sha256": "80619b7049f08c81683ad0e01f08f257a840652dd71ee83146d36658c7d2c2b9"
       }
     ],
@@ -2095,7 +2191,7 @@
   },
   {
     "name": "python-multipart",
-    "version": "0.0.32",
+    "version": "0.0.33",
     "license": "Apache-2.0",
     "license_source": "license_expression",
     "summary": "A streaming multipart parser for Python",
@@ -2108,8 +2204,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE.txt",
-        "source_path": "python_multipart-0.0.32.dist-info/licenses/LICENSE.txt",
-        "artifact_path": "python-multipart/0.0.32/python_multipart-0.0.32.dist-info/licenses/LICENSE.txt",
+        "source_path": "python_multipart-0.0.33.dist-info/licenses/LICENSE.txt",
+        "artifact_path": "python-multipart/0.0.33/python_multipart-0.0.33.dist-info/licenses/LICENSE.txt",
         "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
       }
     ],
@@ -2128,7 +2224,7 @@
   },
   {
     "name": "pytz",
-    "version": "2026.2",
+    "version": "2026.6",
     "license": "MIT",
     "license_source": "license",
     "summary": "World timezone definitions, modern and historical",
@@ -2143,10 +2239,14 @@
       {
         "kind": "license",
         "file_name": "LICENSE.txt",
-        "source_path": "pytz-2026.2.dist-info/LICENSE.txt",
-        "artifact_path": "pytz/2026.2/pytz-2026.2.dist-info/LICENSE.txt",
+        "source_path": "pytz-2026.6.dist-info/LICENSE.txt",
+        "artifact_path": "pytz/2026.6/pytz-2026.6.dist-info/LICENSE.txt",
         "sha256": "be8b1a37ebe26c592a90f6c0eb33103a7f383ce2f4d7498c0af9a526990a07b8"
       }
+    ],
+    "project_urls": [
+      "Source, https://github.com/stub42/pytz.git",
+      "Issues, https://github.com/stub42/pytz/issues"
     ],
     "license_classifiers": [
       "License :: OSI Approved :: MIT License"
@@ -2193,33 +2293,53 @@
   },
   {
     "name": "readability-lxml",
-    "version": "0.8.4.1",
+    "version": "0.9",
     "license": "Apache-2.0",
     "license_source": "license",
     "summary": "fast html to text parser (article readability tool) with python 3 support",
-    "home_page": "http://github.com/buriy/python-readability",
     "author": "Yuri Baburov",
-    "metadata_license": "Apache License 2.0",
+    "metadata_license": "Apache-2.0",
     "license_files": [
       "LICENSE"
     ],
-    "notice_files": [],
+    "notice_files": [
+      "NOTICE",
+      "NOTICE"
+    ],
     "redistribution_files": [
+      {
+        "kind": "notice",
+        "file_name": "NOTICE",
+        "source_path": "NOTICE",
+        "artifact_path": "readability-lxml/0.9/NOTICE",
+        "sha256": "ae4e2be48d3f1bdff1067028b836d9b22e23e5884a31b7169d5bc698625fb4b2"
+      },
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "readability_lxml-0.8.4.1.dist-info/LICENSE",
-        "artifact_path": "readability-lxml/0.8.4.1/readability_lxml-0.8.4.1.dist-info/LICENSE",
+        "source_path": "readability_lxml-0.9.dist-info/licenses/LICENSE",
+        "artifact_path": "readability-lxml/0.9/readability_lxml-0.9.dist-info/licenses/LICENSE",
         "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+      },
+      {
+        "kind": "notice",
+        "file_name": "NOTICE",
+        "source_path": "readability_lxml-0.9.dist-info/licenses/NOTICE",
+        "artifact_path": "readability-lxml/0.9/readability_lxml-0.9.dist-info/licenses/NOTICE",
+        "sha256": "ae4e2be48d3f1bdff1067028b836d9b22e23e5884a31b7169d5bc698625fb4b2"
       }
     ],
+    "license_classifiers": [
+      "License :: OSI Approved :: Apache Software License"
+    ],
     "metadata_license_files": [
-      "LICENSE"
+      "LICENSE",
+      "NOTICE"
     ]
   },
   {
     "name": "redis",
-    "version": "6.2.0",
+    "version": "6.4.0",
     "license": "MIT",
     "license_source": "license_expression",
     "summary": "Python client for Redis database and key-value store",
@@ -2232,8 +2352,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "redis-6.2.0.dist-info/licenses/LICENSE",
-        "artifact_path": "redis/6.2.0/redis-6.2.0.dist-info/licenses/LICENSE",
+        "source_path": "redis-6.4.0.dist-info/licenses/LICENSE",
+        "artifact_path": "redis/6.4.0/redis-6.4.0.dist-info/licenses/LICENSE",
         "sha256": "a57b250a5bf03d7afe55b74063313f2adb7b00d546c0ab149a89398333fe3cc8"
       }
     ],
@@ -2253,7 +2373,7 @@
   },
   {
     "name": "regex",
-    "version": "2026.7.10",
+    "version": "2026.11.9",
     "license": "Apache-2.0 AND CNRI-Python",
     "license_source": "license_expression",
     "summary": "Alternative regular expression module, to replace re.",
@@ -2266,8 +2386,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE.txt",
-        "source_path": "regex-2026.7.10.dist-info/licenses/LICENSE.txt",
-        "artifact_path": "regex/2026.7.10/regex-2026.7.10.dist-info/licenses/LICENSE.txt",
+        "source_path": "regex-2026.11.9.dist-info/licenses/LICENSE.txt",
+        "artifact_path": "regex/2026.11.9/regex-2026.11.9.dist-info/licenses/LICENSE.txt",
         "sha256": "bff55ef4cdcc8c14ce259f8e8ab60e264418440d6335f4dc138273fbd506144d"
       }
     ],
@@ -2280,7 +2400,7 @@
   },
   {
     "name": "reportlab",
-    "version": "4.4.10",
+    "version": "4.5.1",
     "license": "BSD license (see license.txt for details), Copyright (c) 2000-2025, ReportLab Inc.",
     "license_source": "license",
     "summary": "The Reportlab Toolkit",
@@ -2296,29 +2416,29 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "reportlab-4.4.10.dist-info/licenses/LICENSE",
-        "artifact_path": "reportlab/4.4.10/reportlab-4.4.10.dist-info/licenses/LICENSE",
+        "source_path": "reportlab-4.5.1.dist-info/licenses/LICENSE",
+        "artifact_path": "reportlab/4.5.1/reportlab-4.5.1.dist-info/licenses/LICENSE",
         "sha256": "ef831761646313921375fc2cb888e8eeaf7da213d0b92852c10c42f3a0b4d138"
       },
       {
         "kind": "license",
         "file_name": "bitstream-vera-license.txt",
         "source_path": "reportlab/fonts/bitstream-vera-license.txt",
-        "artifact_path": "reportlab/4.4.10/reportlab/fonts/bitstream-vera-license.txt",
+        "artifact_path": "reportlab/4.5.1/reportlab/fonts/bitstream-vera-license.txt",
         "sha256": "3361d054759a2fc686a2c058be82deaf9c2e6fe549be9004d7935a6c1736315d"
       },
       {
         "kind": "copying",
         "file_name": "DarkGarden-copying-gpl.txt",
         "source_path": "reportlab/fonts/DarkGarden-copying-gpl.txt",
-        "artifact_path": "reportlab/4.4.10/reportlab/fonts/DarkGarden-copying-gpl.txt",
+        "artifact_path": "reportlab/4.5.1/reportlab/fonts/DarkGarden-copying-gpl.txt",
         "sha256": "1b2a567f289f66a143c56353e7b3d4fa5862514a5e3c5cfdf8b02ee5e5aaa953"
       },
       {
         "kind": "copying",
         "file_name": "DarkGarden-copying.txt",
         "source_path": "reportlab/fonts/DarkGarden-copying.txt",
-        "artifact_path": "reportlab/4.4.10/reportlab/fonts/DarkGarden-copying.txt",
+        "artifact_path": "reportlab/4.5.1/reportlab/fonts/DarkGarden-copying.txt",
         "sha256": "3cd1020510efa7f6b3166a5a2740f92bd664a695ea179e0bda442e74cd0ef3a4"
       }
     ],
@@ -2371,25 +2491,8 @@
     ]
   },
   {
-    "name": "sgmllib3k",
-    "version": "1.0.0",
-    "license": "BSD License",
-    "license_source": "license",
-    "summary": "Py3k port of sgmllib.",
-    "home_page": "http://hg.hardcoded.net/sgmllib",
-    "author": "Hardcoded Software",
-    "metadata_license": "BSD License",
-    "license_files": [],
-    "notice_files": [],
-    "redistribution_files": [],
-    "license_classifiers": [
-      "License :: OSI Approved :: BSD License"
-    ],
-    "redistribution_note": "No LICENSE/NOTICE/COPYING/AUTHORS-style file was published in the installed Python distribution."
-  },
-  {
     "name": "simplejson",
-    "version": "4.1.1",
+    "version": "4.3.0",
     "license": "MIT OR AFL-2.1",
     "license_source": "license",
     "summary": "Simple, fast, extensible JSON encoder/decoder for Python",
@@ -2404,8 +2507,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE.txt",
-        "source_path": "simplejson-4.1.1.dist-info/licenses/LICENSE.txt",
-        "artifact_path": "simplejson/4.1.1/simplejson-4.1.1.dist-info/licenses/LICENSE.txt",
+        "source_path": "simplejson-4.3.0.dist-info/licenses/LICENSE.txt",
+        "artifact_path": "simplejson/4.3.0/simplejson-4.3.0.dist-info/licenses/LICENSE.txt",
         "sha256": "fcaa1e313a99304322e2e0836ea4ee7d839ce9a480438f3922a853edfdde129f"
       }
     ],
@@ -2444,7 +2547,7 @@
   },
   {
     "name": "soupsieve",
-    "version": "2.9",
+    "version": "4.1.1",
     "license": "MIT",
     "license_source": "license_expression",
     "summary": "A modern CSS selector implementation for Beautiful Soup.",
@@ -2457,8 +2560,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE.md",
-        "source_path": "soupsieve-2.9.dist-info/licenses/LICENSE.md",
-        "artifact_path": "soupsieve/2.9/soupsieve-2.9.dist-info/licenses/LICENSE.md",
+        "source_path": "soupsieve-4.1.1.dist-info/licenses/LICENSE.md",
+        "artifact_path": "soupsieve/4.1.1/soupsieve-4.1.1.dist-info/licenses/LICENSE.md",
         "sha256": "76a0acdb98c3a63681e20b6f096699ef8cad5fb35d56eef8387e0fa71d797a9a"
       }
     ],
@@ -2474,7 +2577,7 @@
   },
   {
     "name": "SQLAlchemy",
-    "version": "2.0.42",
+    "version": "2.0.57",
     "license": "MIT",
     "license_source": "license",
     "summary": "Database Abstraction Library",
@@ -2487,11 +2590,18 @@
     "notice_files": [],
     "redistribution_files": [
       {
+        "kind": "authors",
+        "file_name": "AUTHORS",
+        "source_path": "sqlalchemy-2.0.57.dist-info/licenses/AUTHORS",
+        "artifact_path": "SQLAlchemy/2.0.57/sqlalchemy-2.0.57.dist-info/licenses/AUTHORS",
+        "sha256": "dc1db0b5d17455adc37b693ff8e409c9a80f603e441695825518c36f786c963e"
+      },
+      {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "sqlalchemy-2.0.42.dist-info/licenses/LICENSE",
-        "artifact_path": "SQLAlchemy/2.0.42/sqlalchemy-2.0.42.dist-info/licenses/LICENSE",
-        "sha256": "9821720b58d4a565b61321007a8ad43ab6991a3959e66cd5db4dd9eae69c7dfc"
+        "source_path": "sqlalchemy-2.0.57.dist-info/licenses/LICENSE",
+        "artifact_path": "SQLAlchemy/2.0.57/sqlalchemy-2.0.57.dist-info/licenses/LICENSE",
+        "sha256": "e862bb5b904fb5513c3e14288d7a25a12eb0ecc7847a0a965d310e9a955e7cb9"
       }
     ],
     "project_urls": [
@@ -2499,12 +2609,13 @@
       "Issue Tracker, https://github.com/sqlalchemy/sqlalchemy/"
     ],
     "metadata_license_files": [
-      "LICENSE"
+      "LICENSE",
+      "AUTHORS"
     ]
   },
   {
     "name": "starlette",
-    "version": "1.3.1",
+    "version": "1.10.0",
     "license": "BSD-3-Clause",
     "license_source": "license_expression",
     "summary": "The little ASGI library that shines.",
@@ -2517,8 +2628,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE.md",
-        "source_path": "starlette-1.3.1.dist-info/licenses/LICENSE.md",
-        "artifact_path": "starlette/1.3.1/starlette-1.3.1.dist-info/licenses/LICENSE.md",
+        "source_path": "starlette-1.10.0.dist-info/licenses/LICENSE.md",
+        "artifact_path": "starlette/1.10.0/starlette-1.10.0.dist-info/licenses/LICENSE.md",
         "sha256": "dcb95677a02240243187e964f941847d19b17821cf99e5afae684fab328c19bf"
       }
     ],
@@ -2654,11 +2765,12 @@
   },
   {
     "name": "trafilatura",
-    "version": "2.0.0",
+    "version": "2.3.1",
     "license": "Apache-2.0",
-    "license_source": "license",
+    "license_source": "license_expression",
     "summary": "Python & Command-line tool to gather text and metadata on the Web: Crawling, scraping, extraction, output as CSV, JSON, HTML, MD, TXT, XML.",
-    "metadata_license": "Apache 2.0",
+    "author": "Adrien Barbaresi",
+    "metadata_license_expression": "Apache-2.0",
     "license_files": [
       "LICENSE"
     ],
@@ -2667,8 +2779,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "trafilatura-2.0.0.dist-info/LICENSE",
-        "artifact_path": "trafilatura/2.0.0/trafilatura-2.0.0.dist-info/LICENSE",
+        "source_path": "trafilatura-2.3.1.dist-info/licenses/LICENSE",
+        "artifact_path": "trafilatura/2.3.1/trafilatura-2.3.1.dist-info/licenses/LICENSE",
         "sha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9"
       }
     ],
@@ -2678,8 +2790,33 @@
       "Blog, https://adrien.barbaresi.eu/blog/tag/trafilatura.html",
       "Tracker, https://github.com/adbar/trafilatura/issues"
     ],
-    "license_classifiers": [
-      "License :: OSI Approved :: Apache Software License"
+    "metadata_license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "truststore",
+    "version": "0.10.5",
+    "license": "MIT",
+    "license_source": "license_expression",
+    "summary": "Verify certificates using native system trust stores",
+    "metadata_license_expression": "MIT",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "truststore-0.10.5.dist-info/licenses/LICENSE",
+        "artifact_path": "truststore/0.10.5/truststore-0.10.5.dist-info/licenses/LICENSE",
+        "sha256": "33be7b7e8fa4fd19b1760e1a8ed8a668bdab852c91b692dd41424bcb725a9fca"
+      }
+    ],
+    "project_urls": [
+      "Documentation, https://truststore.readthedocs.io",
+      "Source, https://github.com/sethmlarson/truststore"
     ],
     "metadata_license_files": [
       "LICENSE"
@@ -2719,7 +2856,7 @@
   },
   {
     "name": "typing-inspection",
-    "version": "0.4.2",
+    "version": "0.4.5",
     "license": "MIT",
     "license_source": "license_expression",
     "summary": "Runtime typing introspection tools",
@@ -2732,8 +2869,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "typing_inspection-0.4.2.dist-info/licenses/LICENSE",
-        "artifact_path": "typing-inspection/0.4.2/typing_inspection-0.4.2.dist-info/licenses/LICENSE",
+        "source_path": "typing_inspection-0.4.5.dist-info/licenses/LICENSE",
+        "artifact_path": "typing-inspection/0.4.5/typing_inspection-0.4.5.dist-info/licenses/LICENSE",
         "sha256": "804b59b25f2c31bd278f9202a19ae49a3945aa2664387e2d0a128c7cacc61ec3"
       }
     ],
@@ -2748,48 +2885,8 @@
     ]
   },
   {
-    "name": "tzdata",
-    "version": "2026.3",
-    "license": "Apache-2.0",
-    "license_source": "license",
-    "summary": "Provider of IANA time zone data",
-    "home_page": "https://github.com/python/tzdata",
-    "author": "Python Software Foundation",
-    "metadata_license": "Apache-2.0",
-    "license_files": [
-      "LICENSE",
-      "LICENSE_APACHE"
-    ],
-    "notice_files": [],
-    "redistribution_files": [
-      {
-        "kind": "license",
-        "file_name": "LICENSE",
-        "source_path": "tzdata-2026.3.dist-info/licenses/LICENSE",
-        "artifact_path": "tzdata/2026.3/tzdata-2026.3.dist-info/licenses/LICENSE",
-        "sha256": "df58f69ea88683035d720b5375bcef0cf5aeaa98a1d098d572e0992c378deb46"
-      },
-      {
-        "kind": "license",
-        "file_name": "LICENSE_APACHE",
-        "source_path": "tzdata-2026.3.dist-info/licenses/licenses/LICENSE_APACHE",
-        "artifact_path": "tzdata/2026.3/tzdata-2026.3.dist-info/licenses/licenses/LICENSE_APACHE",
-        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
-      }
-    ],
-    "project_urls": [
-      "Bug Reports, https://github.com/python/tzdata/issues",
-      "Source, https://github.com/python/tzdata",
-      "Documentation, https://tzdata.python.org"
-    ],
-    "metadata_license_files": [
-      "LICENSE",
-      "licenses/LICENSE_APACHE"
-    ]
-  },
-  {
     "name": "tzlocal",
-    "version": "5.4.4",
+    "version": "5.4.5",
     "license": "MIT",
     "license_source": "license_expression",
     "summary": "tzinfo object for the local timezone",
@@ -2802,8 +2899,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE.txt",
-        "source_path": "tzlocal-5.4.4.dist-info/licenses/LICENSE.txt",
-        "artifact_path": "tzlocal/5.4.4/tzlocal-5.4.4.dist-info/licenses/LICENSE.txt",
+        "source_path": "tzlocal-5.4.5.dist-info/licenses/LICENSE.txt",
+        "artifact_path": "tzlocal/5.4.5/tzlocal-5.4.5.dist-info/licenses/LICENSE.txt",
         "sha256": "d99ab209aeb16aad2c25c90ffd83c1a981e290ffff76a420a2ab03e03f041b8c"
       }
     ],
@@ -2849,7 +2946,7 @@
   },
   {
     "name": "uvicorn",
-    "version": "0.35.0",
+    "version": "0.54.0",
     "license": "BSD-3-Clause",
     "license_source": "license_expression",
     "summary": "The lightning-fast ASGI server.",
@@ -2862,19 +2959,16 @@
       {
         "kind": "license",
         "file_name": "LICENSE.md",
-        "source_path": "uvicorn-0.35.0.dist-info/licenses/LICENSE.md",
-        "artifact_path": "uvicorn/0.35.0/uvicorn-0.35.0.dist-info/licenses/LICENSE.md",
+        "source_path": "uvicorn-0.54.0.dist-info/licenses/LICENSE.md",
+        "artifact_path": "uvicorn/0.54.0/uvicorn-0.54.0.dist-info/licenses/LICENSE.md",
         "sha256": "efe1acf3e62fb99c288b0ec73e5a773b7268ef4320fe757ea994214e4b63c371"
       }
     ],
     "project_urls": [
-      "Changelog, https://www.uvicorn.org/release-notes",
-      "Funding, https://github.com/sponsors/encode",
-      "Homepage, https://www.uvicorn.org/",
-      "Source, https://github.com/encode/uvicorn"
-    ],
-    "license_classifiers": [
-      "License :: OSI Approved :: BSD License"
+      "Changelog, https://uvicorn.dev/release-notes",
+      "Funding, https://github.com/sponsors/Kludex",
+      "Homepage, https://uvicorn.dev/",
+      "Source, https://github.com/Kludex/uvicorn"
     ],
     "metadata_license_files": [
       "LICENSE.md"
@@ -2882,7 +2976,7 @@
   },
   {
     "name": "uvloop",
-    "version": "0.22.1",
+    "version": "0.23.0",
     "license": "MIT",
     "license_source": "license",
     "summary": "Fast implementation of asyncio event loop on top of libuv",
@@ -2896,15 +2990,15 @@
       {
         "kind": "license",
         "file_name": "LICENSE-APACHE",
-        "source_path": "uvloop-0.22.1.dist-info/licenses/LICENSE-APACHE",
-        "artifact_path": "uvloop/0.22.1/uvloop-0.22.1.dist-info/licenses/LICENSE-APACHE",
+        "source_path": "uvloop-0.23.0.dist-info/licenses/LICENSE-APACHE",
+        "artifact_path": "uvloop/0.23.0/uvloop-0.23.0.dist-info/licenses/LICENSE-APACHE",
         "sha256": "377025287798f9dcd819e1f826fa5fc5e2f382528691ab0528c5cf8c8c282c27"
       },
       {
         "kind": "license",
         "file_name": "LICENSE-MIT",
-        "source_path": "uvloop-0.22.1.dist-info/licenses/LICENSE-MIT",
-        "artifact_path": "uvloop/0.22.1/uvloop-0.22.1.dist-info/licenses/LICENSE-MIT",
+        "source_path": "uvloop-0.23.0.dist-info/licenses/LICENSE-MIT",
+        "artifact_path": "uvloop/0.23.0/uvloop-0.23.0.dist-info/licenses/LICENSE-MIT",
         "sha256": "6dd4c399f26de043d77a2ad7e31db4cb5bf08ea8368b0a42d6e158635cc8ab62"
       }
     ],
@@ -2951,7 +3045,7 @@
   },
   {
     "name": "watchfiles",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "license": "MIT",
     "license_source": "license",
     "summary": "Simple, modern and high performance file watching and code reload in python.",
@@ -2965,8 +3059,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "watchfiles-1.2.0.dist-info/licenses/LICENSE",
-        "artifact_path": "watchfiles/1.2.0/watchfiles-1.2.0.dist-info/licenses/LICENSE",
+        "source_path": "watchfiles-1.3.0.dist-info/licenses/LICENSE",
+        "artifact_path": "watchfiles/1.3.0/watchfiles-1.3.0.dist-info/licenses/LICENSE",
         "sha256": "4fd78355b67ce2677ede9fb6f63a250f377bb7e22088136a5f4699adb4bc069f"
       }
     ],
@@ -2986,11 +3080,10 @@
   },
   {
     "name": "wcwidth",
-    "version": "0.8.2",
+    "version": "0.9.4",
     "license": "MIT",
-    "license_source": "license_expression",
+    "license_source": "classifier",
     "summary": "Measures the displayed width of unicode strings in a terminal",
-    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -2999,13 +3092,16 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "wcwidth-0.8.2.dist-info/licenses/LICENSE",
-        "artifact_path": "wcwidth/0.8.2/wcwidth-0.8.2.dist-info/licenses/LICENSE",
+        "source_path": "wcwidth-0.9.4.dist-info/licenses/LICENSE",
+        "artifact_path": "wcwidth/0.9.4/wcwidth-0.9.4.dist-info/licenses/LICENSE",
         "sha256": "70b98a95a2144eb70af8017fa8c6d95ce247e40867436e8bc649e137fe13d21a"
       }
     ],
     "project_urls": [
       "Homepage, https://github.com/jquast/wcwidth"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
     ],
     "metadata_license_files": [
       "LICENSE"
@@ -3013,7 +3109,7 @@
   },
   {
     "name": "websockets",
-    "version": "16.1",
+    "version": "17.4",
     "license": "BSD-3-Clause",
     "license_source": "license_expression",
     "summary": "An implementation of the WebSocket Protocol (RFC 6455 & 7692)",
@@ -3026,8 +3122,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "websockets-16.1.dist-info/licenses/LICENSE",
-        "artifact_path": "websockets/16.1/websockets-16.1.dist-info/licenses/LICENSE",
+        "source_path": "websockets-17.4.dist-info/licenses/LICENSE",
+        "artifact_path": "websockets/17.4/websockets-17.4.dist-info/licenses/LICENSE",
         "sha256": "3d6a0c050d8bec52fabad502e45fb25bd02bcadbd70dea34d447b6a0ff4e6da8"
       }
     ],
@@ -3044,7 +3140,7 @@
   },
   {
     "name": "wrapt",
-    "version": "2.3.0",
+    "version": "2.5.2",
     "license": "BSD-2-Clause",
     "license_source": "license_expression",
     "summary": "Module for decorators, wrappers and monkey patching.",
@@ -3057,8 +3153,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE",
-        "source_path": "wrapt-2.3.0.dist-info/licenses/LICENSE",
-        "artifact_path": "wrapt/2.3.0/wrapt-2.3.0.dist-info/licenses/LICENSE",
+        "source_path": "wrapt-2.5.2.dist-info/licenses/LICENSE",
+        "artifact_path": "wrapt/2.5.2/wrapt-2.5.2.dist-info/licenses/LICENSE",
         "sha256": "d4f66854a24dda2f2a5282912aedebe6b18186b86284510a433d78fadcd88e5d"
       }
     ],
