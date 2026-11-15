@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.core.rbac import ROLE_VIEWER
+from app.schemas.password import NewPassword
 from app.schemas.user import ProvisioningSource
 from app.schemas.iam import EffectiveAccessResponse
 
@@ -20,7 +21,7 @@ class LoginRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str = Field(
+    password: NewPassword = Field(
         min_length=8,
         max_length=256,
         json_schema_extra={"format": "password", "writeOnly": True},
@@ -33,7 +34,7 @@ class ChangePasswordRequest(BaseModel):
         max_length=256,
         json_schema_extra={"format": "password", "writeOnly": True},
     )
-    new_password: str = Field(
+    new_password: NewPassword = Field(
         min_length=8,
         max_length=256,
         json_schema_extra={"format": "password", "writeOnly": True},

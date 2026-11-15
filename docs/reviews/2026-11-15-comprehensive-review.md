@@ -56,6 +56,31 @@ release-readiness claim has been made.
 | Manifests, lockfiles, CI and ADR discovery | Source inspected; dependency and acceptance commands identified |
 | `git switch -c review/2026-11-15` | Local review branch created; no remote change |
 
+## Confirmed findings and incremental fixes
+
+### N01 — New password admission (P2)
+
+Registration, administrator account creation/reset and password changes accepted
+CR/LF characters that native browser password inputs discard. The shared
+`NewPassword` validator now rejects those characters for new credentials only.
+Existing login/current-password admission, length bounds, Unicode, spaces and
+optional administrator updates retain their previous behavior.
+
+`tests/unit/test_password_admission.py` reproduces 36 failures before the fix,
+with 33 compatibility controls passing. After correction all 69 cases pass.
+The combined after-run also passes 15 new OIDC policy cases, 29 existing OIDC
+cases and eight lock-helper cases (121 total, zero failures/errors). The two
+custom embedded-lock fixtures used during that run were subsequently removed:
+the actual runtime manifest is flat, and the suspected default lock-generator
+defect was retracted after checking file boundaries. No generator change is
+included. Ruff passes for the new password and OIDC source/tests.
+
+These focused runs use the existing Python 3.12.3 virtual environment; three
+unrelated installed versions differ from the old lock (`markdown-it-py`,
+`PyJWT`, `urllib3`). They establish the focused behavior, not a clean runtime
+dependency qualification. A separate exact-candidate environment and broader
+final checks remain pending.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

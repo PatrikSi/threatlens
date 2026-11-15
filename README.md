@@ -70,6 +70,10 @@ Use a valid email address; special-use domains such as `.test` and `.invalid`
 cannot sign in. Administrator seeding validates and normalizes the address
 with the same credential schema as login before opening a database session.
 Passwords must contain 1–256 characters without carriage returns or line feeds.
+Registration, administrator-created accounts, and password changes require
+8–256 characters and also reject carriage returns and line feeds. Other spaces
+and Unicode characters are preserved. Existing credentials keep their API login
+and current-password compatibility so they can be replaced safely.
 
 For a production or internet-facing deployment, review `.env.example` and replace any local-only settings before first startup.
 

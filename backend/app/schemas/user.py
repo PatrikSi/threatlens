@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.core.rbac import ROLE_ANALYST, ROLE_VIEWER
+from app.schemas.password import NewPassword
 
 RoleValue = Literal["admin", "analyst", "viewer"]
 ProvisioningSource = Literal["local", "oidc"]
@@ -15,7 +16,7 @@ OIDCIdentityStatus = Literal["not_linked", "linked_available", "linked_unavailab
 
 class UserCreateRequest(BaseModel):
     email: EmailStr
-    password: str = Field(
+    password: NewPassword = Field(
         min_length=8,
         max_length=256,
         json_schema_extra={"format": "password", "writeOnly": True},
@@ -36,7 +37,7 @@ class UserUpdateRequest(BaseModel):
         ),
     )
     email: EmailStr | None = None
-    password: str | None = Field(
+    password: NewPassword | None = Field(
         default=None,
         min_length=8,
         max_length=256,
