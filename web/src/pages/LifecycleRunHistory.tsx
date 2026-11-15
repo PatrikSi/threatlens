@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, type QueryKey } from '@tanstack/react-query'
 import { ChevronDown, Square } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
@@ -24,6 +24,7 @@ import {
 } from './lifecycleApi'
 import { LIFECYCLE_WEEKDAYS } from './lifecycleModel'
 import { LifecycleRunStatusChip } from './LifecycleStatus'
+import { useLifecycleReadAccess, type LifecycleResultCapture } from './lifecycleReadAccess'
 
 export interface LifecycleRunFilters {
   targetKey: string
@@ -33,6 +34,7 @@ export interface LifecycleRunFilters {
 
 export function LifecycleRunHistory({
   targets,
+  queryKey,
   runs,
   total,
   page,
@@ -48,6 +50,7 @@ export function LifecycleRunHistory({
   onRunChanged,
 }: {
   targets: LifecycleTarget[]
+  queryKey: QueryKey
   runs: LifecycleRun[]
   total: number
   page: number
@@ -60,12 +63,20 @@ export function LifecycleRunHistory({
   onPageChange: (page: number) => void
   onFiltersChange: (filters: LifecycleRunFilters) => void
   onRetry: () => void
-  onRunChanged: (run: LifecycleRun) => void
+  onRunChanged: (run: LifecycleRun, capture: LifecycleResultCapture) => void
 }) {
+  const readAccess = useLifecycleReadAccess()
+  const key = JSON.stringify(queryKey)
+  const captureCancellation = (run: LifecycleRun) => ({ run, key, admission: readAccess.runs.captureResult()(true) })
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null)
-  const [cancelRun, setCancelRun] = useState<LifecycleRun | null>(null)
+  const [cancelIntent, setCancelIntent] = useState<ReturnType<typeof captureCancellation> | null>(null)
+  const cancelRun = cancelIntent?.key === key && readAccess.runs.currentData(cancelIntent.admission) ? cancelIntent.run : null
   const targetsByKey = new Map(targets.map((target) => [target.key, target]))
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  function canCancel(run: LifecycleRun) {
+    const current = readAccess.currentRuns(queryKey)?.runs.find((entry) => entry.id === run.id)
+    return canWrite && current?.updated_at === run.updated_at && ['queued', 'running'].includes(current.status) && !current.cancel_requested
+  }
 
   return (
     <section className="tl-surface overflow-hidden rounded-xl" aria-labelledby="lifecycle-history-heading">
@@ -76,7 +87,15 @@ export function LifecycleRunHistory({
         </div>
       </div>
       <div className="grid gap-2 border-b border-slate/15 px-3 py-2 sm:grid-cols-3 sm:px-4 dark:border-white/10">
-        <FilterSelect label="Dataset" value={filters.targetKey} onChange={(targetKey) => onFiltersChange({ ...filters, targetKey })} options={[['', 'All datasets'], ...targets.map((target) => [target.key, target.label] as const)]} />
+        <FilterSelect
+          label="Dataset"
+          value={filters.targetKey}
+          onChange={(targetKey) => onFiltersChange({ ...filters, targetKey })}
+          options={[
+            ['', 'All datasets'], ...targets.map((target) => [target.key, target.label] as const),
+            ...(filters.targetKey && !targetsByKey.has(filters.targetKey) ? [[filters.targetKey, formatWireLabel(filters.targetKey)] as const] : []),
+          ]}
+        />
         <FilterSelect
           label="Status"
           value={filters.status}
@@ -157,7 +176,7 @@ export function LifecycleRunHistory({
                     expanded={expanded}
                     cancellable={cancellable}
                     onToggle={() => setExpandedRunId(expanded ? null : run.id)}
-                    onCancel={() => setCancelRun(run)}
+                    onCancel={() => { if (canCancel(run)) setCancelIntent(captureCancellation(run)) }}
                   />
                 )
               })}
@@ -173,10 +192,14 @@ export function LifecycleRunHistory({
       <LifecycleCancelDialog
         run={cancelRun}
         targetLabel={cancelRun ? targetsByKey.get(cancelRun.target_key)?.label ?? formatWireLabel(cancelRun.target_key) : ''}
-        onClose={() => setCancelRun(null)}
-        onCancelled={(updated) => { setCancelRun(null); onRunChanged(updated) }}
+        canSubmit={() => Boolean(cancelRun && canCancel(cancelRun))}
+        onClose={() => setCancelIntent(null)}
+        onCancelled={(updated, capture) => {
+          if (cancelRun?.id === updated.id) setCancelIntent(null)
+          onRunChanged(updated, capture)
+        }}
         onConflict={() => {
-          setCancelRun(null)
+          setCancelIntent(null)
           onRetry()
         }}
       />
@@ -335,21 +358,30 @@ function RunDetails({
 function LifecycleCancelDialog({
   run,
   targetLabel,
+  canSubmit,
   onClose,
   onCancelled,
   onConflict,
 }: {
   run: LifecycleRun | null
   targetLabel: string
+  canSubmit: () => boolean
   onClose: () => void
-  onCancelled: (run: LifecycleRun) => void
+  onCancelled: (run: LifecycleRun, capture: LifecycleResultCapture) => void
   onConflict: () => void
 }) {
+  const readAccess = useLifecycleReadAccess()
   const [reason, setReason] = useState('')
   const requestKey = useRef(newLifecycleRequestKey('cancel'))
   const mutation = useMutation({
-    mutationFn: () => cancelLifecycleRun(run!.id, { reason: reason.trim() }, requestKey.current),
-    onSuccess: onCancelled,
+    onMutate: readAccess.capture,
+    mutationFn: () => {
+      if (!run || !canSubmit() || reason.trim().length < 10) throw new Error('Refresh the run and select cancellation again before continuing.')
+      return cancelLifecycleRun(run.id, { reason: reason.trim() }, requestKey.current)
+    },
+    onSuccess: (updated, _variables, capture) => {
+      if (capture && readAccess.runs.currentData(capture.runs(true))) onCancelled(updated, capture)
+    },
     onError: (error) => {
       if (!isAmbiguousMutationError(error)) {
         requestKey.current = newLifecycleRequestKey('cancel')
@@ -381,7 +413,7 @@ function LifecycleCancelDialog({
       confirmingLabel="Requesting..."
       confirmTone="danger"
       isConfirming={mutation.isPending}
-      confirmDisabled={reason.trim().length < 10 || outcomeUnknown || stateConflict}
+      confirmDisabled={!canSubmit() || reason.trim().length < 10 || outcomeUnknown || stateConflict}
       cancelDisabled={mutation.isPending}
       onCancel={onClose}
       onConfirm={() => mutation.mutate()}

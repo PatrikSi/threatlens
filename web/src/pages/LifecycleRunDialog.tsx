@@ -1,5 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 
 import { isAmbiguousMutationError } from '../api/mutationResilience'
 import { resolveApiErrorMessage } from '../api/errors'
@@ -14,6 +15,7 @@ import { formatDateTime } from '../utils/datetime'
 import { newLifecycleRequestKey, startLifecycleRun } from './lifecycleApi'
 import { lifecyclePreviewLocalExpiresAt } from './lifecyclePreviewClock'
 import { lifecyclePreviewCountLabel } from './lifecycleModel'
+import { useLifecycleReadAccess, type LifecycleResultCapture } from './lifecycleReadAccess'
 
 const MIN_REASON_LENGTH = 10
 
@@ -22,6 +24,7 @@ export function LifecycleRunDialog({
   target,
   policy,
   preview,
+  canSubmit,
   onClose,
   onStarted,
 }: {
@@ -29,9 +32,19 @@ export function LifecycleRunDialog({
   target: LifecycleTarget
   policy: LifecyclePolicy
   preview: LifecyclePreview
+  canSubmit: boolean
   onClose: () => void
-  onStarted: (run: LifecycleRun) => void
+  onStarted: (run: LifecycleRun, capture: LifecycleResultCapture, mayNavigate: boolean) => void
 }) {
+  const location = useLocation()
+  const origin = useRef(location.key)
+  origin.current = location.key
+  const mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+  const readAccess = useLifecycleReadAccess()
+  const accessRef = useRef(readAccess)
+  accessRef.current = readAccess
+  const [admission, setAdmission] = useState(() => readAccess.catalog.captureResult()(true))
   const [reason, setReason] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [clock, setClock] = useState(() => Date.now())
@@ -39,14 +52,28 @@ export function LifecycleRunDialog({
   const confirmationRef = useRef<HTMLInputElement | null>(null)
 
   const mutation = useMutation({
-    mutationFn: () => startLifecycleRun({
+    onMutate: readAccess.capture,
+    mutationFn: async () => {
+      const current = readAccess.currentCatalog()?.targets.find((entry) => entry.key === target.key)
+      if (!open || !canSubmit || !readAccess.catalog.currentData(admission) || !current
+        || current.policy.revision !== policy.revision || reason.trim().length < MIN_REASON_LENGTH || confirmation !== 'PURGE') {
+        throw new Error('Reload the saved policy and preview before queuing cleanup.')
+      }
+      const startedFrom = origin.current
+      const run = await startLifecycleRun({
       target_key: target.key,
       expected_revision: policy.revision,
       preview_id: preview.id,
       confirmation: 'PURGE',
       reason: reason.trim(),
-    }, requestKey.current),
-    onSuccess: onStarted,
+      }, requestKey.current)
+      return { run, startedFrom }
+    },
+    onSuccess: ({ run, startedFrom }, _variables, capture) => {
+      if (capture && readAccess.catalog.currentData(capture.catalog(true))) {
+        onStarted(run, capture, mounted.current && origin.current === startedFrom)
+      }
+    },
     onError: (error) => {
       if (!isAmbiguousMutationError(error)) {
         requestKey.current = newLifecycleRequestKey('run')
@@ -59,6 +86,7 @@ export function LifecycleRunDialog({
     setReason('')
     setConfirmation('')
     setClock(Date.now())
+    setAdmission(accessRef.current.catalog.captureResult()(true))
     requestKey.current = newLifecycleRequestKey('run')
     resetMutation()
   }, [open, preview.id, resetMutation])
@@ -94,7 +122,7 @@ export function LifecycleRunDialog({
       confirmTone="danger"
       isConfirming={mutation.isPending}
       confirmDisabled={
-        !reasonValid || !confirmValid || previewExpired || outcomeUnknown
+        !canSubmit || !readAccess.catalog.currentData(admission) || !reasonValid || !confirmValid || previewExpired || outcomeUnknown
       }
       cancelDisabled={mutation.isPending}
       initialFocusRef={confirmationRef}

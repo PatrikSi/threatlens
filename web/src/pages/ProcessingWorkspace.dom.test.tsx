@@ -22,6 +22,7 @@ let work: ProcessingPage<ProcessingWork>
 let run: ProcessingRun
 let permissions: string[]
 let workFailure: Error | null
+let runsFailure: Error | null
 let runFailure: Error | null
 let recovery: (body: ProcessingRecoveryRequest) => Promise<ProcessingRun>
 let cancel: (version: number) => Promise<ProcessingRun>
@@ -66,15 +67,16 @@ beforeEach(() => {
   run = processingRunFixture()
   permissions = ['read:operations', 'read:items', 'write:operations']
   workFailure = null
+  runsFailure = null
   runFailure = null
   recovery = async () => run
-  cancel = async () => ({ ...run, status: 'cancelled', version: 2, cancelled_count: 1, can_cancel: false })
+  cancel = async () => { run = { ...run, status: 'cancelled', version: 2, cancelled_count: 1, can_cancel: false }; return run }
   vi.mocked(apiFetch).mockImplementation(async (path, init) => {
     if (path === '/auth/me') return { id: 'operator', access: { permissions } } as never
     if (path.startsWith('/processing/work?')) { if (workFailure) throw workFailure; return work as never }
     if (path === '/processing/recovery-runs' && init?.method === 'POST') return await recovery(JSON.parse(String(init.body))) as never
     if (path.endsWith('/cancel')) return await cancel(JSON.parse(String(init?.body)).expected_version) as never
-    if (path.startsWith('/processing/recovery-runs?')) return { items: [run], has_more: false, next_cursor: null } as never
+    if (path.startsWith('/processing/recovery-runs?')) { if (runsFailure) throw runsFailure; return { items: [run], has_more: false, next_cursor: null } as never }
     if (path === `/processing/recovery-runs/${processingRunId}`) { if (runFailure) throw runFailure; return run as never }
     throw new Error(`Unexpected test request ${path}`)
   })
@@ -92,6 +94,123 @@ afterEach(() => {
 })
 
 describe('processing work with actual router, session cache and mutations', () => {
+  it('keeps a previously cached processing filter hidden after a sibling denial until its own fresh read', async () => {
+    await mount()
+    await act(async () => { await router.navigate('/settings/operations?view=processing&work_state=pending') })
+    await vi.waitFor(() => expect(text()).toContain('Gateway advisory'))
+    workFailure = new ApiError('Current filter denied', 403, '/processing/work')
+    await act(async () => { await client.invalidateQueries({ queryKey: ['processing', 'work'] }) })
+    await vi.waitFor(() => expect(text()).toContain('Current filter denied'))
+    workFailure = new ApiError('Cached filter unavailable', 503, '/processing/work')
+    await act(async () => { await router.navigate('/settings/operations?view=processing') })
+    await vi.waitFor(() => expect(text()).toContain('Cached filter unavailable'))
+    expect(text()).not.toContain('Gateway advisory')
+    expect(text()).not.toContain('No incomplete processing matches this scope')
+    workFailure = null
+    await refresh()
+    await vi.waitFor(() => expect(text()).toContain('Gateway advisory'))
+    expect(text()).toContain('0 selected on this page')
+    expect(requests('POST')).toHaveLength(0)
+  })
+
+  it('does not restore a late recovery acceptance after its work read was denied', async () => {
+    const accepted = deferred<ProcessingRun>()
+    recovery = () => accepted.promise
+    await mount()
+    selectRow()
+    click('Review selected recovery')
+    click('Queue selected recovery')
+    await vi.waitFor(() => expect(requests('POST')).toHaveLength(1))
+    workFailure = new ApiError('Work denied during recovery', 403, '/processing/work')
+    await act(async () => { await client.invalidateQueries({ queryKey: ['processing', 'work'] }) })
+    await vi.waitFor(() => expect(text()).toContain('Work denied during recovery'))
+    await act(async () => accepted.resolve(run))
+    await settle()
+    expect(router.state.location.search).not.toContain('work_run=')
+    expect(client.getQueryData(['processing', 'run', processingRunId])).toBeUndefined()
+    expect(document.querySelector('[role=alertdialog]')).toBeNull()
+    expect(requests('POST')).toHaveLength(1)
+  })
+
+  it('does not restore a late cancellation response after its selected run read was denied', async () => {
+    const cancelled = deferred<ProcessingRun>()
+    cancel = () => cancelled.promise
+    await mount(`&work_run=${processingRunId}`)
+    click('Cancel remaining work')
+    click('Cancel remaining work', document.querySelector('[role=alertdialog]')!)
+    await vi.waitFor(() => expect(requests('POST')).toHaveLength(1))
+    runFailure = new ApiError('Run denied during cancellation', 403, '/processing/recovery-runs/run')
+    await act(async () => { await client.invalidateQueries({ queryKey: ['processing', 'run'] }) })
+    await vi.waitFor(() => expect(text()).toContain('Run denied during cancellation'))
+    await act(async () => cancelled.resolve({ ...run, version: 2, status: 'cancelled', can_cancel: false,
+      items: [{ ...run.items[0], title: 'Private late cancellation result' }] }))
+    await settle()
+    expect(document.querySelector('[aria-label="Selected recovery results"]')).toBeNull()
+    expect(text()).not.toContain('Private late cancellation result')
+    expect(document.querySelector('[role=alertdialog]')).toBeNull()
+    expect(requests('POST')).toHaveLength(1)
+  })
+
+  it('keeps an old recovery confirmation retired after denial, outage and fresh work recovery', async () => {
+    await mount()
+    selectRow()
+    click('Review selected recovery')
+    expect(document.querySelector('[role=alertdialog]')).not.toBeNull()
+    for (const status of [403, 503]) {
+      workFailure = new ApiError(`Processing read rejected ${status}`, status, '/processing/work')
+      await act(async () => { await client.invalidateQueries({ queryKey: ['processing', 'work'] }) })
+      await vi.waitFor(() => expect((client.getQueryCache().find({ queryKey: ['processing', 'work'], exact: false })?.state.error as ApiError)?.status).toBe(status))
+      await vi.waitFor(() => expect(text()).toContain(`Processing read rejected ${status}`))
+      expect(document.querySelector('[role=alertdialog]')).toBeNull()
+    }
+    workFailure = null
+    await refresh()
+    await vi.waitFor(() => expect(text()).toContain('Gateway advisory'))
+    expect(document.querySelector('[role=alertdialog]')).toBeNull()
+    expect(text()).toContain('0 selected on this page')
+    expect(requests('POST')).toHaveLength(0)
+  })
+
+  it('preserves a recovery review during an ordinary outage while pausing its actual submission', async () => {
+    await mount()
+    selectRow()
+    click('Review selected recovery')
+    workFailure = new ApiError('Processing temporarily unavailable', 503, '/processing/work')
+    await refresh()
+    const dialog = document.querySelector('[role=alertdialog]')!
+    expect(dialog).not.toBeNull()
+    expect(dialog.textContent).toContain('Gateway advisory')
+    expect(button('Queue selected recovery', dialog).disabled).toBe(true)
+    click('Queue selected recovery', dialog)
+    await settle()
+    expect(requests('POST')).toHaveLength(0)
+  })
+
+  it.each(['work', 'runs', 'run'] as const)('keeps denied processing %s hidden through an outage until a fresh read', async (resource) => {
+    work = { ...work, items: [processingWorkFixture({ title: 'Private pending work' })] }
+    run = processingRunFixture({ total_count: 12345, items: [{ ...run.items[0], title: 'Private recovery result' }] })
+    const marker = resource === 'work' ? 'Private pending work' : resource === 'runs' ? '12345 records' : 'Private recovery result'
+    await mount(`&work_run=${processingRunId}`)
+    await vi.waitFor(() => expect(text()).toContain(marker))
+    const key = ['processing', resource]
+    for (const status of [403, 503]) {
+      const error = new ApiError(`Processing read rejected ${status}`, status, `/processing/${resource}`)
+      if (resource === 'work') workFailure = error
+      else if (resource === 'runs') runsFailure = error
+      else runFailure = error
+      await act(async () => { await client.invalidateQueries({ queryKey: key }) })
+      await vi.waitFor(() => expect((client.getQueryCache().find({ queryKey: key, exact: false })?.state.error as ApiError)?.status).toBe(status))
+      await vi.waitFor(() => expect(text()).toContain(`Processing read rejected ${status}`))
+      expect(text()).not.toContain(marker)
+    }
+    workFailure = null
+    runsFailure = null
+    runFailure = null
+    await act(async () => { await client.invalidateQueries({ queryKey: key }) })
+    await vi.waitFor(() => expect(text()).toContain(marker))
+    expect(requests('POST')).toHaveLength(0)
+  })
+
   it('restores URL scope, clears selection across pages, and preserves Back navigation', async () => {
     work.has_more = true
     work.next_cursor = 'opaque-next'
@@ -152,10 +271,11 @@ describe('processing work with actual router, session cache and mutations', () =
     expect(accepted[1]).toEqual(accepted[0])
     expect(accepted[0].idempotency_key).toMatch(/^[\da-f-]{36}$/)
     expect(router.state.location.search).toContain(`work_run=${processingRunId}`)
-    expect(text()).toContain('Queued: 0 completed')
+    await vi.waitFor(() => expect(text()).toContain('Queued: 0 completed'))
+    expect(vi.mocked(apiFetch).mock.calls.some(([path]) => path === `/processing/recovery-runs/${processingRunId}`)).toBe(true)
     await act(async () => { await router.navigate('/elsewhere'); await router.navigate(-1) })
     await settle()
-    expect(text()).toContain('Queued: 0 completed')
+    await vi.waitFor(() => expect(text()).toContain('Queued: 0 completed'))
   })
 
   it('keeps selected work and shows actionable feedback when request preparation fails', async () => {
@@ -251,7 +371,8 @@ describe('processing work with actual router, session cache and mutations', () =
         run = { ...run, version: 2, status: 'running', completed_count: 1, total_count: 2 }
         throw new ApiError('Run changed', 409, '/processing/recovery-runs/cancel')
       }
-      return { ...run, status: 'cancelled', version: 3, cancelled_count: 1, can_cancel: false }
+      run = { ...run, status: 'cancelled', version: 3, cancelled_count: 1, can_cancel: false }
+      return run
     }
     await mount(`&work_run=${processingRunId}`)
     click('Cancel remaining work')

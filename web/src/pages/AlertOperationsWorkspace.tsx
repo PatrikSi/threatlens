@@ -231,7 +231,12 @@ function EvaluationDetail({ controller }: { controller: AlertOperationsControlle
           <p className="mt-1 break-all font-mono text-xs text-slate dark:text-slate-400">{request.id}</p>
         </div>
         {request.state === 'dead_letter' && (
-          <button type="button" className="min-h-10 rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white dark:bg-cyan dark:text-[#053c2e]" onClick={() => controller.setReplayTarget(request)}>Replay</button>
+          <button
+            type="button"
+            disabled={controller.replayUnavailable}
+            className="min-h-10 rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+            onClick={() => controller.setReplayTarget(request)}
+          >Replay</button>
         )}
       </div>
       {request.last_error_message && (
@@ -321,6 +326,7 @@ function ReplayConfirmation({ controller, request }: { controller: AlertOperatio
       confirmLabel="Replay evaluation"
       confirmTone="primary"
       isConfirming={controller.replay.isPending}
+      confirmDisabled={controller.replayUnavailable}
       onCancel={() => controller.setReplayTarget(null)}
       onConfirm={() => controller.replay.mutate(request)}
     >

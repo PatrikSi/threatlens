@@ -16,6 +16,7 @@ export function ProcessingRecoveryRuns({ controller }: { controller: ProcessingW
       <p className="text-sm text-slate dark:text-slate-300">Runs continue after navigation. Open a run to keep its status in this page’s URL. Access is checked again before processing each selected record.</p>
       {runsQuery.isLoading && <p role="status">Loading recovery runs...</p>}
       {runsQuery.isError && <p role="alert">{resolveApiErrorMessage(runsQuery.error, 'Recovery history could not be loaded. Refresh processing to retry.')}</p>}
+      {controller.runsAccessDenied && !runsQuery.isError && <p role="status">Recovery history access must be verified again. Refresh processing to retry.</p>}
       {runs?.items.length === 0 && <p className="text-sm">No recovery runs on this page.</p>}
       {runs && runs.items.length > 0 && (
         <ul className="flex flex-wrap gap-2" aria-label="Recovery runs">
@@ -40,6 +41,7 @@ export function ProcessingRecoveryRuns({ controller }: { controller: ProcessingW
           <h4 ref={heading} tabIndex={-1} id="processing-run-heading" className="font-semibold">Selected recovery run</h4>
           {runQuery.isLoading && <p role="status" className="mt-2">Loading recovery status...</p>}
           {runQuery.isError && <p role="alert" className="mt-2">{resolveApiErrorMessage(runQuery.error, 'This run could not be loaded. Refresh processing to retry.')}</p>}
+          {controller.runAccessDenied && !runQuery.isError && <p role="status">Recovery run access must be verified again. Refresh processing to retry.</p>}
           {run && <>
             <p role="status" aria-live="polite" aria-atomic="true" className="mt-2 text-sm">
               {run.access_limited ? `${processingStateLabel(run.status)}. Source details are unavailable with current access.`

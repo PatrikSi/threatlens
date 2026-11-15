@@ -68,6 +68,7 @@ import { DataLifecyclePage } from './DataLifecyclePage'
 
 let root: Root | null = null
 let container: HTMLDivElement | null = null
+let lifecycleClient: QueryClient | null = null
 
 beforeEach(() => {
   lifecycleMocks.canWrite = true
@@ -100,11 +101,40 @@ afterEach(() => {
   root = null
   container?.remove()
   container = null
+  lifecycleClient?.clear()
+  lifecycleClient = null
   document.body.innerHTML = ''
   vi.clearAllMocks()
 })
 
 describe('DataLifecyclePage', () => {
+  it.each(['catalog', 'history'] as const)('keeps denied lifecycle %s hidden through an outage until a fresh read', async (resource) => {
+    const overview = overviewFixture()
+    overview.targets[0].label = 'Private retention dataset'
+    const privateRun = { ...runFixture(), requested_by: 'private-retention-operator@example.test' }
+    const page = { runs: [privateRun], total: 1, page: 1, page_size: 25 }
+    lifecycleMocks.loadOverview.mockResolvedValue(overview)
+    lifecycleMocks.loadRuns.mockResolvedValue(page)
+    const view = await renderPage(resource === 'catalog' ? '/settings/lifecycle' : '/settings/lifecycle?tab=history')
+    const marker = resource === 'catalog' ? 'Private retention dataset' : privateRun.requested_by!
+    await vi.waitFor(() => expect(view.textContent).toContain(marker))
+    const queryKey = resource === 'catalog' ? ['operations', 'lifecycle'] : ['operations', 'lifecycle', 'runs']
+    const matches = { queryKey, exact: resource === 'catalog' }
+    const mock = resource === 'catalog' ? lifecycleMocks.loadOverview : lifecycleMocks.loadRuns
+    for (const status of [403, 503]) {
+      mock.mockRejectedValue(new ApiError(`Lifecycle read rejected ${status}`, status, '/operations/lifecycle'))
+      await act(async () => { await lifecycleClient!.invalidateQueries(matches) })
+      await vi.waitFor(() => expect((lifecycleClient!.getQueryCache().find(matches)?.state.error as ApiError)?.status).toBe(status))
+      await vi.waitFor(() => expect(view.textContent).toContain(`Lifecycle read rejected ${status}`))
+      expect(view.textContent).not.toContain(marker)
+    }
+    mock.mockResolvedValue(resource === 'catalog' ? overview : page)
+    await act(async () => { await lifecycleClient!.invalidateQueries(matches) })
+    await vi.waitFor(() => expect(view.textContent).toContain(marker))
+    expect(lifecycleMocks.updatePolicy).not.toHaveBeenCalled()
+    expect(lifecycleMocks.startRun).not.toHaveBeenCalled()
+  })
+
   it('lets read-only operators generate aggregate previews without exposing mutations', async () => {
     lifecycleMocks.canWrite = false
     const view = await renderPage('/settings/lifecycle')
@@ -414,6 +444,7 @@ async function renderPage(path: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
+  lifecycleClient = queryClient
   const router = createMemoryRouter([
     { path: '/settings/lifecycle', element: <DataLifecyclePage /> },
   ], { initialEntries: [path] })

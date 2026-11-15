@@ -456,6 +456,26 @@ An additional delete-intent lead passed its before control and was withdrawn;
 no speculative fix is included. Final project type, lint, build and broader
 suite gates remain outstanding. No browser validation is claimed.
 
+### N12 — operational configuration and completion recovery
+
+Alert operations, lifecycle policy/run views and processing recovery now retire
+denied saved context and stale confirmation intents while preserving mounted
+analyst drafts. A replay acknowledgment cannot turn a failed detail read into a
+healthy cached success. Switching occurrences retires a replay confirmation.
+Lifecycle queue acknowledgments keep the analyst's current route after navigation;
+accepted work is still reconciled through canonical reads. Processing acceptance
+and cancellation likewise reload the authoritative destination/version.
+
+The increment changes ten production files and seven regression files. The
+complete eight-file related run passes all 49 cases, including the original
+idempotency, cancellation and asynchronous navigation controls (log SHA-256
+`585bca3eb75b5466ee6a87edff319d7b2cccbc83501f8e89a98da3c198158ffc`).
+Independent review covers the final corrected source and canonical-read fixture
+changes (proof `890729ca8d7f8edd5f262e91e8055064ccc7472e1dc0351f1b1dec9dd4a3853e`).
+One final test-file formatting correction removes an extra trailing blank line.
+No assertion is removed. Project-wide type/lint/build and release gates remain
+open; these synthetic checks are not a production fault-injection campaign.
+
 Finish independent source reviews and the current registry/advisory inventory,
 record confirmed findings with reproductions, implement disjoint fixes with
 regression checks, and commit coherent tested increments. Reconcile final-source

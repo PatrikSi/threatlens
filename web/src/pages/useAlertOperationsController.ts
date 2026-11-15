@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type {
   AlertEvaluationActivityListResponse,
   AlertEvaluationListResponse,
@@ -23,8 +24,16 @@ export function useAlertOperationsController(active: boolean) {
   const [page, setPage] = useState(1)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [activityPage, setActivityPage] = useState(1)
-  const [replayTarget, setReplayTarget] = useState<AlertEvaluationRequest | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
+  const listAccess = useQueryAccessScope(['alerts', 'operations', 'evaluations'])
+  const detailAccess = useQueryAccessScope(['alerts', 'operations', 'evaluation', selectedId ?? ''])
+  const activityAccess = useQueryAccessScope(['alerts', 'operations', 'evaluation', selectedId ?? '', 'activity'])
+  const captureReplay = (request: AlertEvaluationRequest) => ({
+    request, parent: listAccess.captureResult()(true), detail: detailAccess.captureResult()(true),
+  })
+  const [replayIntent, setReplayIntent] = useState<ReturnType<typeof captureReplay> | null>(null)
+  const replayTarget = replayIntent && replayIntent.request.id === selectedId && listAccess.currentData(replayIntent.parent) && detailAccess.currentData(replayIntent.detail)
+    ? replayIntent.request : null
 
   const listPath = useMemo(() => {
     const params = new URLSearchParams({ page: String(page), page_size: '25' })
@@ -38,7 +47,7 @@ export function useAlertOperationsController(active: boolean) {
 
   const evaluationsQuery = useQuery({
     queryKey: ['alerts', 'operations', 'evaluations', listPath],
-    queryFn: () => apiFetch<AlertEvaluationListResponse>(listPath),
+    ...listAccess.queryOptions(({ signal }) => apiFetch<AlertEvaluationListResponse>(listPath, { signal })),
     enabled: active,
     refetchInterval: OPERATIONS_REFRESH_MS,
     retry: retryOperationsQuery,
@@ -60,41 +69,58 @@ export function useAlertOperationsController(active: boolean) {
     refetchInterval: OPERATIONS_REFRESH_MS,
     retry: retryOperationsQuery,
   })
+  const detailKey = ['alerts', 'operations', 'evaluation', selectedId, listAccess.generation]
   const detailQuery = useQuery({
-    queryKey: ['alerts', 'operations', 'evaluation', selectedId],
-    queryFn: () => apiFetch<AlertEvaluationRequest>(`/alerts/occurrences/evaluations/${selectedId}`),
-    enabled: active && Boolean(selectedId),
+    queryKey: detailKey,
+    ...detailAccess.queryOptions(({ signal }) => apiFetch<AlertEvaluationRequest>(`/alerts/occurrences/evaluations/${selectedId}`, { signal })),
+    enabled: active && Boolean(selectedId) && !listAccess.denied,
     retry: retryOperationsQuery,
   })
   const activityQuery = useQuery({
-    queryKey: ['alerts', 'operations', 'evaluation', selectedId, 'activity', activityPage],
-    queryFn: () => apiFetch<AlertEvaluationActivityListResponse>(
+    queryKey: ['alerts', 'operations', 'evaluation', selectedId, 'activity', activityPage, listAccess.generation, detailAccess.generation],
+    ...activityAccess.queryOptions(({ signal }) => apiFetch<AlertEvaluationActivityListResponse>(
       `/alerts/occurrences/evaluations/${selectedId}/activity?page=${activityPage}&page_size=50`,
-    ),
-    enabled: active && Boolean(selectedId),
+      { signal },
+    )),
+    enabled: active && Boolean(selectedId) && Boolean(detailQuery.data) && !listAccess.denied,
     retry: retryOperationsQuery,
   })
+  function currentEvaluation(request: AlertEvaluationRequest) {
+    if (queryClient.getQueryState(detailKey)?.status === 'error' || listAccess.denied) return undefined
+    const current = detailAccess.currentData<AlertEvaluationRequest>(queryClient.getQueryData(detailKey))
+    return current?.id === request.id && current.version === request.version && current.state === 'dead_letter' ? current : undefined
+  }
+  const replayUnavailable = detailQuery.isError || !detailQuery.data || Boolean(replayTarget && !currentEvaluation(replayTarget))
   const replay = useMutation({
     mutationKey: ['alerts', 'operations', 'replay'],
-    mutationFn: (request: AlertEvaluationRequest) =>
-      apiFetch<AlertEvaluationReplayResponse>(`/alerts/occurrences/evaluations/${request.id}/replay`, {
+    mutationFn: async (request: AlertEvaluationRequest) => {
+      if (request !== replayTarget || !replayIntent || !listAccess.currentData(replayIntent.parent)
+        || !detailAccess.currentData(replayIntent.detail) || !currentEvaluation(request)) {
+        throw new Error('Refresh the evaluation and select replay again before continuing.')
+      }
+      const capture = detailAccess.captureResult()
+      const admission = capture(true)
+      const parent = listAccess.captureResult()(true)
+      const acceptsResult = () => Boolean(detailAccess.currentData(admission) && listAccess.currentData(parent))
+      const response = await apiFetch<AlertEvaluationReplayResponse>(`/alerts/occurrences/evaluations/${request.id}/replay`, {
         method: 'POST',
         body: JSON.stringify({ expected_version: request.version }),
-      }),
-    onSuccess: (response) => {
-      setReplayTarget(null)
+      })
+      return { response, capture, acceptsResult, key: detailKey, requestId: request.id }
+    },
+    onSuccess: ({ response, capture, acceptsResult, key, requestId }) => {
+      void queryClient.invalidateQueries({ queryKey: ['alerts', 'operations'] })
+      if (!acceptsResult() || response.request.id !== requestId) return
+      if (queryClient.getQueryState(key)?.status === 'success') queryClient.setQueryData(key, capture(response.request))
+      if (selectedId !== requestId) return
+      setReplayIntent(null)
       setFeedback(response.enqueue_failed
         ? 'Replay was accepted durably, but immediate worker enqueue failed. Background reconciliation will retry it.'
         : 'Replay accepted and queued.')
-      queryClient.setQueryData(
-        ['alerts', 'operations', 'evaluation', response.request.id],
-        response.request,
-      )
-      void queryClient.invalidateQueries({ queryKey: ['alerts', 'operations'] })
     },
     onError: (error) => {
       if (error instanceof ApiError && error.code === 'alert_evaluation_version_conflict') {
-        setReplayTarget(null)
+        setReplayIntent(null)
         setFeedback('The evaluation changed after it was loaded. Fresh state has been requested; review it before replaying.')
         void queryClient.invalidateQueries({ queryKey: ['alerts', 'operations'] })
       }
@@ -114,6 +140,7 @@ export function useAlertOperationsController(active: boolean) {
 
   useEffect(() => {
     setActivityPage(1)
+    setReplayIntent(null)
   }, [selectedId])
 
   const metrics = useMemo(() => {
@@ -134,6 +161,7 @@ export function useAlertOperationsController(active: boolean) {
     setStateFilter(next)
     setPage(1)
     setSelectedId(null)
+    setReplayIntent(null)
     setFeedback(null)
   }
 
@@ -149,13 +177,17 @@ export function useAlertOperationsController(active: boolean) {
     metricsQuery,
     page,
     replay,
+    replayUnavailable,
     replayTarget,
     select: setSelectedId,
     selectedId,
     setFeedback,
     setActivityPage,
     setPage,
-    setReplayTarget,
+    setReplayTarget: (request: AlertEvaluationRequest | null) => {
+      if (!request) setReplayIntent(null)
+      else if (currentEvaluation(request)) setReplayIntent(captureReplay(request))
+    },
     stateFilter,
   }
 }

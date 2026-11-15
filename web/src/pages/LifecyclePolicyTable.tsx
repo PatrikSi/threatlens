@@ -32,6 +32,7 @@ import {
 } from './lifecycleApi'
 import { lifecyclePreviewLocalExpiresAt } from './lifecyclePreviewClock'
 import { LifecycleRunDialog } from './LifecycleRunDialog'
+import { useLifecycleReadAccess, type LifecycleResultCapture } from './lifecycleReadAccess'
 import {
   LifecyclePolicyChangeDialog,
   type LifecyclePolicyChangeConfirmation,
@@ -41,6 +42,8 @@ import { LifecyclePolicyState, LifecycleRunStatusChip } from './LifecycleStatus'
 export function LifecyclePolicyTable({
   targets,
   canWrite,
+  readUnavailable,
+  savedAvailable,
   onDirtyChange,
   onPolicyUpdated,
   onPreviewUpdated,
@@ -49,11 +52,13 @@ export function LifecyclePolicyTable({
 }: {
   targets: LifecycleTarget[]
   canWrite: boolean
+  readUnavailable: boolean
+  savedAvailable: boolean
   onDirtyChange: (targetKey: string, dirty: boolean) => void
-  onPolicyUpdated: (targetKey: string, policy: LifecyclePolicy) => void
-  onPreviewUpdated: (targetKey: string, preview: LifecyclePreview | null) => void
+  onPolicyUpdated: (targetKey: string, policy: LifecyclePolicy, capture: LifecycleResultCapture) => void
+  onPreviewUpdated: (targetKey: string, preview: LifecyclePreview | null, capture: LifecycleResultCapture) => void
   onReloadTarget: (targetKey: string) => Promise<LifecycleTarget | null>
-  onRunStarted: (run: LifecycleRun) => void
+  onRunStarted: (run: LifecycleRun, capture: LifecycleResultCapture, mayNavigate: boolean) => void
 }) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
   const groups = groupLifecycleTargets(targets)
@@ -87,6 +92,8 @@ export function LifecyclePolicyTable({
                     target={target}
                     expanded={expanded}
                     canWrite={canWrite}
+                    readUnavailable={readUnavailable}
+                    savedAvailable={savedAvailable}
                     onToggle={() => setExpandedKeys((current) => {
                       const next = new Set(current)
                       if (next.has(target.key)) next.delete(target.key)
@@ -113,6 +120,8 @@ function PolicyRows({
   target,
   expanded,
   canWrite,
+  readUnavailable,
+  savedAvailable,
   onToggle,
   onDirtyChange,
   onPolicyUpdated,
@@ -123,12 +132,14 @@ function PolicyRows({
   target: LifecycleTarget
   expanded: boolean
   canWrite: boolean
+  readUnavailable: boolean
+  savedAvailable: boolean
   onToggle: () => void
   onDirtyChange: (targetKey: string, dirty: boolean) => void
-  onPolicyUpdated: (targetKey: string, policy: LifecyclePolicy) => void
-  onPreviewUpdated: (targetKey: string, preview: LifecyclePreview | null) => void
+  onPolicyUpdated: (targetKey: string, policy: LifecyclePolicy, capture: LifecycleResultCapture) => void
+  onPreviewUpdated: (targetKey: string, preview: LifecyclePreview | null, capture: LifecycleResultCapture) => void
   onReloadTarget: (targetKey: string) => Promise<LifecycleTarget | null>
-  onRunStarted: (run: LifecycleRun) => void
+  onRunStarted: (run: LifecycleRun, capture: LifecycleResultCapture, mayNavigate: boolean) => void
 }) {
   const policy = target.policy
   const [preview, setPreview] = useState(target.latest_preview)
@@ -136,13 +147,14 @@ function PolicyRows({
   const handlePreviewUpdated = (
     targetKey: string,
     nextPreview: LifecyclePreview | null,
+    capture: LifecycleResultCapture,
   ) => {
     setPreview(nextPreview)
-    onPreviewUpdated(targetKey, nextPreview)
+    onPreviewUpdated(targetKey, nextPreview, capture)
   }
   return (
     <>
-      <tr className="border-t border-slate/10 align-middle dark:border-white/5">
+      {savedAvailable && <tr className="border-t border-slate/10 align-middle dark:border-white/5">
         <td className="px-3 py-2">
           <p className="font-semibold text-ink dark:text-slate-100">{target.label}</p>
           <p className="mt-0.5 line-clamp-2 text-xs text-slate dark:text-slate-400 md:truncate" title={target.description}>{target.description}</p>
@@ -190,12 +202,14 @@ function PolicyRows({
             <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden="true" />
           </button>
         </td>
-      </tr>
+      </tr>}
       <tr hidden={!expanded} className="border-t border-slate/10 dark:border-white/5">
           <td colSpan={6} className="p-0">
             <LifecyclePolicyEditor
               target={target}
               canWrite={canWrite}
+              readUnavailable={readUnavailable}
+              savedAvailable={savedAvailable}
               onDirtyChange={onDirtyChange}
               onPolicyUpdated={onPolicyUpdated}
               onPreviewUpdated={handlePreviewUpdated}
@@ -211,6 +225,8 @@ function PolicyRows({
 function LifecyclePolicyEditor({
   target,
   canWrite,
+  readUnavailable,
+  savedAvailable,
   onDirtyChange,
   onPolicyUpdated,
   onPreviewUpdated,
@@ -219,12 +235,17 @@ function LifecyclePolicyEditor({
 }: {
   target: LifecycleTarget
   canWrite: boolean
+  readUnavailable: boolean
+  savedAvailable: boolean
   onDirtyChange: (targetKey: string, dirty: boolean) => void
-  onPolicyUpdated: (targetKey: string, policy: LifecyclePolicy) => void
-  onPreviewUpdated: (targetKey: string, preview: LifecyclePreview | null) => void
+  onPolicyUpdated: (targetKey: string, policy: LifecyclePolicy, capture: LifecycleResultCapture) => void
+  onPreviewUpdated: (targetKey: string, preview: LifecyclePreview | null, capture: LifecycleResultCapture) => void
   onReloadTarget: (targetKey: string) => Promise<LifecycleTarget | null>
-  onRunStarted: (run: LifecycleRun) => void
+  onRunStarted: (run: LifecycleRun, capture: LifecycleResultCapture, mayNavigate: boolean) => void
 }) {
+  const readAccess = useLifecycleReadAccess()
+  const [baselineAdmission, setBaselineAdmission] = useState(() => readAccess.catalog.captureResult()(true))
+  const [previewAdmission, setPreviewAdmission] = useState(() => readAccess.catalog.captureResult()(true))
   const [baseline, setBaseline] = useState(() => lifecycleDraftFromPolicy(target.policy))
   const [baseRevision, setBaseRevision] = useState(target.policy.revision)
   const [draft, setDraft] = useState<LifecyclePolicyDraft>(baseline)
@@ -240,13 +261,23 @@ function LifecyclePolicyEditor({
   const updateKey = useRef(newLifecycleRequestKey('policy'))
   const dirty = lifecycleDraftChanged(draft, baseline)
   const validationError = lifecycleDraftError(target, draft)
+  const baselineAuthorized = Boolean(readAccess.catalog.currentData(baselineAdmission))
+  const authorityBlocked = readUnavailable || !baselineAuthorized
+  const visiblePreview = savedAvailable && readAccess.catalog.currentData(previewAdmission) ? preview : null
+
+  function assertCurrentPolicy(write = false) {
+    const current = readAccess.currentCatalog()?.targets.find((entry) => entry.key === target.key)
+    if (write && !canWrite || !readAccess.catalog.currentData(baselineAdmission) || !current || current.policy.revision !== baseRevision) {
+      throw new Error('Reload the current policy and verify access before continuing.')
+    }
+  }
 
   useEffect(() => onDirtyChange(target.key, dirty), [dirty, onDirtyChange, target.key])
   useEffect(() => () => onDirtyChange(target.key, false), [onDirtyChange, target.key])
   useEffect(() => {
-    if (target.policy.revision === baseRevision) return
+    if (readUnavailable || !savedAvailable || target.policy.revision === baseRevision && baselineAuthorized) return
     if (dirty) {
-      setConflict(true)
+      if (target.policy.revision !== baseRevision) setConflict(true)
       return
     }
     const next = lifecycleDraftFromPolicy(target.policy)
@@ -255,7 +286,15 @@ function LifecyclePolicyEditor({
     setBaseRevision(target.policy.revision)
     setPreview(target.latest_preview)
     setPreviewedDraft(target.latest_preview ? next : null)
-  }, [baseRevision, dirty, target])
+    setBaselineAdmission(readAccess.catalog.captureResult()(true))
+    setPreviewAdmission(readAccess.catalog.captureResult()(true))
+  }, [baseRevision, baselineAuthorized, dirty, readAccess.catalog, readUnavailable, savedAvailable, target])
+  useEffect(() => {
+    if (baselineAuthorized) return
+    setRunDialogOpen(false)
+    setPolicyChangeOpen(false)
+    setMessage('')
+  }, [baselineAuthorized])
   useEffect(() => {
     if (!preview) return
     const delay = lifecyclePreviewLocalExpiresAt(preview) - Date.now()
@@ -268,15 +307,21 @@ function LifecyclePolicyEditor({
   }, [preview])
 
   const previewMutation = useMutation({
-    mutationFn: () => previewLifecyclePolicy({
+    onMutate: readAccess.capture,
+    mutationFn: () => {
+      assertCurrentPolicy()
+      return previewLifecyclePolicy({
       target_key: target.key,
       expected_revision: baseRevision,
       draft,
-    }),
-    onSuccess: (result) => {
+      })
+    },
+    onSuccess: (result, _variables, capture) => {
+      if (!capture || !readAccess.catalog.currentData(capture.catalog(true))) return
       setPreview(result)
+      setPreviewAdmission(capture.catalog(true))
       setPreviewedDraft({ ...draft, options: { ...draft.options } })
-      onPreviewUpdated(target.key, result)
+      onPreviewUpdated(target.key, result, capture)
       setMessage('Preview generated. No records were changed.')
       setConflict(false)
     },
@@ -286,25 +331,31 @@ function LifecyclePolicyEditor({
     },
   })
   const saveMutation = useMutation({
-    mutationFn: (confirmation?: LifecyclePolicyChangeConfirmation) => updateLifecyclePolicy(target.key, {
+    onMutate: readAccess.capture,
+    mutationFn: (confirmation?: LifecyclePolicyChangeConfirmation) => {
+      assertCurrentPolicy(true)
+      return updateLifecyclePolicy(target.key, {
       expected_revision: baseRevision,
       ...draft,
       schedule_weekday: draft.schedule_cadence === 'weekly' ? draft.schedule_weekday : null,
       ...confirmation,
-    }, updateKey.current),
-    onSuccess: (result) => {
+      }, updateKey.current)
+    },
+    onSuccess: (result, _variables, capture) => {
+      if (!capture || !readAccess.catalog.currentData(capture.catalog(true))) return
       const next = lifecycleDraftFromPolicy(result)
       setBaseline(next)
       setDraft(next)
       setBaseRevision(result.revision)
       setPreview(null)
       setPreviewedDraft(null)
-      onPreviewUpdated(target.key, null)
+      setBaselineAdmission(capture.catalog(true))
+      onPreviewUpdated(target.key, null, capture)
       setConflict(false)
       setPolicyChangeOpen(false)
       setMessage('Policy saved. Generate a current preview before running cleanup.')
       updateKey.current = newLifecycleRequestKey('policy')
-      onPolicyUpdated(target.key, result)
+      onPolicyUpdated(target.key, result, capture)
     },
     onError: (error) => {
       setMessage('')
@@ -341,14 +392,18 @@ function LifecyclePolicyEditor({
   const editorLocked = conflict || saveOutcomeUnknown
 
   const resetTo = (latest: LifecycleTarget) => {
+    if (!readAccess.currentCatalog()?.targets.some((entry) => entry.key === latest.key && entry.policy.revision === latest.policy.revision)) return
     const next = lifecycleDraftFromPolicy(latest.policy)
     setBaseline(next)
     setDraft(next)
     setBaseRevision(latest.policy.revision)
     setPreview(latest.latest_preview)
     setPreviewedDraft(latest.latest_preview ? next : null)
+    setBaselineAdmission(readAccess.catalog.captureResult()(true))
+    setPreviewAdmission(readAccess.catalog.captureResult()(true))
     setConflict(false)
     setPolicyChangeOpen(false)
+    setRunDialogOpen(false)
     previewMutation.reset()
     saveMutation.reset()
     setMessage('Current server policy loaded; the local draft was discarded.')
@@ -364,19 +419,19 @@ function LifecyclePolicyEditor({
   const controlsDisabled = lifecycleControlsDisabled(
     canWrite,
     busy,
-    editorLocked,
+    editorLocked || authorityBlocked,
   )
   const previewDisabled = lifecyclePreviewDisabled({
     busy,
     validationError,
-    blocked: editorLocked,
+    blocked: editorLocked || authorityBlocked,
   })
   const saveDisabled = lifecycleSaveDisabled({
     canWrite,
     busy,
     dirty,
     validationError,
-    blocked: editorLocked,
+    blocked: editorLocked || authorityBlocked,
     destructiveChange,
     previewFreshForDraft,
   })
@@ -385,7 +440,7 @@ function LifecyclePolicyEditor({
     policyEnabled: target.policy.enabled,
     previewCurrent,
     busy,
-    blocked: editorLocked,
+    blocked: editorLocked || authorityBlocked,
   })
   const actionGuidance = lifecycleActionGuidance({
     destructiveChange,
@@ -402,10 +457,13 @@ function LifecyclePolicyEditor({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="font-semibold">Policy configuration</h3>
-              <p className="mt-0.5 text-xs text-slate dark:text-slate-400">{target.cutoff_description}</p>
-              <p className="mt-0.5 text-[0.6875rem] text-slate dark:text-slate-400">
-                Last changed {formatDateTime(target.policy.configuration_updated_at)} by {target.policy.updated_by ?? 'system bootstrap'} · {target.policy.next_run_at ? `next run ${formatDateTime(target.policy.next_run_at)}` : 'no next run scheduled'}
-              </p>
+              {!savedAvailable && <p role="status" className="mt-1 text-sm">Saved policy access is unavailable. Your unsaved local draft is kept.</p>}
+              {savedAvailable && <>
+                <p className="mt-0.5 text-xs text-slate dark:text-slate-400">{target.cutoff_description}</p>
+                <p className="mt-0.5 text-[0.6875rem] text-slate dark:text-slate-400">
+                  Last changed {formatDateTime(target.policy.configuration_updated_at)} by {target.policy.updated_by ?? 'system bootstrap'} · {target.policy.next_run_at ? `next run ${formatDateTime(target.policy.next_run_at)}` : 'no next run scheduled'}
+                </p>
+              </>}
             </div>
             <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm font-semibold md:min-h-0">
               <input
@@ -504,7 +562,7 @@ function LifecyclePolicyEditor({
           )}
         </div>
         <PreviewPanel
-          preview={preview}
+          preview={visiblePreview}
           previewMatchesDraft={previewMatchesDraft}
           previewFresh={previewFreshForDraft}
           actionDescription={target.action_description}
@@ -512,6 +570,14 @@ function LifecyclePolicyEditor({
       </div>
 
       {validationError && <p role="alert" className="mt-3 text-sm text-red-700 dark:text-red-300">{validationError}</p>}
+      {!baselineAuthorized && (
+        <p role="status" className="mt-3 text-sm">
+          Verify the saved policy again before submitting this draft.
+          <button type="button" className="ml-2 min-h-11 rounded border px-3 py-2 font-semibold" onClick={() => void onReloadTarget(target.key).then((latest) => latest && resetTo(latest))}>
+            Discard draft and reload policy
+          </button>
+        </p>
+      )}
       {conflict && (
         <div role="alert" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
           <span>This policy changed on the server. Reload it before saving or generating another preview.</span>
@@ -603,24 +669,25 @@ function LifecyclePolicyEditor({
           <Play className="h-4 w-4" aria-hidden="true" /> Run cleanup
         </button>
       </div>
-      {preview && (
+      {visiblePreview && (
         <LifecycleRunDialog
           open={runDialogOpen}
           target={target}
           policy={{ ...target.policy, revision: baseRevision }}
-          preview={preview}
+          preview={visiblePreview}
+          canSubmit={!authorityBlocked && canWrite}
           onClose={() => setRunDialogOpen(false)}
-          onStarted={(run) => {
+          onStarted={(run, capture, mayNavigate) => {
             setRunDialogOpen(false)
             setPreview(null)
             setPreviewedDraft(null)
-            onPreviewUpdated(target.key, null)
+            onPreviewUpdated(target.key, null, capture)
             setMessage('Cleanup queued. Follow progress in run history.')
-            onRunStarted(run)
+            onRunStarted(run, capture, mayNavigate)
           }}
         />
       )}
-      {preview && (
+      {visiblePreview && (
         <LifecyclePolicyChangeDialog
           open={policyChangeOpen}
           target={target}
@@ -631,7 +698,7 @@ function LifecyclePolicyEditor({
           nextRunCap={draft.max_records_per_run}
           disabledSafeguardLabels={disabledSafeguardLabels}
           draft={draft}
-          preview={preview}
+          preview={visiblePreview}
           previewCurrent={previewFreshForDraft}
           error={saveMutation.isError
             ? resolveApiErrorMessage(
@@ -639,7 +706,7 @@ function LifecyclePolicyEditor({
               'The lifecycle policy could not be saved',
             )
             : ''}
-          blocked={conflict}
+          blocked={conflict || authorityBlocked}
           busy={saveMutation.isPending}
           onCancel={() => setPolicyChangeOpen(false)}
           onConfirm={(confirmation) => saveMutation.mutate(confirmation)}

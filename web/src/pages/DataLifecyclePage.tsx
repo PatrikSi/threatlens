@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Archive, Clock3, RefreshCw, ShieldAlert } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { resolveApiErrorMessage } from '../api/errors'
@@ -16,11 +16,13 @@ import type {
   LifecycleRun,
   LifecycleRunStatus,
   LifecycleRunTrigger,
+  LifecycleTarget,
 } from '../types/lifecycle'
 import { formatDateTime } from '../utils/datetime'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import { loadLifecycleOverview, loadLifecycleRuns } from './lifecycleApi'
 import { LifecyclePolicyTable } from './LifecyclePolicyTable'
+import { useLifecycleReadAccess, type LifecycleResultCapture } from './lifecycleReadAccess'
 import {
   LifecycleRunHistory,
   type LifecycleRunFilters,
@@ -31,6 +33,7 @@ const RUN_PAGE_SIZE = 25
 
 export function DataLifecyclePage() {
   const queryClient = useQueryClient()
+  const readAccess = useLifecycleReadAccess()
   const meQuery = useCurrentUser()
   const [searchParams, setSearchParams] = useSearchParams()
   const tab: LifecycleTab = searchParams.get('tab') === 'history' ? 'history' : 'policies'
@@ -48,29 +51,32 @@ export function DataLifecyclePage() {
     { ignoreSearchChanges: true },
   )
 
-  const overviewQuery = useQuery({
-    queryKey: ['operations', 'lifecycle'],
-    queryFn: ({ signal }) => loadLifecycleOverview(signal),
-    staleTime: 15_000,
-  })
+  const catalogRead = readAccess.catalog.queryOptions(({ signal }) => loadLifecycleOverview(signal), 15_000)
+  const overviewQuery = useQuery({ queryKey: ['operations', 'lifecycle'], ...catalogRead })
   const targets = overviewQuery.data?.targets ?? []
+  const retainedTargets = useRef<LifecycleTarget[]>([])
+  useEffect(() => { if (overviewQuery.data) retainedTargets.current = overviewQuery.data.targets }, [overviewQuery.data])
+  const editorTargets = overviewQuery.data ? targets : retainedTargets.current.filter((target) => dirtyKeys.has(target.key))
   const { filters, targetFilterSettled, validTargetKey } = normalizeRunFilters(
     requestedFilters,
     targets,
     overviewQuery.isSuccess || overviewQuery.isError,
+    overviewQuery.isError && !overviewQuery.data,
   )
+  const runsKey = ['operations', 'lifecycle', 'runs', page, filters]
+  const runsRead = readAccess.runs.queryOptions(({ signal }) => loadLifecycleRuns({
+    page,
+    pageSize: RUN_PAGE_SIZE,
+    targetKey: filters.targetKey || undefined,
+    status: filters.status || undefined,
+    trigger: filters.trigger || undefined,
+    signal,
+  }))
   const runsQuery = useQuery({
-    queryKey: ['operations', 'lifecycle', 'runs', page, filters],
-    queryFn: ({ signal }) => loadLifecycleRuns({
-      page,
-      pageSize: RUN_PAGE_SIZE,
-      targetKey: filters.targetKey || undefined,
-      status: filters.status || undefined,
-      trigger: filters.trigger || undefined,
-      signal,
-    }),
+    queryKey: runsKey,
+    ...runsRead,
     enabled: tab === 'history' && targetFilterSettled,
-    refetchInterval: (query) => query.state.data?.runs.some(
+    refetchInterval: (query) => readAccess.runs.currentData(query.state.data)?.runs.some(
       (run) => run.status === 'queued' || run.status === 'running',
     ) ? 10_000 : false,
   })
@@ -126,52 +132,68 @@ export function DataLifecyclePage() {
       return next
     })
   }, [])
-  const updatePolicy = useCallback((targetKey: string, policy: LifecyclePolicy) => {
-    queryClient.setQueryData<LifecycleOverviewResponse>(
+  const updatePolicy = useCallback((targetKey: string, policy: LifecyclePolicy, capture: LifecycleResultCapture) => {
+    if (queryClient.getQueryState(['operations', 'lifecycle'])?.status === 'error') {
+      void queryClient.invalidateQueries({ queryKey: ['operations', 'lifecycle'] })
+      return
+    }
+    queryClient.setQueryData<Awaited<ReturnType<typeof catalogRead.queryFn>>>(
       ['operations', 'lifecycle'],
-      (current) => current ? {
-        ...current,
-        targets: current.targets.map((target) => target.key === targetKey
-          ? { ...target, policy, latest_preview: null }
-          : target),
-      } : current,
+      (current) => {
+        const overview = readAccess.catalog.currentData(current)
+        return overview && readAccess.catalog.currentData(capture.catalog(true)) ? capture.catalog({
+          ...overview,
+          targets: overview.targets.map((target) => target.key === targetKey
+            ? { ...target, policy, latest_preview: null }
+            : target),
+        }) : current
+      },
     )
     void queryClient.invalidateQueries({ queryKey: ['operations', 'lifecycle'] })
-  }, [queryClient])
+  }, [queryClient, readAccess.catalog])
   const updatePreview = useCallback((
     targetKey: string,
     preview: LifecyclePreview | null,
+    capture: LifecycleResultCapture,
   ) => {
-    queryClient.setQueryData<LifecycleOverviewResponse>(
+    if (queryClient.getQueryState(['operations', 'lifecycle'])?.status === 'error') return
+    queryClient.setQueryData<Awaited<ReturnType<typeof catalogRead.queryFn>>>(
       ['operations', 'lifecycle'],
-      (current) => current ? {
-        ...current,
-        targets: current.targets.map((target) => target.key === targetKey
-          ? { ...target, latest_preview: preview }
-          : target),
-      } : current,
+      (current) => {
+        const overview = readAccess.catalog.currentData(current)
+        return overview && readAccess.catalog.currentData(capture.catalog(true)) ? capture.catalog({
+          ...overview,
+          targets: overview.targets.map((target) => target.key === targetKey
+            ? { ...target, latest_preview: preview }
+            : target),
+        }) : current
+      },
     )
-  }, [queryClient])
+  }, [queryClient, readAccess.catalog])
   const reloadTarget = useCallback(async (targetKey: string) => {
     const result = await overviewQuery.refetch()
     if (!result.isSuccess) return null
     return result.data?.targets.find((target) => target.key === targetKey) ?? null
   }, [overviewQuery])
-  const handleRunChanged = useCallback((run: LifecycleRun) => {
-    queryClient.setQueriesData<{ runs: LifecycleRun[] }>(
-      { queryKey: ['operations', 'lifecycle', 'runs'] },
-      (current) => current ? {
-        ...current,
-        runs: current.runs.map((entry) => entry.id === run.id ? run : entry),
-      } : current,
+  const handleRunChanged = useCallback((run: LifecycleRun, capture: LifecycleResultCapture) => {
+    queryClient.setQueriesData<Awaited<ReturnType<typeof runsRead.queryFn>>>(
+      { queryKey: ['operations', 'lifecycle', 'runs'], predicate: (query) => query.state.status !== 'error' },
+      (current) => {
+        const page = readAccess.runs.currentData(current)
+        return page && readAccess.runs.currentData(capture.runs(true)) ? capture.runs({
+          ...page, runs: page.runs.map((entry) => entry.id === run.id ? run : entry),
+        }) : current
+      },
     )
     void queryClient.invalidateQueries({ queryKey: ['operations', 'lifecycle', 'runs'] })
     void queryClient.invalidateQueries({ queryKey: ['operations', 'lifecycle'] })
-  }, [queryClient])
-  const handleRunStarted = useCallback((run: LifecycleRun) => {
-    updatePreview(run.target_key, null)
+  }, [queryClient, readAccess.runs])
+  const handleRunStarted = useCallback((run: LifecycleRun, capture: LifecycleResultCapture, mayNavigate: boolean) => {
+    if (!readAccess.catalog.currentData(capture.catalog(true))) return
+    updatePreview(run.target_key, null, capture)
     void queryClient.invalidateQueries({ queryKey: ['operations', 'lifecycle', 'runs'] })
-    handleRunChanged(run)
+    handleRunChanged(run, capture)
+    if (!mayNavigate) return
     const next = new URLSearchParams(searchParams)
     next.set('tab', 'history')
     next.delete('target')
@@ -179,7 +201,7 @@ export function DataLifecyclePage() {
     next.delete('trigger')
     next.delete('page')
     setSearchParams(next, { replace: true })
-  }, [handleRunChanged, queryClient, searchParams, setSearchParams, updatePreview])
+  }, [handleRunChanged, queryClient, readAccess.catalog, searchParams, setSearchParams, updatePreview])
 
   const overviewError = overviewQuery.isError
     ? resolveApiErrorMessage(overviewQuery.error, 'Data lifecycle settings could not be loaded')
@@ -234,10 +256,20 @@ export function DataLifecyclePage() {
           {overviewQuery.isLoading && <p role="status" className="py-10 text-center text-sm text-slate dark:text-slate-300">Loading lifecycle policy catalog...</p>}
           {overviewError && !overviewQuery.data && <LoadFailure message={overviewError} onRetry={() => void overviewQuery.refetch()} />}
           {overviewQuery.data && targets.length === 0 && <p className="py-10 text-center text-sm text-slate dark:text-slate-300">No lifecycle policy targets are available in this deployment.</p>}
-          {targets.length > 0 && (
+          {editorTargets.length > 0 && (
             <>
-              {overviewError && <p role="alert" className="mb-3 text-sm text-red-700 dark:text-red-300">{overviewError} The last loaded policy catalog remains visible.</p>}
-              <LifecyclePolicyTable targets={targets} canWrite={access.canWrite} onDirtyChange={handleDirtyChange} onPolicyUpdated={updatePolicy} onPreviewUpdated={updatePreview} onReloadTarget={reloadTarget} onRunStarted={handleRunStarted} />
+              {overviewError && overviewQuery.data && <p role="alert" className="mb-3 text-sm text-red-700 dark:text-red-300">{overviewError} The last loaded policy catalog remains visible.</p>}
+              <LifecyclePolicyTable
+                targets={editorTargets}
+                canWrite={access.canWrite}
+                readUnavailable={overviewQuery.isError || !overviewQuery.data}
+                savedAvailable={Boolean(overviewQuery.data)}
+                onDirtyChange={handleDirtyChange}
+                onPolicyUpdated={updatePolicy}
+                onPreviewUpdated={updatePreview}
+                onReloadTarget={reloadTarget}
+                onRunStarted={handleRunStarted}
+              />
             </>
           )}
         </div>
@@ -255,6 +287,7 @@ export function DataLifecyclePage() {
         )}
         <LifecycleRunHistory
           targets={targets}
+          queryKey={runsKey}
           runs={runsQuery.data?.runs ?? []}
           total={runsQuery.data?.total ?? 0}
           page={page}
@@ -263,7 +296,7 @@ export function DataLifecyclePage() {
           loading={runsQuery.isLoading || !targetFilterSettled}
           fetching={runsQuery.isFetching}
           error={runsError}
-          canWrite={access.canWrite}
+          canWrite={access.canWrite && !runsQuery.isError && Boolean(runsQuery.data)}
           onPageChange={setRunPage}
           onFiltersChange={setFilters}
           onRetry={() => void runsQuery.refetch()}
@@ -309,10 +342,12 @@ function normalizeRunFilters(
   requested: LifecycleRunFilters,
   targets: LifecycleOverviewResponse['targets'],
   catalogSettled: boolean,
+  catalogUnavailable: boolean,
 ) {
   const targetFilterSettled = !requested.targetKey || catalogSettled
-  const validTargetKey = requested.targetKey
-    && targets.some((target) => target.key === requested.targetKey)
+  // Unavailable metadata cannot declare an operator's dataset identifier invalid.
+  // The independent history endpoint still validates that explicit filter.
+  const validTargetKey = catalogUnavailable || requested.targetKey && targets.some((target) => target.key === requested.targetKey)
     ? requested.targetKey
     : ''
   return {

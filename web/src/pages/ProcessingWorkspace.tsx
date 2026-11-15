@@ -10,7 +10,7 @@ export function ProcessingWorkspace() {
   const { scope, rows, selected, staleSelection, workQuery, busy, canRead, canWrite } = controller
   if (controller.user.isLoading) return <p role="status" className="p-4">Checking processing access...</p>
   if (!canRead) return <p role="alert" className="p-4">Processing work requires permission to read operations and articles.</p>
-  const available = !processingAccessError(workQuery.error)
+  const available = !processingAccessError(workQuery.error) && !controller.workAccessDenied
   return (
     <div>
       <section className="space-y-3 p-3" aria-labelledby="processing-heading">
@@ -28,6 +28,7 @@ export function ProcessingWorkspace() {
         {controller.error && <p role="alert" className="text-sm">{controller.error}</p>}
         {workQuery.isError && <p role="alert" className="text-sm">{resolveApiErrorMessage(workQuery.error, 'Processing work could not be loaded. Refresh to retry.')}{available && workQuery.data ? ' Showing last known results; recovery is paused until refresh succeeds.' : ''}</p>}
         {workQuery.isLoading && <p role="status">Loading processing work...</p>}
+        {controller.workAccessDenied && !workQuery.isError && <p role="status">Processing access must be verified again. Refresh processing to retry.</p>}
         {available && workQuery.isSuccess && rows.length === 0 && <p className="py-4 text-sm">No incomplete processing matches this scope.</p>}
         {available && rows.length > 0 && <>
           <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -59,7 +60,8 @@ function ProcessingRecoveryDialogs({ controller }: { controller: ProcessingWorks
   return (
     <>
       <ConfirmDialog open={Boolean(review)} title="Recover selected processing?" confirmLabel="Queue selected recovery" confirmTone="primary"
-        isConfirming={createRun.isPending} confirmingLabel="Queueing recovery..." confirmDisabled={!canWrite || processingConflict(createRun.error) || processingAccessError(createRun.error)}
+        isConfirming={createRun.isPending} confirmingLabel="Queueing recovery..."
+        confirmDisabled={!canWrite || controller.recoveryUnavailable || processingConflict(createRun.error) || processingAccessError(createRun.error)}
         onCancel={controller.closeReview} onConfirm={() => { if (review) createRun.mutate(review) }}>
         <p>Queue {review?.rows.length ?? 0} selected work records. Only selected pipeline stages are retried. Already committed results are preserved. Normal processing may produce alerts and notifications.</p>
         <ul className="max-h-48 list-disc overflow-y-auto pl-5">{review?.rows.map((row) => <li key={`${row.item_id}:${row.stage}`}>{row.title} · {processingStageLabel(row.stage)}</li>)}</ul>
@@ -71,7 +73,7 @@ function ProcessingRecoveryDialogs({ controller }: { controller: ProcessingWorks
         </div>}
       </ConfirmDialog>
       <ConfirmDialog open={Boolean(cancelReview)} title="Cancel remaining recovery work?" confirmLabel="Cancel remaining work"
-        isConfirming={cancelRun.isPending} confirmDisabled={!canWrite} onCancel={controller.closeCancel}
+        isConfirming={cancelRun.isPending} confirmDisabled={!canWrite || controller.cancellationUnavailable} onCancel={controller.closeCancel}
         onConfirm={() => { if (cancelReview) cancelRun.mutate(cancelReview) }}>
         <p>Cancellation stops this recovery run’s remaining selections. Already committed processing results are preserved.
           {' '}Normal background processing may continue independently.</p>
