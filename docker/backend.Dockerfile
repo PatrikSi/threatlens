@@ -13,11 +13,14 @@ WORKDIR /app
 
 COPY requirements.txt requirements-lock.txt /app/
 RUN python -m pip install --no-cache-dir --upgrade pip==26.3 \
-    && python -m pip install --no-cache-dir -r /app/requirements-lock.txt
+    && python -m pip install --no-cache-dir -r /app/requirements-lock.txt \
+    && python -m pip uninstall --yes pip \
+    && rm -rf /usr/local/lib/python3.12/ensurepip
 
 COPY . /app
 # Compile-only checks do not catch transport dependencies supplied by dev tools.
 # Exercise the actual API, worker and Beat imports in the runtime-only image.
+RUN python -c "import importlib.util, shutil; assert all(importlib.util.find_spec(name) is None for name in ('pip', 'ensurepip')); assert all(shutil.which(name) is None for name in ('pip', 'pip3', 'pip3.12'))"
 RUN python -c "import app.main; import app.tasks.celery_app; import app.tasks.beat_scheduler; import app.tasks.bounded_beat"
 RUN chmod +x /app/scripts/start-api.sh \
     && mkdir -p /usr/share/doc/threatlens \

@@ -1097,10 +1097,52 @@ setup changed; every previous assertion remains. Both source snapshots differ
 only in this test module. Independent proof:
 `bc17870941389e7a707255adb516f3d633a018b06bae0f81d8e4964967fd2b9b`.
 
+### N37 — remove unused runtime package installers
+
+The rebuilt backend `f8aac180…` initially fails its raw HIGH/CRITICAL scan for
+CVE-2025-47273, attributed to setuptools 70.3.0 in pip 26.3's vendored SBOM.
+Two independent reviews of the actual exported image confirm that only
+`pkg_resources` is vendored; the affected `setuptools.package_index` module is
+absent, including from the dormant ensurepip wheel. This matches the
+[maintainer advisory](https://github.com/pypa/setuptools/security/advisories/GHSA-5rjg-fvgr-3xxf)
+and [pip's vendoring policy](https://github.com/pypa/pip/blob/26.3/src/pip/_vendor/README.rst).
+The original scan failure is retained as an overbroad component-metadata match,
+not rewritten as a successful scanner run.
+
+The runtime does not use pip or ensurepip. The backend build now installs the
+unchanged 96 application pins with patched pip, then uninstalls pip and removes
+ensurepip before the existing runtime import/inventory checks. Explicit guards
+require both modules and all three pip entry points to be absent. Host developer
+and SDK environments retain patched pip 26.3. Resolving/installing packages and
+automatic venv bootstrapping are host/build workflows; the release guide records
+that runtime boundary. No advisory ignore, VEX
+exception or modified vendor SBOM is introduced.
+
+Independent review traces startup, migration, workers, health and recovery paths;
+the optional unused Kombu etcd diagnostic already falls back when its obsolete
+pip API is unavailable. No application source or runtime pin changes. Exact
+two-source and actual old-image applicability proof:
+`d77cec82671b7de092274b0feeba4efd9c272ba0c8dc11036f0a71027a5a564c`.
+
+The candidate built from tracked application source plus the recorded Dockerfile
+patch passes its actual installer-absence and API/Celery/Beat import guards
+(log `d2eff1db00fcd120ae23669b5a528a610c6c243d5e8ac718f79267bb0e2afe28`).
+All 16 CI/Compose contract cases also pass again. The final committed image,
+actual 96-package inventory/legal payloads, all-severity fixable scans and
+embedded-backend HTTP qualification remain pending.
+
+One private old-image extraction verifier exceeded its sampled memory limit by
+hashing an exported archive in one read. The failed run is retained; recovery
+streams the hash, independently verifies all 20,779 filesystem paths and actual
+pip payloads, and removes the exact-owned stopped extraction container. A
+database-cleanup absence check also required a typed Docker lookup; both owned
+database containers and their volumes are now independently verified absent.
+These verification failures are not application failures or counted passes.
+
 ## Next executable steps
 
-Finish the patched-runner and deterministic-fixture requalification, and
-rebuild/requalify the backend image including its bootstrap package.
+Build and qualify the committed runtime-only image pair, refresh actual package
+inventories/notices and complete the embedded-backend HTTP check.
 Reconcile the final revision with independent reviews and actual gate receipts,
 then remove only owned disposable resources. Browser and ARM CI,
 current capacity campaigns and full production-topology qualification remain

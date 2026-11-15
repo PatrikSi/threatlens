@@ -74,10 +74,14 @@ Python checks audit both the exact application runtime lock and the installed
 backend/SDK test environments, including pip, pytest and their dependencies.
 The auditor is pinned and installed under the runtime lock's constraints after
 the tests, so installing it cannot silently change an application pin. Strict
-audits fail on uncollectable dependencies. The backend image upgrades its own
-pip before installing the runtime lock; review that bootstrap package as well
-as the application dependencies in the extracted image inventory. A scan
-limited to HIGH/CRITICAL findings does not cover every Python advisory.
+audits fail on uncollectable dependencies. The backend build upgrades pip before
+installing the runtime lock, then removes pip and ensurepip from the shipped
+image. Runtime images support the installed application dependency set;
+dependency resolution, package installation and automatic virtual-environment
+bootstrap belong in the host development environment or image build. Build
+guards verify installer absence and actual API/worker/Beat imports. Verify the
+extracted runtime inventory against all application pins. A scan limited to
+HIGH/CRITICAL findings does not cover every Python advisory.
 
 JavaScript actions require a Node 24-capable runner, including Actions runner
 2.327.1 or newer as documented by [Checkout](https://github.com/actions/checkout/blob/v7.0.1/README.md).
