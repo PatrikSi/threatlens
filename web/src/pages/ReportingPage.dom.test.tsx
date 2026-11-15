@@ -1449,3 +1449,236 @@ it('retains schedule drafts across reporting tabs and confirms explicit cancella
   act(() => rowButton(rowByName(view, 'Weekly report'), 'Cancel').click())
   expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Discard unsaved report schedule changes?')
 })
+
+describe('reporting metadata independent read authority', () => {
+  const privateTemplate = { ...REPORT_TEMPLATE, name: 'Private saved reporting template',
+    prompt: { ...REPORT_TEMPLATE.prompt, objective: 'Private saved reporting objective' } }
+  const privateSchedule = reportSchedule('schedule-1', 'Private saved reporting schedule')
+
+  function protectReads(target: string) {
+    let status = 200
+    const rejected: number[] = []
+    reportingPageMocks.routeReportId = undefined
+    reportingPageMocks.userRole = 'admin'
+    reportingPageMocks.apiFetch.mockImplementation((path: string) => {
+      if (path === target && status !== 200) {
+        rejected.push(status)
+        return Promise.reject(new ApiError('Reporting metadata read unavailable', status, path))
+      }
+      if (path === '/reports/capabilities') return Promise.resolve({ ...CAPABILITIES, context_window_tokens: 892731 })
+      if (path === '/reports/templates') return Promise.resolve([privateTemplate])
+      if (path === '/reports/schedules') return Promise.resolve([privateSchedule])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], next_cursor: null })
+      return Promise.reject(new Error(`Unexpected reporting metadata request: ${path}`))
+    })
+    return { rejected, setStatus: (next: number) => { status = next } }
+  }
+
+  async function settleRead(key: string, status: number) {
+    await act(async () => { await queryClient!.refetchQueries({ queryKey: ['reports', key], exact: true }) })
+    await vi.waitFor(() => expect((queryClient!.getQueryState(['reports', key])?.error as ApiError)?.status).toBe(status))
+    await act(async () => { await new Promise((done) => setTimeout(done, 15)) })
+  }
+
+  it('keeps a copied template objective private while preserving the unsent report title', async () => {
+    const reads = protectReads('/reports/templates')
+    const view = renderPage()
+    await vi.waitFor(() => expect([...view.querySelectorAll('textarea')].map((input) => input.value)).toContain(privateTemplate.prompt.objective))
+    const title = view.querySelector<HTMLInputElement>('input[placeholder="Use template and period"]')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(title, 'My unsent report title')
+      title.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    reads.setStatus(403)
+    await settleRead('templates', 403)
+    const unload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(unload)
+    expect(unload.defaultPrevented).toBe(true)
+    expect([...view.querySelectorAll('textarea')].map((input) => input.value)).not.toContain(privateTemplate.prompt.objective)
+    reads.setStatus(200)
+    await act(async () => { await queryClient!.refetchQueries({ queryKey: ['reports', 'templates'], exact: true }) })
+    await vi.waitFor(() => expect(view.querySelector<HTMLInputElement>('input[placeholder="Use template and period"]')?.value).toBe('My unsent report title'))
+  })
+
+  it('retains the local save-as-template name and visibility through template access recovery', async () => {
+    const reads = protectReads('/reports/templates')
+    const view = renderPage()
+    const templateForm = () => [...view.querySelectorAll('form')].find((form) => form.textContent?.includes('Template name'))
+    await vi.waitFor(() => expect([...view.querySelectorAll('textarea')].map((input) => input.value)).toContain(privateTemplate.prompt.objective))
+    act(() => {
+      const title = view.querySelector<HTMLInputElement>('input[placeholder="Use template and period"]')!
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(title, 'My retained report title')
+      title.dispatchEvent(new Event('input', { bubbles: true }))
+      const objective = [...view.querySelectorAll('textarea')].find((input) => input.value === privateTemplate.prompt.objective)!
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(objective, 'My retained local objective')
+      objective.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    act(() => button(view, 'Save as template').click())
+    act(() => {
+      const name = templateForm()!.querySelector<HTMLInputElement>('input')!
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'My unsent template name')
+      name.dispatchEvent(new Event('input', { bubbles: true }))
+      const visibility = templateForm()!.querySelector<HTMLSelectElement>('select')!
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(visibility, 'shared')
+      visibility.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(templateForm()?.querySelector<HTMLInputElement>('input')?.value).toBe('My unsent template name')
+    expect(templateForm()?.querySelector<HTMLSelectElement>('select')?.value).toBe('shared')
+    reads.setStatus(403)
+    await settleRead('templates', 403)
+    expect(reads.rejected).toContain(403)
+    expect(templateForm()).toBeUndefined()
+    reads.setStatus(200)
+    await act(async () => { await queryClient!.refetchQueries({ queryKey: ['reports', 'templates'], exact: true }) })
+    await vi.waitFor(() => expect(view.querySelector<HTMLInputElement>('input[placeholder="Use template and period"]')?.value).toBe('My retained report title'))
+    expect([...view.querySelectorAll('textarea')].map((input) => input.value)).toContain('My retained local objective')
+    expect(templateForm()?.querySelector<HTMLInputElement>('input')?.value).toBe('My unsent template name')
+    expect(templateForm()?.querySelector<HTMLSelectElement>('select')?.value).toBe('shared')
+    expect(reportingPageMocks.apiFetch.mock.calls.some(([, options]) => options?.method === 'POST' || options?.method === 'PUT')).toBe(false)
+  })
+
+  it('retires untouched template form defaults and protects a solely local edited form draft', async () => {
+    const reads = protectReads('/reports/templates')
+    const view = renderPage()
+    const templateForm = () => [...view.querySelectorAll('form')].find((form) => form.textContent?.includes('Template name'))
+    await vi.waitFor(() => expect([...view.querySelectorAll('textarea')].map((input) => input.value)).toContain(privateTemplate.prompt.objective))
+    act(() => button(view, 'Save as template').click())
+    expect(templateForm()?.querySelector<HTMLInputElement>('input')?.value).toContain(privateTemplate.name)
+    reads.setStatus(403)
+    await settleRead('templates', 403)
+    reads.setStatus(200)
+    await act(async () => { await queryClient!.refetchQueries({ queryKey: ['reports', 'templates'], exact: true }) })
+    await vi.waitFor(async () => {
+      await act(async () => { await new Promise((done) => setTimeout(done, 15)) })
+      expect(button(view, 'Save as template').disabled).toBe(false)
+    })
+    expect(templateForm()).toBeUndefined()
+    act(() => button(view, 'Save as template').click())
+    act(() => {
+      const name = templateForm()!.querySelector<HTMLInputElement>('input')!
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'Only the local template name changed')
+      name.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    const unload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(unload)
+    expect(unload.defaultPrevented).toBe(true)
+    reads.setStatus(403)
+    await settleRead('templates', 403)
+    const hiddenUnload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(hiddenUnload)
+    expect(hiddenUnload.defaultPrevented).toBe(true)
+    reads.setStatus(200)
+    await act(async () => { await queryClient!.refetchQueries({ queryKey: ['reports', 'templates'], exact: true }) })
+    await vi.waitFor(() => expect(templateForm()?.querySelector<HTMLInputElement>('input')?.value).toBe('Only the local template name changed'))
+  })
+
+  it.each([
+    { key: 'templates', tab: 'Templates' as const, value: privateTemplate.name },
+    { key: 'schedules', tab: 'Schedules' as const, value: privateSchedule.name },
+  ])('keeps denied $key metadata private through a later outage', async ({ key, tab, value }) => {
+    const reads = protectReads(`/reports/${key}`)
+    const view = renderPage()
+    await openReportingTab(view, tab)
+    await vi.waitFor(() => expect(view.textContent).toContain(value))
+    for (const status of [403, 503]) {
+      reads.setStatus(status)
+      await settleRead(key, status)
+      expect(reads.rejected).toContain(status)
+      expect(view.textContent).not.toContain(value)
+      expect(view.textContent).toContain('892,731 token context')
+    }
+  })
+
+  it('keeps denied capabilities metadata private through a later outage', async () => {
+    const reads = protectReads('/reports/capabilities')
+    const view = renderPage()
+    await vi.waitFor(() => expect(view.textContent).toContain('892,731 token context'))
+    for (const status of [403, 503]) {
+      reads.setStatus(status)
+      await settleRead('capabilities', status)
+      expect(reads.rejected).toContain(status)
+      expect(view.textContent).not.toContain('892,731 token context')
+    }
+  })
+
+  it('preserves an independently permitted schedule draft when capabilities read is denied', async () => {
+    const reads = protectReads('/reports/capabilities')
+    const view = renderPage()
+    await openReportingTab(view, 'Schedules')
+    await vi.waitFor(() => expect(view.textContent).toContain(privateSchedule.name))
+    act(() => rowButton(rowByName(view, privateSchedule.name), 'Edit').click())
+    const name = view.querySelector<HTMLInputElement>('form input')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'Independently permitted unsent schedule')
+      name.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    reads.setStatus(403)
+    await settleRead('capabilities', 403)
+    expect(reads.rejected).toContain(403)
+    expect(queryClient!.getQueryState(['reports', 'schedules'])?.status).toBe('success')
+    expect(view.textContent).not.toContain('892,731 token context')
+    const unload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(unload)
+    expect(unload.defaultPrevented).toBe(true)
+    expect(view.querySelector<HTMLInputElement>('form input')?.value).toBe('Independently permitted unsent schedule')
+  })
+
+  it('pauses template actions while retaining ordinary outage context', async () => {
+    const reads = protectReads('/reports/templates')
+    const view = renderPage()
+    await openReportingTab(view, 'Templates')
+    await vi.waitFor(() => expect(view.textContent).toContain(privateTemplate.name))
+    reads.setStatus(503)
+    await settleRead('templates', 503)
+    expect(view.textContent).toContain(privateTemplate.name)
+    for (const label of ['Use template', 'Clone', 'Delete']) {
+      const action = rowButton(rowByName(view, privateTemplate.name), label)
+      expect(action.disabled).toBe(true)
+      act(() => action.click())
+    }
+    expect(reportingPageMocks.apiFetch.mock.calls.some(([, options]) => options?.method === 'POST' || options?.method === 'DELETE')).toBe(false)
+  })
+
+  it('preserves an unsaved schedule draft while pausing an ordinary outage write', async () => {
+    const reads = protectReads('/reports/schedules')
+    const view = renderPage()
+    await openReportingTab(view, 'Schedules')
+    await vi.waitFor(() => expect(view.textContent).toContain(privateSchedule.name))
+    act(() => rowButton(rowByName(view, privateSchedule.name), 'Edit').click())
+    const name = view.querySelector<HTMLInputElement>('form input')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'Unsent local schedule name')
+      name.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    reads.setStatus(503)
+    await settleRead('schedules', 503)
+    expect(name.value).toBe('Unsent local schedule name')
+    expect(button(view, 'Save schedule').disabled).toBe(true)
+    act(() => view.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await act(async () => { await new Promise((done) => setTimeout(done, 15)) })
+    expect(reportingPageMocks.apiFetch.mock.calls.some(([, options]) => options?.method === 'PUT')).toBe(false)
+  })
+
+  it('keeps a denied schedule private without destroying its unsaved local draft', async () => {
+    const reads = protectReads('/reports/schedules')
+    const view = renderPage()
+    await openReportingTab(view, 'Schedules')
+    await vi.waitFor(() => expect(view.textContent).toContain(privateSchedule.name))
+    act(() => rowButton(rowByName(view, privateSchedule.name), 'Edit').click())
+    const name = view.querySelector<HTMLInputElement>('form input')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'Unsent local schedule name')
+      name.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    reads.setStatus(403)
+    await settleRead('schedules', 403)
+    const unload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(unload)
+    expect(unload.defaultPrevented).toBe(true)
+    expect(view.textContent).not.toContain(privateSchedule.name)
+    expect(view.querySelector('form')).toBeNull()
+    reads.setStatus(200)
+    await act(async () => { await queryClient!.refetchQueries({ queryKey: ['reports', 'schedules'], exact: true }) })
+    await vi.waitFor(() => expect(view.querySelector<HTMLInputElement>('form input')?.value).toBe('Unsent local schedule name'))
+  })
+})

@@ -758,6 +758,29 @@ full-canonical save replies remain separately qualified rather than prohibited
 by a blanket GET-only rule. Current whole-project type/lint/size checks pass;
 remaining reporting and final release gates remain open.
 
+### N25 — independent reporting metadata and retained drafts
+
+Reporting capabilities, templates and schedules now retain separate scoped read
+histories. Saved editor bodies disappear after withdrawal while dirty controller
+state remains recoverable. Actual saves verify the current baseline and read
+health; partial late replies cannot heal failed collection reads. Independently
+permitted schedule edits remain mounted when capabilities are denied.
+
+Copied template objectives require matching fresh authorization. The local
+save-as-template mode/name/visibility now live with the outer report draft, so
+withdrawing a private body preserves actual user edits and the unsaved-navigation
+guard. Untouched copied defaults retire after read loss. Save completion clears
+only its submitted form, preserving later input.
+
+All 58 reporting cases in three files pass after the final correction (log
+`7c9d3c1fc7a3e062503c03a75360409f4977e88aa9506adf600e86782c0b320d`).
+The actual modal draft regression is the corrected `05703c…` run; `97bd…` was
+an incorrect generic form selector and is retained as fixture-only evidence.
+Independent final seven-source/runtime-evidence proof:
+`8b7c1ce8469bdaa4e83cfc76a3da2a92acbe001984acccffbe283c6783607703`.
+The final full frontend/type/audit/build pipeline is running; its outcome is not
+substituted by these focused passes.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

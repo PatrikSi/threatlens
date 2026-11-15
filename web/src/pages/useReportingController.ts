@@ -9,7 +9,6 @@ import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import type {
-  ReportCapabilities,
   ReportDetail,
   ReportPreview,
   ReportSchedule,
@@ -17,6 +16,7 @@ import type {
   ReportTemplate,
 } from '../types/api'
 import { useReportLibrary } from './useReportLibrary'
+import { useReportMetadataAccess } from './useReportMetadataAccess'
 import { useReportBuilderDraft } from './useReportBuilderDraft'
 import { triggerBrowserDownload } from './exportPageModel'
 import {
@@ -98,18 +98,10 @@ export function useReportingController() {
     }
   }, [routeReportId])
 
-  const capabilitiesQuery = useQuery({
-    queryKey: ['reports', 'capabilities'],
-    queryFn: ({ signal }) => apiFetch<ReportCapabilities>('/reports/capabilities', { signal }),
-    staleTime: 5 * 60_000,
-  })
-  const templatesQuery = useQuery({
-    queryKey: ['reports', 'templates'],
-    queryFn: ({ signal }) => apiFetch<ReportTemplate[]>('/reports/templates', { signal }),
-    staleTime: 60_000,
-  })
+  const metadata = useReportMetadataAccess(isAdmin, canAuthor)
+  const { capabilitiesQuery, templatesQuery, schedulesQuery } = metadata
   const [editorialDirty, setEditorialDirty] = useState(false)
-  const builderDraft = useReportBuilderDraft(templatesQuery.data, editorialDirty)
+  const builderDraft = useReportBuilderDraft(templatesQuery.data, editorialDirty, metadata.templateGeneration)
   const { selectedTemplateId, setSelectedTemplateId, selectedTemplate, filterDraft, setFilterDraft, prompt,
     setPrompt, sections, setSections, excludedItemIds, setExcludedItemIds, title, setTitle,
     deliverWhenReady, setDeliverWhenReady, deliveryMode, setDeliveryMode } = builderDraft
@@ -121,12 +113,6 @@ export function useReportingController() {
   }, [queuedReportToOpen, builderDraft.dirty, navigate])
   const reportLibrary = useReportLibrary()
   const reportsQuery = reportLibrary.query
-  const schedulesQuery = useQuery({
-    queryKey: ['reports', 'schedules'],
-    queryFn: ({ signal }) => apiFetch<ReportSchedule[]>('/reports/schedules', { signal }),
-    enabled: isAdmin,
-    staleTime: 30_000,
-  })
   const detailAccess = useQueryAccessScope(['reports', 'detail', routeReportId ?? ''])
   const reportDetailKey = ['reports', 'detail', routeReportId]
   const reportDetailQuery = useQuery({
@@ -188,7 +174,8 @@ export function useReportingController() {
 
   const createReportMutation = useMutation({
     mutationFn: async () => {
-      if (!canAuthor || !previewAllowsCreation() || createBlockedReason) throw new Error('Verify the current report estimate and access before generating.')
+      if (!canAuthor || !metadata.currentCapabilities() || !previewAllowsCreation() || createBlockedReason) throw new Error('Verify the current report estimate and access before generating.')
+      if (selectedTemplate && !metadata.templateActionCurrent(builderDraft.loadedTemplateGeneration)) throw new Error('Reload current template access before generating from this saved baseline.')
       if (!validation.filters) throw new Error('Report filters are invalid.')
       const body = JSON.stringify({
         template_id: selectedTemplateId || null,
@@ -283,6 +270,8 @@ export function useReportingController() {
   const templateMutation = useMutation({
     mutationKey: ['reports', 'templates', 'save'],
     mutationFn: (payload: { mode: 'create' | 'update'; name: string; visibility: 'private' | 'shared' }) => {
+      metadata.assertTemplate(selectedTemplate?.id)
+      if (selectedTemplate && !metadata.templateActionCurrent(builderDraft.loadedTemplateGeneration)) throw new Error('Load the current template baseline before saving this draft.')
       if (!validation.filters) throw new Error('Report filters are invalid.')
       const selected = selectedTemplate
       const updateTarget = payload.mode === 'update' ? selected : undefined
@@ -347,13 +336,10 @@ export function useReportingController() {
         ),
       )
     },
-    onMutate: () => { setFeedback(null); return selectedTemplateId },
-    onSuccess: (template, _payload, submittedTemplateId) => {
-      queryClient.setQueryData<ReportTemplate[]>(
-        ['reports', 'templates'],
-        (templates) => upsertReportingResource(templates, template),
-      )
-      builderDraft.adoptSavedTemplate(template, submittedTemplateId)
+    onMutate: () => { setFeedback(null); return { id: selectedTemplateId, generation: metadata.captureTemplateGeneration() } },
+    onSuccess: (template, _payload, submitted) => {
+      if (!submitted || !metadata.storeTemplate(template, submitted.generation)) { void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] }); return }
+      builderDraft.adoptSavedTemplate(template, submitted.id, submitted.generation)
       setFeedback({ kind: 'success', message: 'Report template saved.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] })
     },
@@ -380,6 +366,7 @@ export function useReportingController() {
   const cloneTemplateMutation = useMutation({
     mutationKey: ['reports', 'templates', 'clone'],
     mutationFn: (templateId: string) => {
+      metadata.assertTemplate(templateId)
       const path = `/reports/templates/${templateId}/clone`
       const requestScope = reportingRequestScope(
         requestOwnerId,
@@ -401,9 +388,10 @@ export function useReportingController() {
         ),
       )
     },
-    onMutate: () => setFeedback(null),
-    onSuccess: (template) => {
-      builderDraft.selectClonedTemplate(template)
+    onMutate: () => { setFeedback(null); return metadata.captureTemplateGeneration() },
+    onSuccess: (template, _id, generation) => {
+      if (generation === undefined || !metadata.templateActionCurrent(generation)) { void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] }); return }
+      builderDraft.selectClonedTemplate(template, generation)
       setActiveTab('reports')
       setFeedback({
         kind: 'success',
@@ -420,7 +408,7 @@ export function useReportingController() {
   const deleteTemplateMutation = useMutation({
     mutationKey: ['reports', 'templates', 'delete'],
     mutationFn: (templateId: string) => {
-      const template = templatesQuery.data?.find((entry) => entry.id === templateId)
+      const template = metadata.assertTemplate(templateId)
       if (!template) {
         throw new Error('The report template is no longer available. Refresh the template list and try again.')
       }
@@ -436,8 +424,9 @@ export function useReportingController() {
         }),
       )
     },
-    onMutate: () => setFeedback(null),
-    onSuccess: () => {
+    onMutate: () => { setFeedback(null); return metadata.captureTemplateGeneration() },
+    onSuccess: (_result, _id, generation) => {
+      if (generation === undefined || !metadata.templateActionCurrent(generation)) { void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] }); return }
       setFeedback({ kind: 'success', message: 'Report template deleted.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] })
     },
@@ -458,6 +447,8 @@ export function useReportingController() {
   const createScheduleMutation = useMutation({
     mutationKey: ['reports', 'schedules', 'create'],
     mutationFn: (payload: ReportScheduleWrite) => {
+      metadata.assertSchedule()
+      metadata.assertTemplate(payload.template_id)
       const body = JSON.stringify(payload)
       const path = '/reports/schedules'
       const requestScope = reportingRequestScope(
@@ -480,8 +471,9 @@ export function useReportingController() {
         ),
       )
     },
-    onMutate: () => setFeedback(null),
-    onSuccess: () => {
+    onMutate: () => { setFeedback(null); return metadata.captureScheduleGeneration() },
+    onSuccess: (_result, _payload, generation) => {
+      if (generation === undefined || !metadata.scheduleActionCurrent(generation)) { void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] }); return }
       setFeedback({ kind: 'success', message: 'Report schedule created.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] })
     },
@@ -493,7 +485,10 @@ export function useReportingController() {
   })
   const updateScheduleMutation = useMutation({
     mutationKey: ['reports', 'schedules', 'update'],
-    mutationFn: (schedule: ReportSchedule) => {
+    mutationFn: (schedule: ReportSchedule & { readGeneration?: number }) => {
+      metadata.assertSchedule(schedule.id)
+      const generation = schedule.readGeneration ?? metadata.captureScheduleGeneration()
+      if (!metadata.scheduleActionCurrent(generation)) throw new Error('Reload this schedule baseline before saving its draft.')
       const body = JSON.stringify(schedulePayload(schedule))
       const path = `/reports/schedules/${schedule.id}`
       const writeScope = reportingRequestScope(
@@ -504,29 +499,29 @@ export function useReportingController() {
       return serializeReportingWrite(
         writeScope,
         reportMutationRequestKey(schedule.id, body),
-        async () => requireReportingResource<ReportSchedule>(
-          await apiFetch<unknown>(path, {
-            method: 'PUT',
-            body,
-            headers: {
-              'If-Match': reportResourceVersionHeader(
-                schedule.resource_version ?? schedule.updated_at,
-              ),
-            },
-          }),
-          path,
-          'report schedule update',
-          200,
-          schedule.id,
-        ),
+        async () => {
+          if (!metadata.scheduleActionCurrent(generation)) throw new Error('Reload this schedule baseline before saving its draft.')
+          return requireReportingResource<ReportSchedule>(
+            await apiFetch<unknown>(path, {
+              method: 'PUT',
+              body,
+              headers: {
+                'If-Match': reportResourceVersionHeader(
+                  schedule.resource_version ?? schedule.updated_at,
+                ),
+              },
+            }),
+            path,
+            'report schedule update',
+            200,
+            schedule.id,
+          )
+        },
       )
     },
-    onMutate: () => setFeedback(null),
-    onSuccess: (schedule) => {
-      queryClient.setQueryData<ReportSchedule[]>(
-        ['reports', 'schedules'],
-        (schedules) => upsertReportingResource(schedules, schedule),
-      )
+    onMutate: () => { setFeedback(null); return metadata.captureScheduleGeneration() },
+    onSuccess: (schedule, _payload, generation) => {
+      if (generation === undefined || !metadata.storeSchedule(schedule, generation)) { void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] }); return }
       setFeedback({ kind: 'success', message: 'Report schedule updated.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] })
     },
@@ -546,7 +541,7 @@ export function useReportingController() {
   const deleteScheduleMutation = useMutation({
     mutationKey: ['reports', 'schedules', 'delete'],
     mutationFn: (scheduleId: string) => {
-      const schedule = schedulesQuery.data?.find((entry) => entry.id === scheduleId)
+      const schedule = metadata.assertSchedule(scheduleId)
       if (!schedule) {
         throw new Error('The report schedule is no longer available. Refresh the schedule list and try again.')
       }
@@ -562,8 +557,9 @@ export function useReportingController() {
         }),
       )
     },
-    onMutate: () => setFeedback(null),
-    onSuccess: () => {
+    onMutate: () => { setFeedback(null); return metadata.captureScheduleGeneration() },
+    onSuccess: (_result, _id, generation) => {
+      if (generation === undefined || !metadata.scheduleActionCurrent(generation)) { void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] }); return }
       setFeedback({ kind: 'success', message: 'Report schedule deleted.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] })
     },
@@ -584,7 +580,7 @@ export function useReportingController() {
   const runScheduleMutation = useMutation({
     mutationKey: ['reports', 'schedules', 'run'],
     mutationFn: (scheduleId: string) => {
-      const schedule = schedulesQuery.data?.find((entry) => entry.id === scheduleId)
+      const schedule = metadata.assertSchedule(scheduleId)
       if (!schedule) {
         throw new Error('The report schedule is no longer available. Refresh the schedule list and try again.')
       }
@@ -611,8 +607,9 @@ export function useReportingController() {
         ),
       )
     },
-    onMutate: () => setFeedback(null),
-    onSuccess: async (results) => {
+    onMutate: () => { setFeedback(null); return metadata.captureScheduleGeneration() },
+    onSuccess: async (results, _id, generation) => {
+      if (generation === undefined || !metadata.scheduleActionCurrent(generation)) { void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] }); return }
       setFeedback(results.length > 0
         ? {
             kind: 'success',
@@ -718,7 +715,9 @@ export function useReportingController() {
         { retryGuidance: previewErrorBlocksCreate ? undefined : 'You can retry the estimate or let the server validate the report when it is generated.' },
       )
     : null
-  const createBlockedReason = builderDraft.templateUnavailable ? 'Select an available template before generating this report.'
+  const createBlockedReason = capabilitiesQuery.isError ? 'Refresh reporting capabilities before generating this report.'
+    : builderDraft.templateBaselineRetired ? 'Load the current template baseline before generating this report.'
+      : builderDraft.templateUnavailable ? 'Select an available template before generating this report.'
     : previewAccessUnverified ? 'Refresh the report estimate and verify access before generating.' : resolveReportCreateBlockedReason({
     canAuthor,
     reportingEnabled: Boolean(capabilitiesQuery.data?.reporting_enabled),
@@ -739,6 +738,7 @@ export function useReportingController() {
   }
 
   return {
+    metadata,
     activeTab,
     setActiveTab,
     builderDraft,
@@ -827,16 +827,6 @@ function schedulePayload(schedule: ReportSchedule): ReportScheduleWrite {
     skip_empty: schedule.skip_empty,
     missed_run_policy: schedule.missed_run_policy,
   }
-}
-
-function upsertReportingResource<Resource extends { id: string }>(
-  resources: Resource[] | undefined,
-  resource: Resource,
-): Resource[] {
-  if (!resources) return [resource]
-  const existingIndex = resources.findIndex((entry) => entry.id === resource.id)
-  if (existingIndex < 0) return [...resources, resource]
-  return resources.map((entry, index) => index === existingIndex ? resource : entry)
 }
 
 function resolveReportQueueError(error: unknown): string {

@@ -33,7 +33,7 @@ function TemplateEntry({ template, controller }: { template: ReportTemplate; con
     mutationKey: ['reports', 'templates', 'delete'],
     predicate: (mutation) => mutation.state.variables === template.id,
   }) > 0
-  const actionPending = clonePending || deletePending
+  const actionPending = clonePending || deletePending || !controller.metadata.templateActionsAvailable
   return (
     <article className="min-w-0 bg-white/90 p-3 dark:bg-[#041612]/95 sm:p-4">
       <div className="flex items-start justify-between gap-2">

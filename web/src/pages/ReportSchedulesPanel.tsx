@@ -1,5 +1,5 @@
 import { useIsMutating } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { resolveApiErrorMessage } from '../api/errors'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -17,6 +17,21 @@ const INPUT_CLASS = 'mt-1 w-full rounded border border-slate/30 bg-white px-2.5 
 export function ReportSchedulesPanel({ controller }: { controller: ReportingController }) {
   const [showCreate, setShowCreate] = useState(false)
   const templates = controller.templatesQuery.data ?? []
+  const lastSchedules = useRef<ReportSchedule[]>([])
+  const [retainedDraftRows, setRetainedDraftRows] = useState<Record<string, ReportSchedule>>({})
+  if (controller.schedulesQuery.data) lastSchedules.current = controller.schedulesQuery.data
+  const currentRows = controller.schedulesQuery.data ?? lastSchedules.current
+  const rows = [...currentRows, ...Object.values(retainedDraftRows).filter((row) => !currentRows.some((current) => current.id === row.id))]
+  const retainDraft = useCallback((schedule: ReportSchedule, dirty: boolean) => {
+    setRetainedDraftRows((current) => {
+      if (dirty) return current[schedule.id] === schedule ? current : { ...current, [schedule.id]: schedule }
+      if (!current[schedule.id]) return current
+      const next = { ...current }
+      delete next[schedule.id]
+      return next
+    })
+  }, [])
+  const actionsAvailable = controller.metadata.scheduleActionsAvailable && controller.metadata.templateActionsAvailable
 
   return (
     <section className="rounded-lg border border-slate/20 bg-white/80 dark:border-cyan-900/40 dark:bg-[#041612]/90">
@@ -28,23 +43,28 @@ export function ReportSchedulesPanel({ controller }: { controller: ReportingCont
         <button
           type="button"
           className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
-          disabled={controller.createScheduleMutation.isPending || showCreate || templates.length === 0}
+          disabled={!actionsAvailable || controller.createScheduleMutation.isPending || showCreate || templates.length === 0}
           onClick={() => setShowCreate(true)}
         >
           {controller.createScheduleMutation.isPending ? 'Creating...' : showCreate ? 'Editing new schedule' : 'New schedule'}
         </button>
       </header>
 
-      {showCreate && templates.length > 0 && (
+      {showCreate && (
         <ScheduleEditor
           templates={templates}
           submitLabel="Create schedule"
           submittingLabel="Creating..."
           isSubmitting={controller.createScheduleMutation.isPending}
+          unavailable={!actionsAvailable}
+          hidden={controller.templatesQuery.data === undefined || controller.schedulesQuery.data === undefined}
           onCancel={() => setShowCreate(false)}
-          onSubmit={(payload) => controller.createScheduleMutation.mutate(payload, {
-            onSuccess: () => setShowCreate(false),
-          })}
+          onSubmit={(payload) => {
+            const generation = controller.metadata.scheduleGeneration
+            controller.createScheduleMutation.mutate(payload, {
+              onSuccess: () => { if (controller.metadata.scheduleActionCurrent(generation)) setShowCreate(false) },
+            })
+          }}
         />
       )}
       {showCreate && templates.length === 0 && (
@@ -64,10 +84,11 @@ export function ReportSchedulesPanel({ controller }: { controller: ReportingCont
           </button>
         </div>
       )}
-      {controller.schedulesQuery.isSuccess && !controller.schedulesQuery.data.length && <p className="p-4 text-sm text-slate dark:text-slate-300">No report schedules are configured.</p>}
+      {controller.schedulesQuery.isSuccess && controller.schedulesQuery.data?.length === 0 && <p className="p-4 text-sm text-slate dark:text-slate-300">No report schedules are configured.</p>}
       <div className="divide-y divide-slate/15 dark:divide-white/10">
-        {controller.schedulesQuery.data?.map((schedule) => (
-          <ScheduleRow key={schedule.id} schedule={schedule} templates={templates} controller={controller} />
+        {rows.map((schedule) => (
+          <ScheduleRow key={schedule.id} schedule={schedule} templates={templates} controller={controller}
+            hidden={!controller.schedulesQuery.data?.some((row) => row.id === schedule.id)} onDirtyChange={retainDraft} />
         ))}
       </div>
     </section>
@@ -82,6 +103,9 @@ function ScheduleEditor({
   isSubmitting,
   onSubmit,
   onCancel,
+  unavailable = false,
+  hidden = false,
+  onDirtyChange,
 }: {
   templates: ReportTemplate[]
   initial?: ReportSchedule
@@ -90,6 +114,9 @@ function ScheduleEditor({
   isSubmitting: boolean
   onSubmit: (payload: ReportScheduleWrite) => void
   onCancel: () => void
+  unavailable?: boolean
+  hidden?: boolean
+  onDirtyChange?: (dirty: boolean) => void
 }) {
   const [defaults] = useState(() => createScheduleEditorDefaults(templates, initial))
   const [templateId, setTemplateId] = useState(defaults.templateId)
@@ -111,11 +138,14 @@ function ScheduleEditor({
   const [missedRunPolicy, setMissedRunPolicy] = useState<ReportSchedule['missed_run_policy']>(defaults.missedRunPolicy)
   const draft = { templateId, filters, name, enabled, cadence, dayOfWeek, dayOfMonth, time, timezone, windowType,
     rollingDays, customInstructions, reviewRequired, deliveryEnabled, deliveryMode, skipEmpty, missedRunPolicy }
+  const dirty = JSON.stringify(draft) !== JSON.stringify(defaults)
   const discard = useUnsavedChangesWarning(
-    JSON.stringify(draft) !== JSON.stringify(defaults),
+    dirty,
     'Discard unsaved report schedule changes?',
     { ignoreSearchChanges: true },
   )
+  useEffect(() => { onDirtyChange?.(dirty) }, [dirty, onDirtyChange])
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   const payload = useMemo<ReportScheduleWrite>(() => {
     const [hour, minute] = time.split(':').map(Number)
@@ -146,8 +176,10 @@ function ScheduleEditor({
     setWindowType(next === 'weekly' ? 'previous_complete_week' : 'previous_complete_month')
   }
 
+  if (hidden) return <>{discard.discardDialog}{dirty && <p className="p-4 text-sm">Your unsaved schedule draft is retained while saved schedule access is unavailable. <button type="button"
+    className="font-semibold underline" onClick={() => discard(onCancel)}>Discard retained schedule draft</button></p>}</>
   return (
-    <form aria-busy={isSubmitting} onSubmit={(event) => { event.preventDefault(); if (!isSubmitting) onSubmit(payload) }}>
+    <form aria-busy={isSubmitting} onSubmit={(event) => { event.preventDefault(); if (!isSubmitting && !unavailable) onSubmit(payload) }}>
       {discard.discardDialog}
       <fieldset disabled={isSubmitting} className="m-0 grid min-w-0 gap-3 border-0 border-b border-slate/15 p-3 dark:border-white/10 sm:grid-cols-2 lg:grid-cols-4">
         <label className="text-xs font-semibold">
@@ -237,16 +269,20 @@ function ScheduleEditor({
         </div>
         <div className="flex gap-1.5 sm:col-span-2 lg:col-span-4 lg:justify-end">
           <button type="button" className="min-h-10 rounded border border-slate/20 px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10" disabled={isSubmitting} onClick={() => discard(onCancel)}>Cancel</button>
-          <button type="submit" className="min-h-10 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={isSubmitting}>{isSubmitting ? submittingLabel : submitLabel}</button>
+          <button type="submit" className="min-h-10 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={isSubmitting || unavailable}>{isSubmitting ? submittingLabel : submitLabel}</button>
         </div>
       </fieldset>
     </form>
   )
 }
 
-function ScheduleRow({ schedule, templates, controller }: { schedule: ReportSchedule; templates: ReportTemplate[]; controller: ReportingController }) {
+function ScheduleRow({ schedule, templates, controller, hidden, onDirtyChange }: {
+  schedule: ReportSchedule; templates: ReportTemplate[]; controller: ReportingController; hidden: boolean
+  onDirtyChange: (schedule: ReportSchedule, dirty: boolean) => void
+}) {
   // The original version belongs to the editor's fields, never to a refreshed row.
   const [editingBaseline, setEditingBaseline] = useState<ReportSchedule | null>(null)
+  const [editingGeneration, setEditingGeneration] = useState(controller.metadata.scheduleGeneration)
   const editing = editingBaseline !== null
   const baselineChanged = editingBaseline !== null &&
     (editingBaseline.resource_version ?? editingBaseline.updated_at) !== (schedule.resource_version ?? schedule.updated_at)
@@ -263,9 +299,11 @@ function ScheduleRow({ schedule, templates, controller }: { schedule: ReportSche
     mutationKey: ['reports', 'schedules', 'delete'],
     predicate: (mutation) => mutation.state.variables === schedule.id,
   }) > 0
-  const actionPending = updatePending || runPending || deletePending
+  const actionPending = updatePending || runPending || deletePending || !controller.metadata.scheduleActionsAvailable
+  const retainDraft = useCallback((dirty: boolean) => onDirtyChange(schedule, dirty), [onDirtyChange, schedule])
   return (
     <article>
+      {!hidden && <>
       <div className="grid gap-2 px-3 py-3 sm:px-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -291,7 +329,12 @@ function ScheduleRow({ schedule, templates, controller }: { schedule: ReportSche
             type="button"
             className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10"
             disabled={actionPending}
-            onClick={() => { if (!editing) setEditingBaseline(schedule) }}
+            onClick={() => {
+              if (!editing && controller.metadata.scheduleActionsAvailable) {
+                setEditingGeneration(controller.metadata.captureScheduleGeneration())
+                setEditingBaseline(schedule)
+              }
+            }}
           >
             {editing ? 'Editing' : 'Edit'}
           </button>
@@ -340,6 +383,12 @@ function ScheduleRow({ schedule, templates, controller }: { schedule: ReportSche
           those changes. Cancel and edit again to load the latest schedule.
         </p>
       )}
+      </>}
+      {editingBaseline && !hidden && editingGeneration !== controller.metadata.scheduleGeneration && (
+        <p role="status" className="px-3 pb-3 text-sm text-amber-800 dark:text-amber-200">
+          Schedule access was reverified. Your draft keeps its earlier baseline; cancel and edit again to load the current schedule before saving.
+        </p>
+      )}
       {editingBaseline && (
         <ScheduleEditor
           templates={templates}
@@ -347,11 +396,16 @@ function ScheduleRow({ schedule, templates, controller }: { schedule: ReportSche
           submitLabel="Save schedule"
           submittingLabel="Saving..."
           isSubmitting={updatePending}
+          unavailable={actionPending || !controller.metadata.templateActionsAvailable || editingGeneration !== controller.metadata.scheduleGeneration}
+          hidden={hidden || controller.templatesQuery.data === undefined}
+          onDirtyChange={retainDraft}
           onCancel={() => setEditingBaseline(null)}
-          onSubmit={(payload) => controller.updateScheduleMutation.mutate(
-            { ...editingBaseline, ...payload },
-            { onSuccess: () => setEditingBaseline(null) },
-          )}
+          onSubmit={(payload) => {
+            const generation = controller.metadata.scheduleGeneration
+            controller.updateScheduleMutation.mutate({ ...editingBaseline, ...payload, readGeneration: editingGeneration }, {
+              onSuccess: () => { if (controller.metadata.scheduleActionCurrent(generation)) setEditingBaseline(null) },
+            })
+          }}
         />
       )}
     </article>

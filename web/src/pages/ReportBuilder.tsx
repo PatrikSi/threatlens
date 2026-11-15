@@ -1,5 +1,3 @@
-import { useState } from 'react'
-
 import type { ReportPromptConfig, ReportSectionConfig } from '../types/api'
 import { ExportFilterPanel } from './ExportFilterPanel'
 import { parseListInput } from './reportingPageModel'
@@ -36,7 +34,7 @@ export function ReportBuilder({ controller }: { controller: ReportingController 
           </select>
         </div>
         {controller.builderDraft.dirty && <p role="status" className="mt-2 text-xs text-slate dark:text-slate-300">Unsaved report draft</p>}
-        {controller.builderDraft.templateRevisionChanged && <div role="status" className="mt-2 text-sm text-amber-800 dark:text-amber-200">
+        {(controller.builderDraft.templateRevisionChanged || controller.builderDraft.templateBaselineRetired) && <div role="status" className="mt-2 text-sm text-amber-800 dark:text-amber-200">
           This template has a newer revision. Your draft is preserved.
           <button type="button" className="ml-2 underline" onClick={controller.builderDraft.reloadTemplate}>Load latest template</button>
         </div>}
@@ -124,9 +122,10 @@ export function ReportBuilder({ controller }: { controller: ReportingController 
 }
 
 function TemplateSaveControls({ controller }: { controller: ReportingController }) {
-  const [mode, setMode] = useState<'create' | 'update' | null>(null)
-  const [name, setName] = useState('')
-  const [visibility, setVisibility] = useState<'private' | 'shared'>('private')
+  const { templateSaveDraft: draft, setTemplateSaveDraft } = controller.builderDraft
+  const mode = draft?.mode ?? null
+  const name = draft?.name ?? ''
+  const visibility = draft?.visibility ?? 'private'
   const selected = controller.selectedTemplate
   const canUpdate = Boolean(
     selected &&
@@ -135,43 +134,65 @@ function TemplateSaveControls({ controller }: { controller: ReportingController 
   )
 
   function open(nextMode: 'create' | 'update') {
-    setMode(nextMode)
-    setName(nextMode === 'update' && selected ? selected.name : `${selected?.name ?? 'Intelligence report'} copy`)
-    setVisibility(nextMode === 'update' && selected ? selected.visibility : 'private')
+    if (!controller.metadata.templateActionsAvailable || controller.builderDraft.templateBaselineRetired) return
+    const generation = controller.metadata.captureTemplateGeneration()
+    if (!controller.metadata.templateActionCurrent(generation)) return
+    const initialName = nextMode === 'update' && selected ? selected.name : `${selected?.name ?? 'Intelligence report'} copy`
+    const initialVisibility = nextMode === 'update' && selected ? selected.visibility : 'private'
+    setTemplateSaveDraft({ mode: nextMode, name: initialName, visibility: initialVisibility,
+      initialName, initialVisibility, readGeneration: generation })
   }
 
   return (
     <div className="mt-3 border-t border-slate/15 pt-3 dark:border-white/10">
       <div className="flex flex-wrap gap-1.5">
-        <button type="button" className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold dark:border-white/10" onClick={() => open('create')}>Save as template</button>
-        {canUpdate && <button type="button" className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold dark:border-white/10" onClick={() => open('update')}>Update template</button>}
+        <button type="button" className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold dark:border-white/10" disabled={!controller.metadata.templateActionsAvailable || controller.builderDraft.templateBaselineRetired} onClick={() => open('create')}>Save as template</button>
+        {canUpdate && <button type="button" className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold dark:border-white/10"
+          disabled={!controller.metadata.templateActionsAvailable || controller.builderDraft.templateBaselineRetired} onClick={() => open('update')}>Update template</button>}
       </div>
       {mode && (
         <form
           className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_160px_auto] sm:items-end"
           onSubmit={(event) => {
             event.preventDefault()
-            if (controller.templateMutation.isPending) return
+            if (controller.templateMutation.isPending || !controller.metadata.templateActionsAvailable || controller.builderDraft.templateBaselineRetired) return
+            const generation = controller.metadata.captureTemplateGeneration()
+            const submitted = draft
             controller.templateMutation.mutate(
               { mode, name, visibility },
-              { onSuccess: () => setMode(null) },
+              { onSuccess: () => {
+                if (controller.metadata.templateActionCurrent(generation)) {
+                  setTemplateSaveDraft((current) => current === submitted ? null : current)
+                }
+              } },
             )
           }}
         >
           <label className="text-xs font-semibold text-slate dark:text-slate-300">
             Template name
-            <input className={INPUT_CLASS} required maxLength={255} value={name} onChange={(event) => setName(event.target.value)} />
+            <input className={INPUT_CLASS} required maxLength={255} value={name}
+              onChange={(event) => {
+                const value = event.target.value
+                setTemplateSaveDraft((current) => current ? { ...current, name: value } : current)
+              }} />
           </label>
           <label className="text-xs font-semibold text-slate dark:text-slate-300">
             Visibility
-            <select className={INPUT_CLASS} value={visibility} onChange={(event) => setVisibility(event.target.value as typeof visibility)}>
+            <select className={INPUT_CLASS} value={visibility} onChange={(event) => {
+              const value = event.target.value as typeof visibility
+              setTemplateSaveDraft((current) => current ? { ...current, visibility: value } : current)
+            }}>
               <option value="private">Private</option>
               {controller.isAdmin && <option value="shared">Shared</option>}
             </select>
           </label>
           <div className="flex gap-1.5">
-            <button type="submit" className="min-h-10 rounded bg-ink px-3 py-2 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={controller.templateMutation.isPending}>{controller.templateMutation.isPending ? 'Saving...' : 'Save'}</button>
-            <button type="button" className="min-h-10 rounded border border-slate/20 px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10" disabled={controller.templateMutation.isPending} onClick={() => setMode(null)}>Cancel</button>
+            <button type="submit" className="min-h-10 rounded bg-ink px-3 py-2 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+              disabled={controller.templateMutation.isPending || !controller.metadata.templateActionsAvailable || controller.builderDraft.templateBaselineRetired}>
+              {controller.templateMutation.isPending ? 'Saving...' : 'Save'}
+            </button>
+            <button type="button" className="min-h-10 rounded border border-slate/20 px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10"
+              disabled={controller.templateMutation.isPending} onClick={() => setTemplateSaveDraft(null)}>Cancel</button>
           </div>
         </form>
       )}

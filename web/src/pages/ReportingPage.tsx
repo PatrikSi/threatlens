@@ -115,20 +115,35 @@ function ReportingContent({ controller }: { controller: ReportingController }) {
 
       {controller.capabilitiesQuery.data && controller.activeTab === 'reports' && (
         <>
-          {controller.canAuthor && <ReportBuilder controller={controller} />}
+          {controller.canAuthor && (controller.selectedTemplate &&
+            !controller.templatesQuery.data?.some((template) => template.id === controller.selectedTemplateId)
+            ? <UnavailableBuilderTemplate controller={controller} /> : <ReportBuilder controller={controller} />)}
           <ReportLibrary controller={controller} />
         </>
       )}
-      {controller.capabilitiesQuery.data && controller.activeTab === 'templates' && (
+      {controller.activeTab === 'templates' && (
         <ReportTemplatesPanel controller={controller} />
       )}
-      {controller.capabilitiesQuery.data && controller.isAdmin && (
+      {controller.isAdmin && (
         <div hidden={controller.activeTab !== 'schedules'}>
           <ReportSchedulesPanel controller={controller} />
         </div>
       )}
     </div>
   )
+}
+
+function UnavailableBuilderTemplate({ controller }: { controller: ReportingController }) {
+  return <section role="alert" className="rounded-lg border border-amber-300/60 p-4 text-sm">
+    <p>Saved template access must be verified before its content is shown. Your unsaved report draft is preserved.</p>
+    <button type="button" className="mt-2 font-semibold underline" onClick={() => void controller.templatesQuery.refetch()}>Retry report templates</button>
+    {controller.templatesQuery.data && <label className="ml-3">Choose another template
+      <select value="" className="ml-2 rounded border p-2 dark:bg-[#072019]" onChange={(event) => controller.setSelectedTemplateId(event.target.value)}>
+        <option value="">Select an available template</option>
+        {controller.templatesQuery.data.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+      </select>
+    </label>}
+  </section>
 }
 
 function PageStatus({ message }: { message: string }) {
