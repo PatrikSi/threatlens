@@ -153,6 +153,27 @@ produce duplicates. Neither exactly-once publication nor a fully bounded broker
 under every failure mode is claimed. The
 [operations guide](../pages/operations.md) describes these limits.
 
+### N05 — Clipboard completion and replacement credentials (P2)
+
+An older pending token copy could dismiss a newly created token, losing its
+one-time display. Copy feedback could also mark replacement MFA codes, secrets
+or identifiers as copied. The shared clipboard feedback hook now binds status
+to the displayed value/context and latest attempt. Token dismissal additionally
+compares the exact response in the reducer, including same-update-batch races.
+Replacement MFA codes are distinguished even when timestamps match. Current
+copy failures retain the manual-storage path; unmounted/stale completions do
+not change current feedback or dismiss replacement credentials.
+
+Initial token regressions fail before correction; supplemental real component
+tests also expose stale MFA/identifier feedback. The related fourteen-file run
+passes all 162 cases, including token reducer, token page, MFA and clipboard
+controls. The initial whole-source TypeScript check passes with sampled peak
+RSS 732,037,120 bytes. Separate security reviewers inspected the actual clipboard
+and tagging bytes and found no additional blocker in this bounded behavior.
+Browser clipboard writes already issued cannot be cancelled by these guards;
+the guarantee concerns feedback and dismissal, not erasing clipboard contents
+or guaranteeing permanent secret storage.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

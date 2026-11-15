@@ -73,6 +73,7 @@ const tokensPageDomMocks = vi.hoisted(() => ({
   tokenQueryKeys: [] as unknown[][],
   revokedDescendantCount: 0,
   nextCreateError: null as unknown,
+  nextCreatedToken: null as { token: string; token_prefix: string; expires_at: string | null } | null,
   useBlocker: vi.fn(() => ({
     state: 'unblocked' as const,
     proceed: vi.fn(),
@@ -232,11 +233,12 @@ vi.mock('@tanstack/react-query', () => ({
         options.onSettled?.(undefined as never, error, payload as never)
         return
       }
-      const data = {
+      const data = tokensPageDomMocks.nextCreatedToken ?? {
         token: 'tl_secret-created',
         token_prefix: 'tl_created',
         expires_at: '2026-11-25T10:00:00Z',
       }
+      tokensPageDomMocks.nextCreatedToken = null
       record.state = { ...record.state, status: 'success', error: null }
       options.onSuccess?.(data as never, payload as never)
       options.onSettled?.(data as never, null, payload as never)
@@ -308,6 +310,7 @@ afterEach(() => {
   tokensPageDomMocks.tokenQueryKeys.splice(0)
   tokensPageDomMocks.revokedDescendantCount = 0
   tokensPageDomMocks.nextCreateError = null
+  tokensPageDomMocks.nextCreatedToken = null
   tokensPageDomMocks.currentUser.isError = false
   Object.assign(tokensPageDomMocks.currentUser.data, {
     role: 'admin',
@@ -729,6 +732,50 @@ describe('TokensPage DOM workflows', () => {
     expect(writeText).toHaveBeenCalledWith('tl_secret-created')
     expect(pageText()).not.toContain('tl_secret-created')
     expect(pageText()).toContain('API token copied and cleared from this page')
+  })
+
+  it.each(['success', 'failure'])('ignores a previous token clipboard %s after creating a new token', async (outcome) => {
+    let finish!: () => void
+    let fail!: (error: Error) => void
+    const writeText = vi.fn(() => new Promise<void>((resolve, reject) => { finish = resolve; fail = reject }))
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const view = renderPage()
+    const create = (name: string) => {
+      act(() => {
+        setInputValue(view.querySelector<HTMLInputElement>('#token-name')!, name)
+        setInputValue(view.querySelector<HTMLInputElement>('#token-current-password')!, 'CurrentPassword123!')
+      })
+      act(() => tokenCreationForm(view)!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    }
+    create('First token')
+    expect(pageText()).toContain('tl_secret-created')
+    act(() => [...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Copy and clear')!.click())
+    expect(writeText).toHaveBeenCalledWith('tl_secret-created')
+    tokensPageDomMocks.nextCreatedToken = { token: 'tl_secret-second-created', token_prefix: 'tl_second', expires_at: null }
+    create('Second token')
+    expect(tokensPageDomMocks.createMutate).toHaveBeenCalledTimes(2)
+    expect(pageText()).toContain('tl_secret-second-created')
+    await act(async () => { if (outcome === 'success') finish(); else fail(new Error('First clipboard request denied')); await Promise.resolve() })
+    expect(pageText()).toContain('tl_secret-second-created')
+    expect(pageText()).not.toContain('Clipboard access was denied')
+    expect(pageText()).not.toContain('API token copied and cleared from this page')
+    act(() => [...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'I stored this token')!.click())
+    expect(pageText()).not.toContain('tl_secret-second-created')
+  })
+
+  it('retains the current token after clipboard denial for manual storage', async () => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error('Permission denied')) } })
+    const view = renderPage()
+    act(() => {
+      setInputValue(view.querySelector<HTMLInputElement>('#token-name')!, 'Manual storage')
+      setInputValue(view.querySelector<HTMLInputElement>('#token-current-password')!, 'CurrentPassword123!')
+    })
+    act(() => tokenCreationForm(view)!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await act(async () => { [...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Copy and clear')!.click(); await Promise.resolve() })
+    expect(pageText()).toContain('Clipboard access was denied')
+    expect(pageText()).toContain('tl_secret-created')
+    act(() => [...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'I stored this token')!.click())
+    expect(pageText()).not.toContain('tl_secret-created')
   })
 
   it('keeps token creation unavailable for an untracked legacy SSO session', () => {

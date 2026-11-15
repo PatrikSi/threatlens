@@ -51,7 +51,17 @@ describe('reduceTokenCreateFormState', () => {
     expect(
       reduceTokenCreateFormState(stateWithToken, {
         type: 'dismissCreatedToken',
+        value: stateWithToken.createdToken,
       }).createdToken,
     ).toBeNull()
+  })
+
+  it('does not dismiss a newer token when an older copy completes in the same update batch', () => {
+    const first = { token: 'first-secret', token_prefix: 'first', expires_at: null }
+    const second = { token: 'second-secret', token_prefix: 'second', expires_at: null }
+    const initial = { ...createInitialTokenCreateFormState(), createdToken: first }
+    const updated = reduceTokenCreateFormState(initial, { type: 'createSucceeded', value: second })
+    expect(reduceTokenCreateFormState(updated, { type: 'dismissCreatedToken', value: first })).toBe(updated)
+    expect(updated.createdToken).toBe(second)
   })
 })

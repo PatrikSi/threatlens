@@ -259,7 +259,7 @@ export function TokensPage() {
         <TokenInventory
           isAdmin={isAdmin}
           canManage={canManageTokens}
-          secretNotice={secretNotice}
+          secretNotice={tokenFormState.createdToken ? '' : secretNotice}
         />
         {canManageTokens && (
           <div id="create-api-token" className="min-w-0 scroll-mt-4">
@@ -299,8 +299,8 @@ export function TokensPage() {
               }
               onRetryMfa={() => void mfaStatusQuery.refetch()}
               onOIDCReauthenticate={() => oidcReauthentication.mutate()}
-              onCreatedTokenStored={(method) => {
-                dispatchTokenForm({ type: 'dismissCreatedToken' })
+              onCreatedTokenStored={(method, token) => {
+                dispatchTokenForm({ type: 'dismissCreatedToken', value: token })
                 setSecretNotice(
                   method === 'copied'
                     ? 'API token copied and cleared from this page.'

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
+import { useEffect, useRef, type FormEvent, type RefObject } from 'react'
 
 import { resolveApiErrorMessage } from '../api/errors'
+import { useClipboardFeedback } from '../hooks/useClipboardFeedback'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import type { TokenCreateFormState } from '../hooks/useTokenCreateFormState'
-import type { MFAStatusResponse } from '../types/api'
+import type { ApiTokenCreateResponse, MFAStatusResponse } from '../types/api'
 import { resolveOIDCReauthStartError } from './oidcCallbackMessages'
 
 export function TokenCreatePanel({
@@ -59,9 +60,9 @@ export function TokenCreatePanel({
   onCodeChange: (value: string) => void
   onRetryMfa: () => void
   onOIDCReauthenticate: () => void
-  onCreatedTokenStored: (method: 'copied' | 'acknowledged') => void
+  onCreatedTokenStored: (method: 'copied' | 'acknowledged', token: ApiTokenCreateResponse) => void
 }) {
-  const [copyError, setCopyError] = useState('')
+  const { copyState, copy } = useClipboardFeedback(state.createdToken?.token ?? null, state.createdToken)
   const currentUserQuery = useCurrentUser()
   const createdTokenHeadingRef = useRef<HTMLHeadingElement | null>(null)
   const oidcMfaAssured =
@@ -82,16 +83,9 @@ export function TokenCreatePanel({
   }
 
   const copyAndClear = async () => {
-    if (!state.createdToken) return
-    try {
-      await navigator.clipboard.writeText(state.createdToken.token)
-      setCopyError('')
-      onCreatedTokenStored('copied')
-    } catch {
-      setCopyError(
-        'Clipboard access was denied. Select and copy the token manually, then acknowledge it below.',
-      )
-    }
+    const token = state.createdToken
+    if (!token) return
+    if (await copy()) onCreatedTokenStored('copied', token)
   }
   return (
     <section
@@ -364,17 +358,17 @@ export function TokenCreatePanel({
                   <button
                     type="button"
                     className="min-h-11 rounded border border-slate/30 px-3 py-1.5 font-semibold sm:min-h-0 dark:border-white/20"
-                    onClick={() => onCreatedTokenStored('acknowledged')}
+                    onClick={() => state.createdToken && onCreatedTokenStored('acknowledged', state.createdToken)}
                   >
                     I stored this token
                   </button>
                 </div>
-                {copyError && (
+                {copyState === 'failed' && (
                   <p
                     role="alert"
                     className="mt-2 text-xs text-red-600 dark:text-red-300"
                   >
-                    {copyError}
+                    Clipboard access was denied. Select and copy the token manually, then acknowledge it below.
                   </p>
                 )}
               </div>

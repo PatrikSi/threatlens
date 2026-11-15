@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog, DialogSurface } from '../components/ConfirmDialog'
+import { useClipboardFeedback } from '../hooks/useClipboardFeedback'
 import type { MFARecoveryCodesResponse } from '../types/identity'
 import { formatDateTime } from '../utils/datetime'
 import { disableWhen } from './accountSecurityUtils'
@@ -20,17 +21,7 @@ export function SecretValue({
   label: string
   value: string
 }) {
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>(
-    'idle',
-  )
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(value)
-      setCopyState('copied')
-    } catch {
-      setCopyState('failed')
-    }
-  }
+  const { copyState, copy } = useClipboardFeedback(value)
   return (
     <div>
       <p className="text-xs font-semibold text-slate dark:text-slate-300">
@@ -165,23 +156,7 @@ export function RecoveryCodesDialog({
   onDownload: (codes: string[], generatedAt: string) => void
   onDone: () => void
 }) {
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>(
-    'idle',
-  )
-
-  useEffect(() => {
-    setCopyState('idle')
-  }, [data?.generated_at])
-
-  const copyAll = async () => {
-    if (!data) return
-    try {
-      await navigator.clipboard.writeText(data.recovery_codes.join('\n'))
-      setCopyState('copied')
-    } catch {
-      setCopyState('failed')
-    }
-  }
+  const { copyState, copy: copyAll } = useClipboardFeedback(data?.recovery_codes.join('\n') ?? null, data)
 
   return (
     <DialogSurface

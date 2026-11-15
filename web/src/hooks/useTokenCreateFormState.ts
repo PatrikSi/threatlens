@@ -23,7 +23,7 @@ type TokenCreateFormAction =
   | { type: 'createStarted' }
   | { type: 'createFailed' }
   | { type: 'createSucceeded'; value: ApiTokenCreateResponse }
-  | { type: 'dismissCreatedToken' }
+  | { type: 'dismissCreatedToken'; value: ApiTokenCreateResponse }
 
 export function createInitialTokenCreateFormState(): TokenCreateFormState {
   return {
@@ -62,7 +62,9 @@ export function reduceTokenCreateFormState(
         createdToken: action.value,
       }
     case 'dismissCreatedToken':
-      return { ...state, createdToken: null }
+      return state.createdToken === action.value
+        ? { ...state, createdToken: null }
+        : state
     default:
       return state
   }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useClipboardFeedback } from '../hooks/useClipboardFeedback'
 
 export function CopyableIdentifier({
   label,
@@ -7,18 +7,7 @@ export function CopyableIdentifier({
   label: string
   value: string
 }) {
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>(
-    'idle',
-  )
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(value)
-      setCopyState('copied')
-    } catch {
-      setCopyState('failed')
-    }
-  }
+  const { copyState, copy } = useClipboardFeedback(value)
 
   return (
     <div className="min-w-0">
