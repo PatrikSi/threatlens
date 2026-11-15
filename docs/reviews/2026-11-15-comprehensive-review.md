@@ -900,6 +900,29 @@ image evidence remains a prior snapshot. The final frontend audit passes with
 zero advisories across all severities (log
 `9e6d18af871e16d47d45331422d540e9d3c3a1c29f2862987ea9fa8c5a9980ec`).
 
+### N31 — live post-create notification compatibility control
+
+The fifth full frontend run exits 0 with all 1,718 cases passing and no unhandled
+errors. Type/lint, audit, production build and bundle smoke also pass. Default
+reporter inspection still reveals one handled route crash inside a positive
+notification fixture: its newly created webhook history request received a
+generic array instead of the required delivery-page object.
+
+The fixture now supplies that actual response shape and proves the newly created
+form/history remain live while the initial collection GET stays pending. It
+asserts one POST and its authored payload, one successful new-ID history read,
+empty-history presentation, retained name/URL and absence of a route error
+boundary. A first stronger check used an exact prefix lookup and failed 19/20;
+the lookup now correctly matches the generation-qualified key. No product or
+admission policy is changed.
+
+All 20 focused cases pass with CLI 0, no unhandled errors and no route-crash markers
+(log `cc9c6093fc9d57fcf8c0c5568d4d93a15f373af16b6bac62d2e729049685bbe8`).
+Independent final fixture source proof:
+`d512f8622855f51167fd8ad2caaa419ce2934d7f0c40ed728a9d443c1ffc2444`.
+The final full run on these exact fixture bytes remains running. Native image
+builds, packaged inventory/notice checks and isolated HTTP qualification follow.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

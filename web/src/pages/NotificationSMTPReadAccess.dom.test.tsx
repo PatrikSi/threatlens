@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, apiFetch } from '../api/client'
-import type { NotificationWebhook, SMTPHook } from '../types/api'
+import type { NotificationWebhook, NotificationWebhookDeliveryListResponse, SMTPHook } from '../types/api'
 import { notificationAnalytics, notificationDelivery, smtpAnalytics, smtpDelivery, smtpHook, smtpTestRun, webhook } from '../testing/notificationReadFixtures'
 import { NotificationsPage } from './NotificationsPage'
 import { SMTPIntegrationSettingsPage } from './IntegrationsSettingsPage'
@@ -226,11 +226,42 @@ describe('notification and email actual cache read authority', () => {
 
   it('admits an explicitly authored new webhook while its initial collection read remains pending', async () => {
     pendingCollection = deferred<NotificationWebhook[]>().promise
+    const createdDeliveryPath = '/notifications/webhooks/created-webhook/deliveries?page=1&page_size=10'
+    const createdDeliveryReads: string[] = []
+    const emptyHistory: NotificationWebhookDeliveryListResponse = { deliveries: [], total: 0, page: 1, page_size: 10 }
+    const fallback = vi.mocked(apiFetch).getMockImplementation()!
+    vi.mocked(apiFetch).mockImplementation((path, init) => {
+      if (path === createdDeliveryPath) {
+        createdDeliveryReads.push(path)
+        return Promise.resolve(emptyHistory) as never
+      }
+      return fallback(path, init)
+    })
     await mountNotification(false)
     await vi.waitFor(() => expect(input('notification-webhook-name')).not.toBeNull())
+    expect(view!.client.getQueryState(['notifications', 'webhooks'])?.fetchStatus).toBe('fetching')
+    expect(view!.client.getQueryData(['notifications', 'webhooks'])).toBeUndefined()
     edit('notification-webhook-name', 'New operator destination')
     edit('notification-webhook-url', 'https://new-operator.example.test/receiver')
     act(() => intelButton(view!.host, 'Create webhook').click())
-    await vi.waitFor(() => expect(writes().some(([path, init]) => path === '/notifications/webhooks' && init?.method === 'POST')).toBe(true))
+    await vi.waitFor(() => {
+      expect(view!.host.textContent).toContain('Webhook created.')
+      expect(view!.host.textContent).toContain('No deliveries yet.')
+      expect(input('notification-webhook-name')?.value).toBe('New operator destination')
+      expect(input('notification-webhook-url')?.value).toBe('https://new-operator.example.test/receiver')
+      expect(view!.client.getQueryCache().find({ queryKey: ['notifications', 'webhooks', 'created-webhook', 'deliveries'], exact: false })?.state.status).toBe('success')
+    })
+    expect(createdDeliveryReads).toEqual([createdDeliveryPath])
+    expect(writes()).toHaveLength(1)
+    const [path, init] = writes()[0]
+    expect(path).toBe('/notifications/webhooks')
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      name: 'New operator destination', url_template: 'https://new-operator.example.test/receiver',
+    })
+    expect(view!.client.getQueryState(['notifications', 'webhooks'])?.fetchStatus).toBe('fetching')
+    expect(view!.client.getQueryData(['notifications', 'webhooks'])).toBeUndefined()
+    expect(view!.host.textContent).not.toContain('Unexpected Application Error!')
+    expect(view!.host.textContent).not.toContain('Cannot read properties')
   })
 })
