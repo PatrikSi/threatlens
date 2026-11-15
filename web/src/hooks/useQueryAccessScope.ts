@@ -2,54 +2,27 @@ import { useMemo, useSyncExternalStore } from 'react'
 import { useQueryClient, type Query, type QueryClient, type QueryFunctionContext } from '@tanstack/react-query'
 
 import { ApiError } from '../api/client'
+import { createQueryAccessStore } from './queryAccessStore'
 
 type ScopedRead<T> = { generation: number; value: T }
-type AccessSnapshot = { generation: number; denied: boolean }
-
-function createScope() {
-  let snapshot: AccessSnapshot = { generation: 0, denied: false }
-  const listeners = new Set<() => void>()
-  function update(next: AccessSnapshot) {
-    snapshot = next
-    for (const notify of listeners) notify()
-  }
-  return {
-    snapshot: () => snapshot,
-    subscribe: (notify: () => void) => {
-      listeners.add(notify)
-      return () => { listeners.delete(notify) }
-    },
-    deny: (generation: number) => {
-      if (generation === snapshot.generation) update({ generation: generation + 1, denied: true })
-    },
-    authorize: (generation: number) => {
-      if (generation === snapshot.generation && snapshot.denied) update({ generation, denied: false })
-    },
-  }
-}
 
 // The client is already owned by one browser session. Keeping the resource
 // state with it preserves a denial through paging and component remounts, while
 // a different publication team has its own explicit scope.
-const scopes = new WeakMap<QueryClient, Map<string, ReturnType<typeof createScope>>>()
+const scopes = new WeakMap<QueryClient, ReturnType<typeof createQueryAccessStore>>()
 
 /** Inspect a known resource withdrawal without creating or authorizing a scope. */
 export function isQueryAccessDenied(client: QueryClient, prefix: readonly (string | boolean)[]) {
-  return scopes.get(client)?.get(JSON.stringify(prefix))?.snapshot().denied ?? false
+  return scopes.get(client)?.denied(JSON.stringify(prefix)) ?? false
 }
 
 function resourceScope(client: QueryClient, key: string) {
   let resources = scopes.get(client)
   if (!resources) {
-    resources = new Map()
+    resources = createQueryAccessStore()
     scopes.set(client, resources)
   }
-  let scope = resources.get(key)
-  if (!scope) {
-    scope = createScope()
-    resources.set(key, scope)
-  }
-  return scope
+  return resources.get(key)
 }
 
 /** Preserve outage context, but retire every cached read preceding a denial. */

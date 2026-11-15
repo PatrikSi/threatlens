@@ -781,6 +781,34 @@ Independent final seven-source/runtime-evidence proof:
 The final full frontend/type/audit/build pipeline is running; its outcome is not
 substituted by these focused passes.
 
+### N26 — bounded browser withdrawal history and capacity assessment
+
+Idle resource scopes can now be garbage-collected while their session client
+remains alive. A conservative per-client summary uses at most 64 KiB; unique
+withdrawal/recreation epochs prevent stale copied envelopes from matching a new
+scope. Read-only checks preserve first-detail withdrawal history after the detail
+query disappears. A live authorized exact scope overrides the summary. No timed
+or size eviction discards known withdrawals. See ADR 0008 for the availability
+tradeoff and GC-dependent weak-table/live-query memory limits.
+
+The actual Node 22.23.5 `--expose-gc` probe fails its intended collection assertion
+with the unchanged strong store and passes after the correction (logs `50c978…`
+and `89f0ac…`). Seven deterministic `queryAccessStore.test.ts` controls pass.
+The Dashboard collision/recovery DOM control uses the actual production store,
+QueryClient and UI, with mocked HTTP and deterministic summary saturation. It
+proves preview/automatic actions remain paused until a fresh detail read succeeds,
+then verifies the iframe and one actual mocked write. Its combined run with two
+AI-save controls passes (log `02ae0d0fc5bd4736273f3f4a96932193a1e0be3065ad7b299375cf187dac313e`).
+A subsequent explicit-null detail fixture type annotation preserves runtime data.
+Final project types and lint pass; full frontend/build gates remain running.
+Independent final source proof is `caa175141581072d34ee932006190561e3e2fc714fb0bdd7ca242f7dd7cd2333`.
+
+The separate capacity assessment records actual configuration/work bounds and
+unknown arrival rates, p95, storage and provider limits. Independent numerical/
+source review is `0397c0d4c17df274729cdea643b4b290dd72cc5f55d7d7b1a01e9d4d6c591cb7`.
+No performance campaign, browser heap/OOM threshold or deployment sizing result
+is inferred from source review, synthetic historical budgets or Node collection.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,
