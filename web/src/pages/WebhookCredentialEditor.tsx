@@ -41,6 +41,7 @@ export function CredentialEditor({
   const client = useQueryClient()
   const access = useQueryAccessScope(['notifications', 'credential-profiles'])
   const [baseline, setBaseline] = useState(profile)
+  const [baselineAdmission, setBaselineAdmission] = useState(() => access.captureResult()(true))
   const [draft, setDraft] = useState(() => initialDraft(profile))
   const mounted = useRef(true)
   useEffect(() => {
@@ -52,6 +53,13 @@ export function CredentialEditor({
   const dirty = JSON.stringify(draft) !== JSON.stringify(initialDraft(baseline))
   const save = useMutation({
     mutationFn: () => {
+      const key = ['notifications', 'credential-profiles']
+      const admission = access.captureResult()(true)
+      const current = access.currentData<WebhookCredentialProfile[]>(client.getQueryData(key))
+      if (!writable || client.getQueryState(key)?.status === 'error' || !access.currentData(admission)
+        || baseline && (!access.currentData(baselineAdmission) || !current?.some((entry) => entry.id === baseline.id))) {
+        throw new Error('Reload the current credential profiles before saving. Your input is preserved.')
+      }
       const capture = access.captureResult()
       return apiFetch<WebhookCredentialProfile>(
         `/notifications/credential-profiles${baseline ? `/${baseline.id}` : ''}`,
@@ -77,16 +85,19 @@ export function CredentialEditor({
       }
       if (!mounted.current) return
       setBaseline(saved)
+      setBaselineAdmission({ generation: result.generation, value: true })
       setDraft(initialDraft(saved))
       onDirtyChange(false)
       onSaved(saved)
-      client.setQueryData<{ generation: number; value: WebhookCredentialProfile[] }>(
-        ['notifications', 'credential-profiles'],
-        (entries) => ({ ...result, value: [
-          ...(access.currentData(entries) ?? []).filter((entry) => entry.id !== saved.id),
-          saved,
-        ] }),
-      )
+      if (client.getQueryState(['notifications', 'credential-profiles'])?.status !== 'error') {
+        client.setQueryData<{ generation: number; value: WebhookCredentialProfile[] }>(
+          ['notifications', 'credential-profiles'],
+          (entries) => ({ ...result, value: [
+            ...(access.currentData(entries) ?? []).filter((entry) => entry.id !== saved.id),
+            saved,
+          ] }),
+        )
+      }
       void client.invalidateQueries({
         queryKey: ['notifications', 'credential-profiles'],
       })

@@ -738,6 +738,26 @@ workspace `6b48d37b9f21c8a628c28d4801c0fa1c15697c352c1547f4bae8a5d3a17bee91`.
 Whole-project types, lint and source-size checks pass for this snapshot. Full
 frontend, remaining reporting retention and native web checks remain open.
 
+### N24 — credential collection partial-write recovery
+
+A reproduced late single-profile save could merge an old collection and clear a
+current collection GET error, reopening writes to a cached sibling profile. The
+merge now preserves collection read health and requests a canonical refresh.
+Actual RPC admission also checks current collection health, selected identity
+and baseline generation, closing a separately reproduced queued-handler gap.
+Healthy initial profile creation keeps its existing independent contract.
+
+All 18 cases in four related files pass (log
+`1977e5b1d529965ec877636f9898b703831309a66ca7758e77ad3c780d7be238`).
+Independent final source/runtime-evidence review:
+`4c431865ec080b8ac95c6ab0960dfbbf6b7af1e31494d432cc03d799df8d8b6c`.
+The token sibling-page probe passes: existing invalidation starts the canonical
+read and pauses revoke during re-entry. That speculative defect is withdrawn;
+the positive control is retained and token production code is unchanged. Other
+full-canonical save replies remain separately qualified rather than prohibited
+by a blanket GET-only rule. Current whole-project type/lint/size checks pass;
+remaining reporting and final release gates remain open.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,
