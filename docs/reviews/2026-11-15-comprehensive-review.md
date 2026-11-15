@@ -411,8 +411,6 @@ it also displayed one failure before termination. No full pass or coverage gate
 is claimed. The next step is bounded fresh-database shards with complete failure
 reporting and combined coverage, followed by the remaining release checks.
 
-## Next executable steps
-
 ### N10 — bounded migration search must also bound allocation
 
 The fresh backend run's failing ordinal identifies migration 0079's existing
@@ -475,6 +473,39 @@ changes (proof `890729ca8d7f8edd5f262e91e8055064ccc7472e1dc0351f1b1dec9dd4a3853e
 One final test-file formatting correction removes an extra trailing blank line.
 No assertion is removed. Project-wide type/lint/build and release gates remain
 open; these synthetic checks are not a production fault-injection campaign.
+
+### N13 — feed catalogue, encrypted inventory and saved feed drafts
+
+All seven `/feeds` query producers now use the same scoped cache contract;
+Dashboard and statistics retain their independent keys and share feed authority.
+Feed mutations reconcile those namespaces through canonical reads. A mutation
+response cannot repair a failed read. Recent feed articles have their own
+namespace, keeping the remaining legacy raw item-cache writer compatible.
+Dirty feed drafts survive hidden saved metadata, require deliberate reload after
+withdrawal, and retain navigation protection. Delete/bulk intents retire on loss;
+RPC guards check the current canonical feed inventory. Encrypted inventory has
+independent read history, while an authorized degraded 503 payload still reports
+its actual critical state. Webhook team-choice paging cannot restore an older
+cached page after denial; static local choices remain usable.
+
+This increment changes 13 explicitly staged files: the feed controller, detail
+dialog and page, their tests, the paired feed producers in AI/notification/SMTP/
+tagging/team configuration, statistics and webhook choices. Team destination
+editor changes remain in a separate pending increment. The final six-file run
+passes all 62 cases, log SHA-256
+`16e04375b7d196dcd87ee10f5e7fd701404c81299caa1e621442ff45db56eaf2`.
+Before controls reproduce five feed defects, a denied health-count disclosure,
+lost hidden-draft navigation protection, and cached team-choice restoration.
+The degraded-health and static-choice positive controls pass. Legacy mocked
+presentation fixtures now declare the actual cache envelope and query state.
+
+Expanded TypeScript and ESLint runs report no errors in these 13 files. Whole
+project checks remain open for other in-progress changes. Independent review of
+the exact 13-file freeze is requested and pending; this tested increment is not
+a release-readiness claim. The private index freeze records every staged hash,
+including the feed-only hunk in team configuration.
+
+## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,
 record confirmed findings with reproductions, implement disjoint fixes with

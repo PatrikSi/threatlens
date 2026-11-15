@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type { AlertInterest, Feed, Tag } from '../types/api'
 import type { TeamPage } from '../types/teams'
 import type { WebhookConditionField } from '../types/webhookAutomation'
@@ -36,12 +37,16 @@ async function fetchChoices(field: WebhookConditionField, page: number, signal: 
 export function useWebhookConditionChoices(field: WebhookConditionField) {
   const [page, setPage] = useState(1)
   const remote = REMOTE_FIELDS.has(field)
+  const authority = field === 'feed_id' ? ['feeds']
+    : field === 'tag' || field === 'tag_id' ? ['tags']
+      : field === 'team_id' ? ['teams', 'list', false]
+        : ['notifications', 'condition-choices', field]
+  const access = useQueryAccessScope(authority)
   const query = useQuery({
     queryKey: ['notifications', 'condition-choices', field, page],
-    queryFn: ({ signal }) => fetchChoices(field, page, signal),
+    ...access.queryOptions(({ signal }) => fetchChoices(field, page, signal), 60_000),
     enabled: remote,
     retry: false,
-    staleTime: 60_000,
   })
   // A failed permission check must not expose cached names while the draft keeps its identifiers.
   const data = query.isError ? undefined : query.data

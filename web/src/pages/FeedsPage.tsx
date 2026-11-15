@@ -331,6 +331,8 @@ export function FeedsPage() {
         onSaveFeedDetail={onSaveFeedDetail}
         updateFeedEditDraft={updateFeedEditDraft}
         feedArticlesQuery={feedArticlesQuery}
+        feedEditNeedsReload={controller.feedEditNeedsReload}
+        onReloadFeedDetail={controller.onReloadFeedDetail}
       />
       <FeedManagementDialogs
         pendingImportReview={pendingImportReview}

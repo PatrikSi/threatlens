@@ -1,3 +1,4 @@
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -87,9 +88,10 @@ export function useSMTPIntegrationController() {
     queryKey: ['integrations', 'smtp', 'template-defaults'],
     queryFn: () => apiFetch<SMTPTemplateDefault[]>('/integrations/smtp/template-defaults'),
   })
+  const feedAccess = useQueryAccessScope(['feeds'])
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
-    queryFn: () => apiFetch<Feed[]>('/feeds'),
+    ...feedAccess.queryOptions(({ signal }) => apiFetch<Feed[]>('/feeds', { signal })),
   })
   const variablesQuery = useQuery({
     queryKey: ['notifications', 'template-variables'],

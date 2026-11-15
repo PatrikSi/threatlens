@@ -10,6 +10,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const feedsPageDomMocks = vi.hoisted(() => ({
   queryClient: {
     invalidateQueries: vi.fn(),
+    getQueryState: () => ({ status: 'success' }),
+    getQueryData: () => ({ generation: 0, value: feedsData }),
   },
   bulkRefreshMutate: vi.fn(),
   deleteMutate: vi.fn(),
@@ -192,7 +194,7 @@ vi.mock('@tanstack/react-query', () => ({
       }
     }
 
-    if (scope === 'items' && key === 'feed-detail') {
+    if (scope === 'feed-articles') {
       return {
         ...baseResult,
         data: feedsPageDomMocks.recentItems,

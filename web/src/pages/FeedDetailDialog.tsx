@@ -16,6 +16,8 @@ type FeedDetailDialogProps = Pick<
   | 'onSaveFeedDetail'
   | 'updateFeedEditDraft'
   | 'feedArticlesQuery'
+  | 'feedEditNeedsReload'
+  | 'onReloadFeedDetail'
 >
 
 export function FeedDetailDialog({
@@ -29,7 +31,10 @@ export function FeedDetailDialog({
   onSaveFeedDetail,
   updateFeedEditDraft,
   feedArticlesQuery,
+  feedEditNeedsReload,
+  onReloadFeedDetail,
 }: FeedDetailDialogProps) {
+  const editorWritable = canManage && !feedEditNeedsReload
   return (
       <DialogSurface
         open={Boolean(editingFeed && feedEditDraft)}
@@ -53,6 +58,9 @@ export function FeedDetailDialog({
               )}
             </div>
             <div className="flex flex-wrap justify-end gap-2">
+              {feedEditNeedsReload && <button type="button" onClick={onReloadFeedDetail}>
+                Reload saved feed
+              </button>}
               <button
                 type="button"
                 className="rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate/5 dark:border-cyan-900/40 dark:text-slate-100 dark:hover:bg-white/[0.04]"
@@ -66,7 +74,7 @@ export function FeedDetailDialog({
                   type="button"
                   className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-cyan dark:text-[#053c2e] dark:hover:bg-cyan/90"
                   onClick={onSaveFeedDetail}
-                  disabled={updateFeedDetails.isPending || Boolean(feedEditValidation) || !feedEditDirty}
+                  disabled={!editorWritable || updateFeedDetails.isPending || Boolean(feedEditValidation) || !feedEditDirty}
                 >
                   {updateFeedDetails.isPending ? 'Saving...' : 'Save feed'}
                 </button>
@@ -88,7 +96,7 @@ export function FeedDetailDialog({
                     className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                     value={feedEditDraft.url}
                     onChange={(event) => updateFeedEditDraft({ url: event.target.value })}
-                    disabled={!canManage}
+                    disabled={!editorWritable}
                     placeholder={editingFeed.has_unreadable_url ? 'Enter a replacement RSS URL' : 'https://example.com/feed.xml'}
                   />
                   {editingFeed.url.includes('REDACTED') && (
@@ -102,7 +110,7 @@ export function FeedDetailDialog({
                     type="checkbox"
                     checked={feedEditDraft.enabled}
                     onChange={(event) => updateFeedEditDraft({ enabled: event.target.checked })}
-                    disabled={!canManage}
+                    disabled={!editorWritable}
                   />
                   Enabled
                 </label>
@@ -118,7 +126,7 @@ export function FeedDetailDialog({
                     className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                     value={feedEditDraft.name}
                     onChange={(event) => updateFeedEditDraft({ name: event.target.value })}
-                    disabled={!canManage}
+                    disabled={!editorWritable}
                   />
                 </div>
                 <div>
@@ -130,7 +138,7 @@ export function FeedDetailDialog({
                     className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                     value={feedEditDraft.siteUrl}
                     onChange={(event) => updateFeedEditDraft({ siteUrl: event.target.value })}
-                    disabled={!canManage}
+                    disabled={!editorWritable}
                   />
                 </div>
               </div>
@@ -145,7 +153,7 @@ export function FeedDetailDialog({
                     className="mt-1 h-20 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                     value={feedEditDraft.description}
                     onChange={(event) => updateFeedEditDraft({ description: event.target.value })}
-                    disabled={!canManage}
+                    disabled={!editorWritable}
                   />
                 </div>
                 <div>
@@ -157,7 +165,7 @@ export function FeedDetailDialog({
                     className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                     value={feedEditDraft.language}
                     onChange={(event) => updateFeedEditDraft({ language: event.target.value })}
-                    disabled={!canManage}
+                    disabled={!editorWritable}
                     placeholder="en-US"
                   />
                 </div>
@@ -183,7 +191,7 @@ export function FeedDetailDialog({
                             : feedEditDraft.scheduleCron,
                       })
                     }}
-                    disabled={!canManage}
+                    disabled={!editorWritable}
                   >
                     <option value="interval">Interval</option>
                     <option value="schedule">Schedule</option>
@@ -203,7 +211,7 @@ export function FeedDetailDialog({
                         min={60}
                         value={feedEditDraft.intervalSeconds}
                         onChange={(event) => updateFeedEditDraft({ intervalSeconds: event.target.value })}
-                        disabled={!canManage}
+                        disabled={!editorWritable}
                       />
                       <span className="text-xs text-slate dark:text-slate-300">seconds</span>
                     </div>
@@ -218,7 +226,7 @@ export function FeedDetailDialog({
                       className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                       value={feedEditDraft.scheduleCron}
                       onChange={(event) => updateFeedEditDraft({ scheduleCron: event.target.value })}
-                      disabled={!canManage}
+                      disabled={!editorWritable}
                       placeholder="0 * * * *"
                     />
                   </div>

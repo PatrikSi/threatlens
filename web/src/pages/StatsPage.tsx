@@ -95,10 +95,10 @@ function IngestionStatistics() {
   const client = useQueryClient()
   const access = useQueryAccessScope(['stats'])
   // Feed catalogue access is independent of permission to view statistics.
-  const feedsAccess = useQueryAccessScope(['stats', 'feeds'])
+  const feedsAccess = useQueryAccessScope(['feeds'])
 
   const feedsResult = useQuery({
-    // Keep this scoped response separate from the raw shared feed catalogue.
+    // Keep an independent cache key while sharing feed-read denial history.
     // A real read on entry also observes feed changes made in other settings.
     queryKey: ['stats', 'feeds'],
     ...feedsAccess.queryOptions(({ signal }) => apiFetch<Feed[]>('/feeds', { signal }), 0),

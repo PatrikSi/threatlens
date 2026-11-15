@@ -310,11 +310,11 @@ export function AiSettingsPage() {
     refetchInterval: 5000,
   })
 
+  const feedsAccess = useQueryAccessScope(['feeds'])
   const feedsQuery = useQuery({
     queryKey: ['feeds', 'ai-reprocess'],
-    queryFn: ({ signal }) => apiFetch<Feed[]>('/feeds', { signal }),
+    ...feedsAccess.queryOptions(({ signal }) => apiFetch<Feed[]>('/feeds', { signal }), AI_REFERENCE_STALE_MS),
     enabled: activityQueriesEnabled,
-    staleTime: AI_REFERENCE_STALE_MS,
   })
 
   const candidateItemsReady = isCandidateItemSearchReady(

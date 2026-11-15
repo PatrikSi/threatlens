@@ -1,3 +1,4 @@
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -57,9 +58,10 @@ export function useTaggingSettingsController() {
     queryKey: ['tagging', 'settings'],
     queryFn: () => apiFetch<TaggingSettingsBundleResponse>('/tagging/settings'),
   })
+  const feedAccess = useQueryAccessScope(['feeds'])
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
-    queryFn: () => apiFetch<Feed[]>('/feeds'),
+    ...feedAccess.queryOptions(({ signal }) => apiFetch<Feed[]>('/feeds', { signal })),
   })
 
   useEffect(() => {

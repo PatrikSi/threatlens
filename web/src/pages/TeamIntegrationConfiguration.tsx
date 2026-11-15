@@ -106,9 +106,10 @@ function ConfigurationEditor({
     dirty,
     'Discard unsaved team destination changes?',
   )
+  const feedAccess = useQueryAccessScope(['feeds'])
   const feeds = useQuery({
     queryKey: ['feeds'],
-    queryFn: ({ signal }) => apiFetch<Feed[]>('/feeds', { signal }),
+    ...feedAccess.queryOptions(({ signal }) => apiFetch<Feed[]>('/feeds', { signal })),
   })
   const save = useMutation({
     mutationFn: () =>
