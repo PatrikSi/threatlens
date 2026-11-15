@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ApiError, apiFetch } from '../api/client'
+import { apiFetch } from '../api/client'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog, DialogSurface } from '../components/ConfirmDialog'
@@ -28,18 +29,17 @@ export function WebhookCredentialProfiles({
   const [busy, setBusy] = useState(false)
   const [pending, setPending] = useState<(() => void) | null>(null)
   const [notice, setNotice] = useState('')
+  const access = useQueryAccessScope(['notifications', 'credential-profiles'])
   const query = useQuery({
     queryKey: ['notifications', 'credential-profiles'],
-    queryFn: ({ signal }) =>
+    ...access.queryOptions(({ signal }) =>
       apiFetch<WebhookCredentialProfile[]>(
         '/notifications/credential-profiles',
         { signal },
-      ),
+      )),
   })
   const profiles = accessibleQueryData(query) ?? []
-  const denied =
-    query.error instanceof ApiError &&
-    [401, 403, 404].includes(query.error.status)
+  const denied = access.denied
   useEffect(() => {
     if (denied) {
       setDirty(false)
@@ -88,7 +88,7 @@ export function WebhookCredentialProfiles({
               <select
                 className={INPUT}
                 value={selected?.id ?? ''}
-                disabled={busy}
+                disabled={busy || query.isError}
                 onChange={(event) => {
                   const next =
                     profiles.find(

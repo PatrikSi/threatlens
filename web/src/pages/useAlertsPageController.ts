@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useRef, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -7,6 +7,7 @@ import { accessibleQueryData } from '../api/queryData'
 import { validateAlertDeadlineMinutes } from './alertTeamTriageModel'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { AlertInterest, AlertMatchListResponse, AlertSeverity } from '../types/api'
 import {
   ALERT_CATEGORIES,
@@ -77,34 +78,41 @@ export function useAlertsPageController(triageDirty = false) {
 
   const parsedKeywords = useMemo(() => parseAlertKeywords(keywordsText), [keywordsText])
   const previewEnabled = parsedKeywords.length > 0 && category.trim().length > 0
-  const saveDisabledReason = revisionConflict
+  const draftSaveDisabledReason = revisionConflict
     ? 'Reload the latest rule before saving this draft.'
     : (getAlertSaveDisabledReason(name, parsedKeywords) ??
       getAlertSuppressionValidationError(suppressionEnabled, suppressionUntil, suppressionReason) ??
       (draftTeamId ? validateAlertDeadlineMinutes(dueAfterMinutes, escalationAfterMinutes) : null))
+  const access = useQueryAccessScope(['alerts', 'rules', listScope])
+  const deleteAccess = useQueryAccessScope(['alerts', 'delete-conflict-all', pendingDeleteAlert?.team_id ?? 'personal'])
+  const previewAccess = useQueryAccessScope(['alerts', 'preview'])
   const alertsResult = useQuery({
     queryKey: ['alerts', showDisabled, listScope],
-    queryFn: () => {
+    ...access.queryOptions(() => {
       const params = new URLSearchParams({ include_disabled: String(showDisabled) })
       if (teamId) params.set('team_id', teamId)
       else if (queueScope === 'personal' || queueScope === 'team') params.set('queue_scope', queueScope)
       return apiFetch<AlertInterest[]>(`/alerts?${params}`)
-    },
+    }),
   })
   const alertsQuery = { ...alertsResult, data: accessibleQueryData(alertsResult) }
+  const ruleReadUnavailable = alertsQuery.isError || access.denied
+  const saveDisabledReason = editingAlertId && ruleReadUnavailable
+    ? 'Reload the alert rules before saving this draft. Your changes remain available.'
+    : draftSaveDisabledReason
   const deleteConflictAlertsQuery = useQuery({
     queryKey: ['alerts', 'delete-conflict-all', pendingDeleteAlert?.team_id],
-    queryFn: () => {
+    ...deleteAccess.queryOptions(() => {
       const params = new URLSearchParams({ include_disabled: 'true' })
       if (pendingDeleteAlert?.team_id) params.set('team_id', pendingDeleteAlert.team_id)
       else params.set('queue_scope', 'personal')
       return apiFetch<AlertInterest[]>(`/alerts?${params}`)
-    },
+    }),
     enabled: false,
   })
   const previewQuery = useQuery({
     queryKey: ['alerts', 'preview', category, ...parsedKeywords],
-    queryFn: () =>
+    ...previewAccess.queryOptions(() =>
       apiFetch<AlertMatchListResponse>('/alerts/preview', {
         method: 'POST',
         body: JSON.stringify({
@@ -113,9 +121,8 @@ export function useAlertsPageController(triageDirty = false) {
           keywords: parsedKeywords,
           limit: ALERT_PREVIEW_LIMIT,
         }),
-      }),
+      }), 15_000),
     enabled: previewEnabled,
-    staleTime: 15_000,
   })
 
   const resetDraft = () => {
@@ -319,6 +326,7 @@ export function useAlertsPageController(triageDirty = false) {
     setUpdateAlertError(null)
   }
   const onEdit = (alert: AlertInterest) => {
+    if (ruleReadUnavailable || !alertsQuery.data?.some((current) => current.id === alert.id)) return
     if (alert.id === editingAlertId) {
       return
     }
@@ -345,6 +353,7 @@ export function useAlertsPageController(triageDirty = false) {
     )
   }
   const toggleAlertState = (alert: AlertInterest) => {
+    if (ruleReadUnavailable || !alertsQuery.data?.some((current) => current.id === alert.id)) return
     setUpdateAlertError(null)
     updateAlert.mutate({
       id: alert.id,
@@ -355,6 +364,7 @@ export function useAlertsPageController(triageDirty = false) {
     })
   }
   const onRequestDeleteAlert = (alert: AlertInterest) => {
+    if (ruleReadUnavailable || !alertsQuery.data?.some((current) => current.id === alert.id)) return
     confirmDiscardUnsavedAlertChanges(() => {
       deleteReloadGenerationRef.current += 1
       setDeleteAlertError(null)
@@ -365,6 +375,7 @@ export function useAlertsPageController(triageDirty = false) {
   const confirmDeleteAlert = () => {
     if (
       pendingDeleteAlert &&
+      !ruleReadUnavailable &&
       !deleteConflictNeedsRefresh &&
       !deleteConflictAlertsQuery.isFetching
     ) {
@@ -373,8 +384,17 @@ export function useAlertsPageController(triageDirty = false) {
     }
   }
 
+  useEffect(() => {
+    if (!access.denied && !deleteAccess.denied) return
+    deleteReloadGenerationRef.current += 1
+    replacePendingDeleteAlert(null)
+    setDeleteAlertError(null)
+    setDeleteConflictNeedsRefresh(false)
+  }, [access.denied, deleteAccess.denied])
+
   return {
     alertsQuery, listScope, setListScope, draftTeamId, setDraftTeamId, dueAfterMinutes, setDueAfterMinutes, escalationAfterMinutes, setEscalationAfterMinutes,
+    ruleReadUnavailable,
     category,
     cancelPendingDeleteAlert,
     confirmDeleteAlert,

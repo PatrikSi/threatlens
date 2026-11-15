@@ -33,6 +33,22 @@ async function settle() { await act(async () => { await new Promise((resolve) =>
 afterEach(() => { act(() => root?.unmount()); client?.clear(); host?.remove(); vi.resetAllMocks(); user.role = 'analyst'; user.access.permissions = ['read:ai'] })
 
 describe('AI statistics workspace', () => {
+  it('keeps denied reliability history hidden through a later outage until a fresh successful read', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(response)
+    render(); await settle()
+    await vi.waitFor(() => expect(host!.textContent).toContain('1 successful / 3 recorded'))
+    vi.mocked(apiFetch).mockRejectedValue(new ApiError('Reliability forbidden', 403, '/ai/ops/statistics'))
+    await act(async () => { await client!.invalidateQueries() }); await settle()
+    await vi.waitFor(() => expect(host!.textContent).toContain('Reliability forbidden'))
+    vi.mocked(apiFetch).mockRejectedValue(new ApiError('Reliability unavailable', 503, '/ai/ops/statistics'))
+    await act(async () => { await client!.invalidateQueries() }); await settle()
+    await vi.waitFor(() => expect(host!.textContent).toContain('Reliability unavailable'))
+    expect(host!.textContent).not.toContain('1 successful / 3 recorded')
+    vi.mocked(apiFetch).mockResolvedValue({ ...response, features: [], queues: [] })
+    act(() => host!.querySelector('button')!.click()); await settle()
+    await vi.waitFor(() => expect(host!.textContent).toContain('No provider requests recorded'))
+  })
+
   it('does not request protected metrics for a nonadministrator or missing AI permission', async () => {
     render(true); await settle()
     expect(host!.textContent).toContain('require the administrator role')

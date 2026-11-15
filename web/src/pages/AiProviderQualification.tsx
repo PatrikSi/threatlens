@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { accessibleQueryData } from '../api/queryData'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { createSecureRequestId } from '../utils/secureRandomId'
 import { TEAM_BUTTON } from './teamPresentation'
 
@@ -31,14 +32,17 @@ function QualificationControls({ providerId, version }: { providerId: string; ve
   const identity = useRef<{ body: string; id: string } | null>(null)
   const endpoint = `/ai/providers/${providerId}/qualifications`
   const key = ['ai-provider-qualifications', providerId]
-  const history = useQuery({ queryKey: key, queryFn: ({ signal }) => apiFetch<Qualification[]>(endpoint, { signal }),
-    refetchInterval: (query) => query.state.data?.some((row) => ['queued', 'running'].includes(row.status)) ? 5000 : false })
+  const access = useQueryAccessScope(key)
+  const history = useQuery({ queryKey: key, ...access.queryOptions(({ signal }) => apiFetch<Qualification[]>(endpoint, { signal })),
+    refetchInterval: (query) => access.currentData(query.state.data)?.some((row) => ['queued', 'running'].includes(row.status)) ? 5000 : false })
   const queue = useMutation({ mutationFn: async (body: object) => {
+    const capture = access.captureResult()
     const signature = JSON.stringify(body)
     if (identity.current?.body !== signature) identity.current = { body: signature, id: createSecureRequestId() }
-    return apiFetch<Qualification>(endpoint, { method: 'POST', body: JSON.stringify({ ...body, request_id: identity.current.id }) })
+    return apiFetch<Qualification>(endpoint, { method: 'POST', body: JSON.stringify({ ...body, request_id: identity.current.id }) }).then(capture)
   }, onSuccess: () => { void client.invalidateQueries({ queryKey: key }) } })
   const rows = accessibleQueryData(history)
+  const queued = access.currentData(queue.data)
   return <div className="space-y-3 text-sm">
     <fieldset disabled={queue.isPending || queue.isSuccess} className="space-y-2">
       <legend className="font-semibold">Authorize saved provider version {version}</legend>
@@ -53,9 +57,9 @@ function QualificationControls({ providerId, version }: { providerId: string; ve
         {queue.isPending ? 'Queuing qualification…' : 'Queue feature qualification'}
       </button>
     </fieldset>
-    {queue.isSuccess && <p role="status">Qualification queued. <Link className="underline" to={`/settings/ai?run=${encodeURIComponent(queue.data.run_id)}`}>
+    {queue.isSuccess && <p role="status">Qualification queued. {queued && <Link className="underline" to={`/settings/ai?run=${encodeURIComponent(queued.run_id)}`}>
       Inspect this run and its delivery receipts
-    </Link>. Close and reopen this panel to authorize another run.</p>}
+    </Link>} Close and reopen this panel to authorize another run.</p>}
     {(queue.error || history.error) && <p role="alert">{resolveApiErrorMessage(queue.error ?? history.error, 'Qualification could not be loaded or queued. Refresh and retry.')}</p>}
     <button type="button" className={TEAM_BUTTON} onClick={() => void history.refetch()}>Refresh qualifications</button>
     <p>Showing the newest 20 qualifications. A timeout or unknown delivery does not authorize a repeated provider call.</p>

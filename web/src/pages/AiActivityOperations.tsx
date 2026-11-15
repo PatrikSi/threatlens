@@ -26,6 +26,7 @@ export function ActiveTasksPanel({
   errorMessage,
   onOpenRun,
   onCancelRun,
+  cancellationUnavailable,
   cancelingRunId,
 }: {
   runs: AITaskRunResponse[]
@@ -35,6 +36,7 @@ export function ActiveTasksPanel({
   errorMessage: string
   onOpenRun: (runId: string) => void
   onCancelRun: (run: AITaskRunResponse) => void
+  cancellationUnavailable?: (runId: string) => boolean
   cancelingRunId: string | null
 }) {
   return (
@@ -93,7 +95,7 @@ export function ActiveTasksPanel({
                       type="button"
                       className="rounded border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-50 dark:text-red-300"
                       onClick={() => onCancelRun(run)}
-                      disabled={cancelingRunId === run.id}
+                      disabled={cancelingRunId === run.id || cancellationUnavailable?.(run.id)}
                     >
                       {cancelingRunId === run.id ? 'Working...' : cancelActionLabel(run)}
                     </button>

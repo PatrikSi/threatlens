@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation } from 'react-router-dom'
 
 import { apiFetch } from '../api/client'
@@ -15,6 +15,7 @@ import { resolveApiErrorMessage } from '../api/errors'
 import { accessibleQueryData } from '../api/queryData'
 import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useAiProviderConnections } from './useAiProviderConnections'
 import {
@@ -53,6 +54,7 @@ import {
 } from './aiSettingsPageState'
 import {
   AI_RUN_PAGE_SIZE,
+  canCancelRun,
   formatRunTaskLabel,
   formatStatusLabel,
   invalidateAiQueries,
@@ -253,11 +255,19 @@ export function AiSettingsPage() {
     setSettledActiveTab(activeTab)
   }, [activeTab])
 
+  const settingsAccess = useQueryAccessScope(['ai', 'settings'])
+  const runsAccess = useQueryAccessScope(['ai', 'ops', 'runs'])
+  // Prefetch uses the current scope without restarting for every render.
+  const runsAccessRef = useRef(runsAccess)
+  runsAccessRef.current = runsAccess
+  const liveAccess = useQueryAccessScope(['ai', 'ops', 'live'])
+  const detailAccess = useQueryAccessScope(['ai', 'ops', 'run', selectedRunId ?? ''])
+  const promptHistoryAccess = useQueryAccessScope(['ai', 'ops', 'prompt-history'])
+  const manualActionsAccess = useQueryAccessScope(['ai', 'ops', 'manual-actions'])
   const settingsQuery = useQuery({
     queryKey: ['ai', 'settings'],
-    queryFn: ({ signal }) => apiFetch<AISettings>('/ai/settings', { signal }),
+    ...settingsAccess.queryOptions(({ signal }) => apiFetch<AISettings>('/ai/settings', { signal }), AI_REFERENCE_STALE_MS),
     enabled: aiEnabled,
-    staleTime: AI_REFERENCE_STALE_MS,
   })
   const draftValidation = useMemo(() => validateAISettingsDraft(draft), [draft])
   const draftValidationError = getFirstAISettingsDraftValidationError(draftValidation)
@@ -281,26 +291,23 @@ export function AiSettingsPage() {
 
   const liveStatusQuery = useQuery({
     queryKey: ['ai', 'ops', 'live'],
-    queryFn: ({ signal }) => apiFetch<AILiveStatusResponse>('/ai/ops/live', { signal }),
+    ...liveAccess.queryOptions(({ signal }) => apiFetch<AILiveStatusResponse>('/ai/ops/live', { signal }), 2500),
     enabled: workloadQueriesEnabled,
     refetchInterval: 5000,
-    staleTime: 2500,
   })
 
   const queuedRunsQuery = useQuery({
     queryKey: ['ai', 'ops', 'runs', 'queued-top'],
-    queryFn: ({ signal }) => apiFetch<AITaskRunListResponse>('/ai/ops/runs?status=queued&limit=10&days=30', { signal }),
+    ...runsAccess.queryOptions(({ signal }) => apiFetch<AITaskRunListResponse>('/ai/ops/runs?status=queued&limit=10&days=30', { signal }), 2500),
     enabled: workloadQueriesEnabled,
     refetchInterval: 5000,
-    staleTime: 2500,
   })
 
   const runningRunsQuery = useQuery({
     queryKey: ['ai', 'ops', 'runs', 'running-top'],
-    queryFn: ({ signal }) => apiFetch<AITaskRunListResponse>('/ai/ops/runs?status=running&limit=10&days=30', { signal }),
+    ...runsAccess.queryOptions(({ signal }) => apiFetch<AITaskRunListResponse>('/ai/ops/runs?status=running&limit=10&days=30', { signal }), 2500),
     enabled: workloadQueriesEnabled,
     refetchInterval: 5000,
-    staleTime: 2500,
   })
 
   const feedsQuery = useQuery({
@@ -350,16 +357,14 @@ export function AiSettingsPage() {
 
   const promptHistoryQuery = useQuery({
     queryKey: ['ai', 'ops', 'prompt-history'],
-    queryFn: ({ signal }) => apiFetch<AIAuditEntryResponse[]>('/ai/ops/prompt-history?limit=12', { signal }),
+    ...promptHistoryAccess.queryOptions(({ signal }) => apiFetch<AIAuditEntryResponse[]>('/ai/ops/prompt-history?limit=12', { signal }), AI_REFERENCE_STALE_MS),
     enabled: configurationQueriesEnabled,
-    staleTime: AI_REFERENCE_STALE_MS,
   })
 
   const manualActionsQuery = useQuery({
     queryKey: ['ai', 'ops', 'manual-actions'],
-    queryFn: ({ signal }) => apiFetch<AIAuditEntryResponse[]>('/ai/ops/manual-actions?limit=12', { signal }),
+    ...manualActionsAccess.queryOptions(({ signal }) => apiFetch<AIAuditEntryResponse[]>('/ai/ops/manual-actions?limit=12', { signal }), AI_REFERENCE_STALE_MS),
     enabled: configurationQueriesEnabled,
-    staleTime: AI_REFERENCE_STALE_MS,
   })
 
   const runsPath = useMemo(
@@ -373,31 +378,30 @@ export function AiSettingsPage() {
 
   const runsQuery = useQuery({
     queryKey: runsQueryKey,
-    queryFn: ({ signal }) => apiFetch<AITaskRunListResponse>(runsPath, { signal }),
+    ...runsAccess.queryOptions(({ signal }) => apiFetch<AITaskRunListResponse>(runsPath, { signal }), 5000),
     enabled: activityQueriesEnabled,
     refetchInterval: 10000,
-    staleTime: 5000,
-    placeholderData: keepPreviousData,
+    placeholderData: (previous) => runsAccess.currentData(previous) === undefined ? undefined : previous,
   })
 
   const runDetailQuery = useQuery({
     queryKey: ['ai', 'ops', 'run', selectedRunId],
-    queryFn: ({ signal }) => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${selectedRunId}`, { signal }),
+    ...detailAccess.queryOptions(({ signal }) => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${selectedRunId}`, { signal }), 5000),
     enabled: Boolean(activityQueriesEnabled && selectedRunId),
     refetchInterval: 10000,
-    staleTime: 5000,
   })
 
   const selectedDailyBriefId = getDailyBriefId(runDetailQuery.data)
+  const briefSourcesAccess = useQueryAccessScope(['ai', 'daily-brief-sources', selectedDailyBriefId ?? ''])
   const briefSourcesQuery = useQuery({
-    queryKey: ['ai', 'daily-brief-sources', selectedDailyBriefId],
-    queryFn: ({ signal }) =>
+    // Parent recovery requires a fresh dependent read, even for the same brief.
+    queryKey: ['ai', 'daily-brief-sources', selectedDailyBriefId, selectedRunId, detailAccess.generation],
+    ...briefSourcesAccess.queryOptions(({ signal }) =>
       apiFetch<AIDailyBriefSourceItemResponse[]>(
         `/ai/daily-briefs/${selectedDailyBriefId}/sources?limit=50`,
         { signal },
-      ),
+      ), AI_QUERY_STALE_MS),
     enabled: Boolean(activityQueriesEnabled && selectedDailyBriefId),
-    staleTime: AI_QUERY_STALE_MS,
   })
 
   useEffect(() => {
@@ -430,8 +434,7 @@ export function AiSettingsPage() {
       const prefetchArgs = { days, selectedModel, runPage: page, runFilters }
       void queryClient.prefetchQuery({
         queryKey: buildRunsQueryKey(prefetchArgs),
-        queryFn: ({ signal }) => apiFetch<AITaskRunListResponse>(buildRunsPath(prefetchArgs), { signal }),
-        staleTime: 5000,
+        ...runsAccessRef.current.queryOptions(({ signal }) => apiFetch<AITaskRunListResponse>(buildRunsPath(prefetchArgs), { signal }), 5000),
       })
     })
   }, [
@@ -451,13 +454,20 @@ export function AiSettingsPage() {
 
   const saveMutation = useMutation({
     mutationKey: ['ai', 'settings', 'save'],
-    mutationFn: (payload: AISettingsUpdateRequest) =>
-      apiFetch<AISettings>('/ai/settings', {
+    mutationFn: (payload: AISettingsUpdateRequest) => {
+      const capture = settingsAccess.captureResult()
+      return apiFetch<AISettings>('/ai/settings', {
         method: 'PUT',
         body: JSON.stringify(payload),
-      }),
-    onSuccess: (saved) => {
-      queryClient.setQueryData(['ai', 'settings'], saved)
+      }).then(capture)
+    },
+    onSuccess: (result) => {
+      const saved = settingsAccess.currentData(result)
+      if (!saved) {
+        void queryClient.invalidateQueries({ queryKey: ['ai', 'settings'] })
+        return
+      }
+      queryClient.setQueryData(['ai', 'settings'], result)
       setDraftState(createDraftFromSettings(saved))
       setDraftDirty(false)
       setNotice({ tone: 'success', message: 'AI settings saved.' })
@@ -562,13 +572,34 @@ export function AiSettingsPage() {
     },
   })
 
+  function currentCancelableRun(runId: string) {
+    if (currentUserQuery.isError) return undefined
+    if (selectedRunId === runId) {
+      const run = !runDetailQuery.isError && !detailAccess.denied ? runDetailQuery.data?.run : undefined
+      return run && canCancelRun(run) ? run : undefined
+    }
+    for (const query of [runningRunsQuery, queuedRunsQuery]) {
+      if (query.isError || runsAccess.denied) continue
+      const run = query.data?.items.find((entry) => entry.id === runId)
+      if (run && canCancelRun(run)) return run
+    }
+    return undefined
+  }
+
+  useEffect(() => {
+    if (runsAccess.denied || (detailAccess.denied && pendingCancelRun?.id === selectedRunId)) {
+      setPendingCancelRun(null)
+    }
+  }, [runsAccess.denied, detailAccess.denied, pendingCancelRun?.id, selectedRunId])
+
   const requestRunCancellation = (run: AITaskRunResponse) => {
+    if (!currentCancelableRun(run.id)) return
     setNotice(null)
     setPendingCancelRun(run)
   }
 
   const confirmRunCancellation = () => {
-    if (!pendingCancelRun) {
+    if (!pendingCancelRun || !currentCancelableRun(pendingCancelRun.id)) {
       return
     }
     cancelRunMutation.mutate(pendingCancelRun.id)
@@ -698,10 +729,8 @@ export function AiSettingsPage() {
     setSelectedRunId(runId)
     setPendingRunNavigation(runId)
     setActiveTab('activity')
-    void queryClient.prefetchQuery({
-      queryKey: ['ai', 'ops', 'run', runId],
-      queryFn: ({ signal }) => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${runId}`, { signal }),
-    })
+    // Selecting the run starts its scoped detail query. A separate raw prefetch
+    // must not populate that key outside the run's current read generation.
   }
 
   useEffect(() => {
@@ -779,6 +808,7 @@ export function AiSettingsPage() {
       activeTasksErrorMessage,
       onOpenRun: openRunInHistory,
       onCancelRun: requestRunCancellation,
+      cancellationUnavailable: (runId) => !currentCancelableRun(runId),
       cancelingRunId,
       dailyBriefEnabled: draft.daily_brief_enabled,
       dailyBriefDays: dailyBriefReprocessDays,
@@ -915,7 +945,7 @@ export function AiSettingsPage() {
       pendingReprocessScopeClear={pendingReprocessScopeClear}
       setPendingReprocessScopeClear={setPendingReprocessScopeClear}
       confirmClearReprocessScope={confirmClearReprocessScope}
-      pendingCancelRun={pendingCancelRun}
+      pendingCancelRun={pendingCancelRun && currentCancelableRun(pendingCancelRun.id) ? pendingCancelRun : null}
       setPendingCancelRun={setPendingCancelRun}
       confirmRunCancellation={confirmRunCancellation}
       cancelPending={cancelRunMutation.isPending}

@@ -76,6 +76,20 @@ afterEach(() => {
 })
 
 describe('AI run access during asynchronous refresh', () => {
+  it('keeps inspected private metadata hidden after denial followed by an outage', async () => {
+    await mount()
+    const inspect = [...host!.querySelectorAll('button')].find((button) => button.textContent === 'View Request / Response')!
+    act(() => inspect.click())
+    await settle()
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Restricted article title')
+    for (const status of [403, 503]) {
+      vi.mocked(apiFetch).mockRejectedValue(new ApiError('Inspection unavailable', status, '/inspect'))
+      await act(async () => { await client!.invalidateQueries({ queryKey: ['ai', 'ops', 'inspect-run'] }) })
+      await settle()
+      expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('Restricted article title')
+    }
+  })
+
   it.each([401, 403, 404, 503])('handles selected run and history HTTP %s without treating revoked access as an outage', async (status) => {
     await mount()
     vi.mocked(apiFetch).mockRejectedValue(new ApiError('Run refresh rejected', status, '/detail'))

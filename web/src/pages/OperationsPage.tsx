@@ -1,12 +1,13 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { Download, RefreshCw } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../api/client'
 import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
 import { SettingsPageHeader } from '../components/SettingsPageHeader'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type {
   OperationsDiagnosticsResponse,
   OperationsHealthHistoryResponse,
@@ -38,8 +39,42 @@ const HEALTH_HISTORY_REFRESH_MS = 5 * 60_000
 const OVERVIEW_STALE_AFTER_MS = 90_000
 const RUN_PAGE_SIZE = 20
 
+function createOperationsAccessFailure() {
+  let snapshot = { denied: false, generation: -1 }
+  const listeners = new Set<() => void>()
+  function update(next: typeof snapshot) {
+    snapshot = next
+    for (const notify of listeners) notify()
+  }
+  return {
+    snapshot: () => snapshot,
+    subscribe: (notify: () => void) => { listeners.add(notify); return () => { listeners.delete(notify) } },
+    deny: (generation: number) => {
+      if (generation < snapshot.generation || snapshot.denied && generation === snapshot.generation) return
+      update({ denied: true, generation })
+    },
+    clear: (generation: number) => {
+      if (snapshot.denied && snapshot.generation === generation) update({ denied: false, generation })
+    },
+  }
+}
+
+// Unlike an individual reader, Operations requires every recovery read to
+// succeed before its workspace can reopen. Preserve that latch on route exit.
+const operationsAccessFailures = new WeakMap<QueryClient, ReturnType<typeof createOperationsAccessFailure>>()
+
 export function OperationsPage() {
   const queryClient = useQueryClient()
+  const access = useQueryAccessScope(['operations'])
+  const accessFailure = useMemo(() => {
+    let value = operationsAccessFailures.get(queryClient)
+    if (!value) {
+      value = createOperationsAccessFailure()
+      operationsAccessFailures.set(queryClient, value)
+    }
+    return value
+  }, [queryClient])
+  const failure = useSyncExternalStore(accessFailure.subscribe, accessFailure.snapshot, accessFailure.snapshot)
   const [searchParams, setSearchParams] = useSearchParams()
   const activeView = readOperationsView(searchParams.get('view'))
   const selectedWindow = readOperationsWindow(searchParams.get('range'))
@@ -49,15 +84,13 @@ export function OperationsPage() {
   const [operationStatus, setOperationStatus] = useState<SystemOperationStatus | ''>('')
   const [downloadMessage, setDownloadMessage] = useState('')
   const [downloadError, setDownloadError] = useState('')
-  const [accessFailure, setAccessFailure] = useState<unknown>(null)
   const diagnosticsAllowed = useRef(true)
 
   const overviewQuery = useQuery({
     queryKey: ['operations', 'overview'],
-    queryFn: () => apiFetch<OperationsOverviewResponse>('/operations/overview'),
+    ...access.queryOptions(({ signal }) => apiFetch<OperationsOverviewResponse>('/operations/overview', { signal }), 15_000),
     refetchInterval: activeView === 'live' ? OVERVIEW_REFRESH_MS : false,
     refetchIntervalInBackground: false,
-    staleTime: 15_000,
   })
   const overview = accessibleQueryData(overviewQuery)
   const signals = overview ? buildOperationsSignals(overview) : []
@@ -68,45 +101,43 @@ export function OperationsPage() {
       : requestedSignalKey ?? 'workers'
   const workerQuery = useQuery({
     queryKey: ['operations', 'workers'],
-    queryFn: () => apiFetch<OperationsWorkerTopology>('/operations/workers'),
+    ...access.queryOptions(({ signal }) => apiFetch<OperationsWorkerTopology>('/operations/workers', { signal }), 15_000),
     enabled: Boolean(overview && activeView === 'live' && selectedSignalKey === 'workers'),
     refetchInterval: activeView === 'live' && selectedSignalKey === 'workers'
       ? OVERVIEW_REFRESH_MS
       : false,
     refetchIntervalInBackground: false,
-    staleTime: 15_000,
   })
   const historyQuery = useQuery({
     queryKey: ['operations', 'health-history', selectedWindow],
-    queryFn: () => apiFetch<OperationsHealthHistoryResponse>(`/operations/health-history?window=${selectedWindow}`),
+    ...access.queryOptions(({ signal }) => apiFetch<OperationsHealthHistoryResponse>(`/operations/health-history?window=${selectedWindow}`, { signal }), 30_000),
     enabled: activeView === 'trends',
     refetchInterval: activeView === 'trends' ? HEALTH_HISTORY_REFRESH_MS : false,
     refetchIntervalInBackground: false,
-    staleTime: 30_000,
   })
   const runsQuery = useQuery({
     queryKey: ['operations', 'runs', runPage, operationType, operationStatus],
-    queryFn: () => {
+    ...access.queryOptions(({ signal }) => {
       const params = new URLSearchParams({ page: String(runPage), page_size: String(RUN_PAGE_SIZE) })
       if (operationType) params.set('operation_type', operationType)
       if (operationStatus) params.set('status', operationStatus)
-      return apiFetch<SystemOperationRunListResponse>(`/operations/runs?${params.toString()}`)
-    },
+      return apiFetch<SystemOperationRunListResponse>(`/operations/runs?${params.toString()}`, { signal })
+    }),
     enabled: activeView === 'activity',
     refetchInterval: activeView === 'activity' ? OVERVIEW_REFRESH_MS : false,
     refetchIntervalInBackground: false,
   })
-  const deniedQuery = [overviewQuery, workerQuery, historyQuery, runsQuery].find((query) => isAccessDenied(query.error))
-  const accessError = deniedQuery?.error ?? accessFailure
-  const accessDenied = Boolean(accessError)
+  const deniedError = [overviewQuery, workerQuery, historyQuery, runsQuery].find((query) => isAccessDenied(query.error))?.error
+  const accessDenied = Boolean(deniedError) || access.denied || failure.denied
+  diagnosticsAllowed.current = !accessDenied && !overviewQuery.isError
   useEffect(() => {
-    if (deniedQuery) setAccessFailure(deniedQuery.error)
-    diagnosticsAllowed.current = !accessDenied
-  }, [deniedQuery, accessDenied])
+    if (deniedError || access.denied) accessFailure.deny(access.generation)
+  }, [deniedError, access.denied, access.generation, accessFailure])
   const diagnostics = useMutation({
-    mutationFn: () => apiFetch<OperationsDiagnosticsResponse>('/operations/diagnostics'),
-    onSuccess: (payload) => {
-      if (!diagnosticsAllowed.current) return
+    mutationFn: () => access.read(() => apiFetch<OperationsDiagnosticsResponse>('/operations/diagnostics')),
+    onSuccess: (response) => {
+      const payload = access.currentData(response)
+      if (!payload || accessFailure.snapshot().denied || !diagnosticsAllowed.current) return
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
       const objectUrl = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
@@ -120,17 +151,13 @@ export function OperationsPage() {
       setDownloadMessage('Diagnostic snapshot downloaded.')
     },
     onError: (error) => {
-      if (isAccessDenied(error)) setAccessFailure(error)
+      if (isAccessDenied(error)) accessFailure.deny(access.generation)
       setDownloadMessage('')
       setDownloadError(resolveApiErrorMessage(error, 'Diagnostic snapshot could not be downloaded'))
     },
   })
 
-  const overviewError = accessError
-    ? resolveApiErrorMessage(accessError, "Access to system health is no longer available. Refresh after your access is restored.")
-    : overviewQuery.isError
-    ? resolveApiErrorMessage(overviewQuery.error, overview ? 'System health could not be refreshed' : 'System health could not be loaded')
-    : ''
+  const overviewError = operationsOverviewError(accessDenied, deniedError, overviewQuery, Boolean(overview))
   const snapshotAgeMs = overview ? Math.max(0, Date.now() - Date.parse(overview.generated_at)) : 0
   const lastKnown = isLastKnownSnapshot(overview, accessDenied, overviewQuery.isError, snapshotAgeMs)
   const totalRunPages = Math.max(1, Math.ceil((runsQuery.data?.total ?? 0) / RUN_PAGE_SIZE))
@@ -171,11 +198,19 @@ export function OperationsPage() {
     overview: overviewQuery, workers: workerQuery, trends: historyQuery, activity: runsQuery,
   })
   const refreshActiveView = () => {
-    const queries = [...new Set([...activeQueries, ...[workerQuery, historyQuery, runsQuery].filter((query) => query.isError)])]
-    void refreshOperationsQueries(queries).then((verified) => { if (verified) setAccessFailure(null) })
+    const generation = access.generation
+    const failureGeneration = accessFailure.snapshot().generation
+    const queries = accessDenied ? [overviewQuery, workerQuery, historyQuery, runsQuery]
+      : [...new Set([...activeQueries, ...[workerQuery, historyQuery, runsQuery].filter((query) => query.isError)])]
+    void refreshOperationsQueries(queries).then((verified) => {
+      // A successful result with suppressed data is not fresh authority. Nor
+      // may an older refresh reopen the workspace after a newer denial.
+      if (verified && access.currentData({ generation, value: true })) accessFailure.clear(failureGeneration)
+    })
     if (activeView === 'processing') void queryClient.invalidateQueries({ queryKey: ['processing'] })
   }
-  const activeDatasetFetching = activeQueries.some((query) => query.isFetching)
+  const activeDatasetFetching = (accessDenied ? [overviewQuery, workerQuery, historyQuery, runsQuery] : activeQueries)
+    .some((query) => query.isFetching)
 
 
   return (
@@ -473,7 +508,13 @@ function isAccessDenied(error: unknown): boolean {
   return error instanceof ApiError && [401, 403, 404].includes(error.status)
 }
 
-type RefreshQuery = { isFetching: boolean; refetch: () => Promise<{ isError: boolean }> }
+function operationsOverviewError(accessDenied: boolean, deniedError: unknown, query: { isError: boolean; error: unknown }, hasSnapshot: boolean): string {
+  if (accessDenied) return resolveApiErrorMessage(deniedError, 'Access to system health is no longer available. Refresh after your access is restored.')
+  if (query.isError) return resolveApiErrorMessage(query.error, hasSnapshot ? 'System health could not be refreshed' : 'System health could not be loaded')
+  return ''
+}
+
+type RefreshQuery = { isFetching: boolean; refetch: () => Promise<{ isError: boolean; data: unknown }> }
 function selectRefreshQueries(
   view: OperationsView,
   signal: string,
@@ -487,7 +528,7 @@ function selectRefreshQueries(
 
 async function refreshOperationsQueries(queries: RefreshQuery[]): Promise<boolean> {
   const results = await Promise.allSettled(queries.map((query) => query.refetch()))
-  return results.every((result) => result.status === 'fulfilled' && result.value && !result.value.isError)
+  return results.every((result) => result.status === 'fulfilled' && result.value && !result.value.isError && result.value.data !== undefined)
 }
 
 function isLastKnownSnapshot(overview: OperationsOverviewResponse | undefined, accessDenied: boolean, refreshFailed: boolean, ageMs: number): boolean {

@@ -42,6 +42,7 @@ export function ActivityTab(props: ActivityTabProps) {
             errorMessage={props.activeTasksErrorMessage}
             onOpenRun={props.onOpenRun}
             onCancelRun={props.onCancelRun}
+            cancellationUnavailable={props.cancellationUnavailable}
             cancelingRunId={props.cancelingRunId}
           />
           <QueueWorkPanel {...props} />

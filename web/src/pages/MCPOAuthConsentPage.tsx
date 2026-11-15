@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { accessibleQueryData } from '../api/queryData'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 
 interface ConsentPreview { client_name: string; scopes: string[]; resource: string; redirect_uri: string; expires_in: number }
 
@@ -24,14 +25,23 @@ function ConsentRequest({ request }: { request: Record<string, string> }) {
   const [redirectError, setRedirectError] = useState<string | null>(null)
   const [password, setPassword] = useState('')
   const [mfa, setMfa] = useState('')
+  // TanStack hashes object keys canonically; equivalent parameter ordering
+  // must also retain the same denial history.
+  const requestScope = JSON.stringify(Object.keys(request).sort().map((key) => [key, request[key]]))
+  const access = useQueryAccessScope(['mcp-consent', requestScope])
   const preview = useQuery({ queryKey: ['mcp-consent', request], retry: false,
-    queryFn: ({ signal }) => apiFetch<ConsentPreview>('/mcp/oauth/consent-preview', { method: 'POST', signal, body: JSON.stringify(request) }) })
+    ...access.queryOptions(({ signal }) => apiFetch<ConsentPreview>('/mcp/oauth/consent-preview', { method: 'POST', signal, body: JSON.stringify(request) })) })
   const value = accessibleQueryData(preview)
-  const consent = useMutation({ mutationFn: (approve: boolean) => apiFetch<{ redirect_uri: string }>('/mcp/oauth/authorize', {
-    method: 'POST', body: JSON.stringify({ ...request, approve, current_password: password || null, mfa_code: mfa || null }),
-  }), onSuccess: (response) => {
+  const consent = useMutation({ mutationFn: (approve: boolean) => {
+    const capture = access.captureResult()
+    return apiFetch<{ redirect_uri: string }>('/mcp/oauth/authorize', {
+      method: 'POST', body: JSON.stringify({ ...request, approve, current_password: password || null, mfa_code: mfa || null }),
+    }).then(capture)
+  }, onSuccess: (result) => {
     if (!mounted.current) return
     setPassword(''); setMfa('')
+    const response = access.currentData(result)
+    if (!response) return
     // The server checks exact registered callback, resource, scopes and PKCE.
     // Independently retain the destination from this exact consent request.
     try {

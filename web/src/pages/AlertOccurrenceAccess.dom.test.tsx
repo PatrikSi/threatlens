@@ -74,6 +74,116 @@ afterEach(() => {
 })
 
 describe('alert access during real query-cache refreshes', () => {
+  it('retains a known team withdrawal when metadata becomes unavailable before observer delivery', async () => {
+    occurrence.team_id = 'team-1'
+    await mount()
+    const before = vi.mocked(apiFetch).mock.calls.filter(([path]) => path.startsWith('/teams/')).length
+    const rejectedStatuses: number[] = []
+    await act(async () => {
+      // Both real query requests settle in this batch. Do not flush observer
+      // timers or require a rendered403 before replacing it with an outage.
+      for (const status of [403, 503]) {
+        vi.mocked(apiFetch).mockImplementation((path) => path.startsWith('/teams/')
+          ? Promise.reject(new ApiError('Team metadata unavailable', status, path, null, {
+              code: status === 403 ? 'team_actor_unavailable' : 'team_access_unavailable',
+            })) : path.startsWith('/alerts/occurrences')
+              ? Promise.reject(new ApiError('Canonical evidence temporarily unavailable', 503, path))
+              : Promise.resolve(resultFor(path)) as never)
+        await client!.fetchQuery({ queryKey: ['teams', 'team-1'], staleTime: 0, retry: false }).then(
+          () => { throw new Error('Expected the metadata request to be rejected') },
+          (error) => {
+            expect(error).toBeInstanceOf(ApiError)
+            rejectedStatuses.push((error as ApiError).status)
+          },
+        )
+      }
+    })
+    expect(rejectedStatuses).toEqual([403, 503])
+    expect(vi.mocked(apiFetch).mock.calls.filter(([path]) => path.startsWith('/teams/'))).toHaveLength(before + 2)
+    await settle()
+    expect((client!.getQueryState(['teams', 'team-1'])?.error as ApiError)?.status).toBe(503)
+    expect(host!.textContent).not.toContain('Sensitive source excerpt')
+    expect(host!.textContent).not.toContain('Sensitive activity context')
+  })
+
+  it.each([403, 404])('keeps confirmed team withdrawal hidden through metadata outage and same-client remount (%s)', async (status) => {
+    occurrence.team_id = 'team-1'
+    await mount()
+    const detailKey = ['alerts', 'occurrences', 'detail', occurrence.id]
+    const teamKey = ['teams', 'team-1']
+    let metadataStatus = status
+    vi.mocked(apiFetch).mockImplementation((path) => {
+      if (path.startsWith('/teams/')) return Promise.reject(new ApiError('Confirmed team withdrawal', metadataStatus, path, null, {
+        code: metadataStatus === 403 ? 'team_actor_unavailable' : metadataStatus === 404 ? 'team_not_found' : 'team_access_unavailable',
+      }))
+      if (path.startsWith('/alerts/occurrences')) return Promise.reject(new ApiError('Evidence temporarily unavailable', 503, path))
+      return Promise.resolve(resultFor(path)) as never
+    })
+    await act(async () => { await client!.invalidateQueries({ queryKey: teamKey }) }); await settle()
+    await vi.waitFor(() => expect((client!.getQueryState(teamKey)?.error as ApiError)?.status).toBe(status))
+    await vi.waitFor(() => expect((client!.getQueryState(detailKey)?.error as ApiError)?.status).toBe(503))
+    expect(host!.textContent).not.toContain('Sensitive source excerpt')
+    expect(host!.textContent).not.toContain('Sensitive activity context')
+    metadataStatus = 503
+    await act(async () => { await client!.invalidateQueries({ queryKey: teamKey }) }); await settle()
+    await vi.waitFor(() => expect((client!.getQueryState(teamKey)?.error as ApiError)?.status).toBe(503))
+    const render = (visible: boolean) => act(() => root!.render(
+      <MemoryRouter initialEntries={['/alerts?view=occurrences&occurrence=private-occurrence']}>
+        <QueryClientProvider client={client!}>{visible ? <AlertOccurrencesWorkspace /> : <p>Other workspace</p>}</QueryClientProvider>
+      </MemoryRouter>,
+    ))
+    render(false); await settle()
+    expect(host!.textContent).toContain('Other workspace')
+    render(true); await settle()
+    await vi.waitFor(() => expect((client!.getQueryState(detailKey)?.error as ApiError)?.status).toBe(503))
+    expect(host!.textContent).not.toContain('Sensitive source excerpt')
+    expect(host!.textContent).not.toContain('Sensitive activity context')
+    const retained = client!.getQueryData(detailKey)
+    act(() => { client!.setQueryData(detailKey, retained) }); await settle()
+    expect(host!.textContent).not.toContain('Sensitive source excerpt')
+    let resolveEvidence!: (value: AlertOccurrence) => void
+    const freshEvidence = new Promise<AlertOccurrence>((resolve) => { resolveEvidence = resolve })
+    vi.mocked(apiFetch).mockImplementation((path) => path === `/alerts/occurrences/${occurrence.id}`
+      ? freshEvidence : Promise.resolve(resultFor(path)) as never)
+    await act(async () => { await client!.invalidateQueries({ queryKey: teamKey }) }); await settle()
+    act(() => { void client!.invalidateQueries({ queryKey: detailKey }) }); await settle()
+    expect(host!.textContent).not.toContain('Sensitive source excerpt')
+    await act(async () => resolveEvidence({ ...occurrence, version: 2 })); await settle()
+    await vi.waitFor(() => expect(host!.textContent).toContain('Sensitive source excerpt'))
+    expect(host!.textContent).not.toContain('Sensitive activity context')
+    await act(async () => { await client!.invalidateQueries({ queryKey: ['alerts', 'occurrences', 'activity'] }) }); await settle()
+    await vi.waitFor(() => expect(host!.textContent).toContain('Sensitive activity context'))
+  })
+
+  it('keeps direct personal evidence and activity hidden through denial followed by an outage', async () => {
+    await mount()
+    for (const status of [403, 503]) {
+      vi.mocked(apiFetch).mockRejectedValue(new ApiError('Occurrence read unavailable', status, '/alerts/occurrences'))
+      await act(async () => { await client!.invalidateQueries() })
+      await settle()
+      for (const privateText of ['Sensitive source title', 'Sensitive source excerpt', 'Sensitive activity context', 'Private watchlist']) {
+        expect(host!.textContent).not.toContain(privateText)
+      }
+    }
+  })
+
+  it('retains an ordinary outage detail but pauses lifecycle and snooze actions', async () => {
+    await mount()
+    vi.mocked(apiFetch).mockImplementation((path) => path === `/alerts/occurrences/${occurrence.id}`
+      ? Promise.reject(new ApiError('Detail temporarily unavailable', 503, path))
+      : Promise.resolve(resultFor(path)) as never)
+    await act(async () => { await client!.invalidateQueries({ queryKey: ['alerts', 'occurrences', 'detail'] }) })
+    await settle()
+    expect(host!.textContent).toContain('Sensitive source excerpt')
+    const actionSection = host!.querySelector('[aria-labelledby="occurrence-actions-heading"]')!
+    const actions = [...actionSection.querySelectorAll('button')]
+    expect(actions.map((button) => button.textContent?.trim())).toEqual(['Acknowledge', 'Start investigating', 'Close occurrence', 'Snooze'])
+    expect(actions.every((button) => button.disabled)).toBe(true)
+    act(() => { actions.forEach((button) => button.click()) })
+    await settle()
+    expect(vi.mocked(apiFetch).mock.calls.some(([, options]) => ['PATCH', 'POST'].includes(options?.method ?? ''))).toBe(false)
+  })
+
   it.each([
     [404, 'team_not_found', false], [403, 'team_actor_unavailable', false],
     [403, 'permission_denied', true], [503, 'team_access_unavailable', true],

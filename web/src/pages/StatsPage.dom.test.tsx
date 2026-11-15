@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const statsPageDomMocks = vi.hoisted(() => ({
+  client: {},
   feeds: [
     { id: 'feed-1', name: 'Feed One' },
     { id: 'feed-2', name: 'Feed Two' },
@@ -15,8 +16,9 @@ const statsPageDomMocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => statsPageDomMocks.client,
   useQuery: ({ queryKey }: { queryKey: unknown[] }) => ({
-    data: queryKey[0] === 'feeds' ? statsPageDomMocks.feeds : undefined,
+    data: queryKey[0] === 'feeds' || queryKey[0] === 'stats' && queryKey[1] === 'feeds' ? statsPageDomMocks.feeds : undefined,
     isLoading: false,
     isError: false,
     error: null,

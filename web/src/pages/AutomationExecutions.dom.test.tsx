@@ -43,6 +43,67 @@ const entry = {
 }
 
 describe('automation execution lifecycle', () => {
+  it('keeps denied execution findings hidden through a later outage until a fresh read succeeds', async () => {
+    let status = 200
+    vi.mocked(apiFetch).mockImplementation((path) => status === 200
+      ? Promise.resolve({ items: [entry], next_cursor: null })
+      : Promise.reject(new ApiError('Execution read unavailable', status, path)))
+    view = await mountIntel(<AutomationExecutions writable={false} onClose={vi.fn()} />)
+    expect(document.body.textContent).toContain(entry.findings)
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => { await view!.client.invalidateQueries({ queryKey: ['notifications', 'automation-executions'] }) })
+      await settle()
+      expect(document.body.textContent).not.toContain(entry.findings)
+    }
+    status = 200
+    act(() => intelButton(document, 'Retry executions').click())
+    await settle()
+    expect(document.body.textContent).toContain(entry.findings)
+  })
+
+  it('retains ordinary outage findings while pausing attachment until execution authority returns', async () => {
+    let unavailable = false
+    vi.mocked(apiFetch).mockImplementation((path) => path.startsWith('/investigations')
+      ? Promise.resolve({ investigations: [{ id: 'destination', title: 'Private writable destination', version: 7, status: 'open', current_user_role: 'owner', team_id: null }], total: 1 })
+      : unavailable ? Promise.reject(new ApiError('Execution temporarily unavailable', 503, path))
+        : Promise.resolve({ items: [entry], next_cursor: null }))
+    view = await mountIntel(<AutomationExecutions writable onClose={vi.fn()} />)
+    await settle()
+    act(() => { const field = document.querySelector('select')!; field.value = 'destination'; field.dispatchEvent(new Event('change', { bubbles: true })) })
+    expect(intelButton(document, 'Attach findings').disabled).toBe(false)
+    unavailable = true
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['notifications', 'automation-executions'] }) })
+    await settle()
+    expect(document.body.textContent).toContain(entry.findings)
+    const attach = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Attach findings')
+    expect(!attach || attach.disabled).toBe(true)
+    expect(vi.mocked(apiFetch).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
+  })
+
+  it('retires denied investigation destinations through an outage and does not restore the old attachment intent', async () => {
+    let status = 200
+    vi.mocked(apiFetch).mockImplementation((path) => path.startsWith('/investigations')
+      ? status === 200 ? Promise.resolve({ investigations: [{ id: 'destination', title: 'Private writable destination', version: 7, status: 'open', current_user_role: 'owner', team_id: null }], total: 1 })
+        : Promise.reject(new ApiError('Investigation read unavailable', status, path))
+      : Promise.resolve({ items: [entry], next_cursor: null }))
+    view = await mountIntel(<AutomationExecutions writable onClose={vi.fn()} />)
+    await settle()
+    act(() => { const field = document.querySelector('select')!; field.value = 'destination'; field.dispatchEvent(new Event('change', { bubbles: true })) })
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => { await view!.client.invalidateQueries({ queryKey: ['automation', 'investigations'] }) })
+      await settle()
+      expect(document.body.textContent).not.toContain('Private writable destination')
+      expect(intelButton(document, 'Attach findings').disabled).toBe(true)
+    }
+    status = 200
+    act(() => intelButton(document, 'Retry investigations').click())
+    await settle()
+    expect(document.body.textContent).toContain('Private writable destination')
+    expect(intelButton(document, 'Attach findings').disabled).toBe(true)
+  })
+
   it.each([
     { access: 'no investigation access', permissions: ['read:items', 'read:notifications', 'write:notifications'] },
     { access: 'read-only investigation access', permissions: ['read:items', 'read:notifications', 'write:notifications', 'read:investigations'] },

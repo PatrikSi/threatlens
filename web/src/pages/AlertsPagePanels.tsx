@@ -476,7 +476,7 @@ export function ConfiguredAlertsPanel({ controller }: AlertsPanelProps) {
                           type="button"
                           className="min-h-11 rounded border border-slate/30 px-2 py-1 text-xs sm:min-h-0 dark:border-cyan-900/40"
                           aria-label={`Edit alert rule ${alert.name}`}
-                          disabled={saveAlert.isPending}
+                          disabled={saveAlert.isPending || controller.ruleReadUnavailable}
                           onClick={() => onEdit(alert)}
                         >
                           Edit
@@ -486,7 +486,7 @@ export function ConfiguredAlertsPanel({ controller }: AlertsPanelProps) {
                           className="min-h-11 rounded border border-slate/30 px-2 py-1 text-xs sm:min-h-0 dark:border-cyan-900/40"
                           aria-label={`${alert.enabled ? 'Disable' : 'Enable'} alert rule ${alert.name}`}
                           onClick={() => toggleAlertState(alert)}
-                          disabled={updateAlert.isPending}
+                          disabled={updateAlert.isPending || controller.ruleReadUnavailable}
                         >
                           {pendingStateAlert?.id === alert.id
                             ? `${pendingStateVerb}...`
@@ -499,7 +499,7 @@ export function ConfiguredAlertsPanel({ controller }: AlertsPanelProps) {
                           className="min-h-11 rounded border border-slate/30 px-2 py-1 text-xs text-red-600 sm:min-h-0 dark:border-cyan-900/40"
                           aria-label={`Delete alert rule ${alert.name}`}
                           onClick={() => onRequestDeleteAlert(alert)}
-                          disabled={deleteAlert.isPending || Boolean(pendingDeleteAlert)}
+                          disabled={deleteAlert.isPending || Boolean(pendingDeleteAlert) || controller.ruleReadUnavailable}
                         >
                           Delete
                         </button>
@@ -577,6 +577,7 @@ export function AlertDeleteDialog({ controller }: AlertsPanelProps) {
       onConfirm={confirmDeleteAlert}
       confirmDisabled={
         !pendingDeleteAlert ||
+        controller.ruleReadUnavailable ||
         deleteConflictNeedsRefresh ||
         deleteConflictReloadPending
       }

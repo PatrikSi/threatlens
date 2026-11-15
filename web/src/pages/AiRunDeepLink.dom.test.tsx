@@ -36,11 +36,12 @@ function detail(id: string): AITaskRunDetailResponse {
 let root: Root | undefined
 let client: QueryClient
 let host: HTMLDivElement
-async function mount(entry: string, runResponse = (id: string) => Promise.resolve(detail(id))) {
+async function mount(entry: string, runResponse = (id: string) => Promise.resolve(detail(id)), listResponse = () => Promise.resolve({ items: [] as AITaskRunDetailResponse['run'][], total: 0, limit: 20, offset: 0 }), dependentResponse?: () => Promise<unknown>) {
   vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {})
   vi.mocked(apiFetch).mockImplementation((path) => {
     if (path.startsWith('/ai/ops/runs/')) return runResponse(path.split('/').at(-1)!) as never
-    if (path.startsWith('/ai/ops/runs?')) return Promise.resolve({ items: [], total: 0, limit: 20, offset: 0 }) as never
+    if (dependentResponse && (path.includes('parent_run_id=') || path.startsWith('/ai/daily-briefs/'))) return dependentResponse() as never
+    if (path.startsWith('/ai/ops/runs?')) return listResponse() as never
     if (path === '/feeds') return Promise.resolve([]) as never
     return new Promise(() => {})
   })
@@ -56,6 +57,116 @@ async function mount(entry: string, runResponse = (id: string) => Promise.resolv
 afterEach(() => { act(() => root?.unmount()); client?.clear(); host?.remove(); vi.restoreAllMocks(); vi.clearAllMocks() })
 
 describe('AI run deep links with a real router and query cache', () => {
+  it.each(['children', 'daily brief sources'] as const)('keeps parent-denied %s hidden until their fresh dependent read succeeds', async (kind) => {
+    let parentStatus = 200
+    let dependentReads = 0
+    let recovered = false
+    const pending = deferred<unknown>()
+    const parent = detail(firstId)
+    parent.run.task_type = kind === 'children' ? 'reprocess' : 'daily_brief'
+    parent.run.daily_brief_id = kind === 'daily brief sources' ? 'private-brief' : null
+    const child = { ...detail(secondId).run, task_type: 'item_enrichment', item_title: 'Old dependent private title' }
+    const sources = [{ id: 'source-1', daily_brief_id: 'private-brief', item_id: null, included: true, rank: 1, exclusion_reason: null, title_snapshot: 'Old dependent private title', feed_name_snapshot: null, url_snapshot: 'https://evidence.invalid/private', classification_snapshot: null, relevance_score_snapshot: null, relevance_label_snapshot: null, published_at_snapshot: null, first_seen_at_snapshot: null, created_at: parent.run.created_at }]
+    const response = () => kind === 'children'
+      ? { items: [{ ...child, item_title: recovered ? 'Fresh dependent private title' : child.item_title }], total: 1, limit: 50, offset: 0 }
+      : sources.map((source) => ({ ...source, title_snapshot: recovered ? 'Fresh dependent private title' : source.title_snapshot }))
+    await mount(link(firstId), () => parentStatus === 200 ? Promise.resolve(parent) : Promise.reject(new ApiError('Parent access withdrawn', parentStatus, '/ai/ops/runs')), undefined, () => {
+      dependentReads += 1
+      return dependentReads === 1 || recovered ? Promise.resolve(response()) : pending.promise
+    })
+    await settle()
+    expect(host.textContent).toContain('Old dependent private title')
+    parentStatus = 403
+    await act(async () => client.invalidateQueries({ queryKey: ['ai', 'ops', 'run', firstId] }))
+    await settle()
+    expect(host.textContent).not.toContain('Old dependent private title')
+    parentStatus = 200
+    await act(async () => client.invalidateQueries({ queryKey: ['ai', 'ops', 'run', firstId] }))
+    await settle()
+    expect(host.textContent).not.toContain('Old dependent private title')
+    expect(dependentReads).toBe(2)
+    await act(async () => pending.reject(new ApiError('Dependent read temporarily unavailable', 503, '/dependent')))
+    await settle()
+    expect(host.textContent).not.toContain('Old dependent private title')
+    recovered = true
+    await act(async () => client.invalidateQueries({ queryKey: kind === 'children' ? ['ai', 'ops', 'child-runs', firstId] : ['ai', 'daily-brief-sources', 'private-brief'] }))
+    await settle()
+    expect(host.textContent).toContain('Fresh dependent private title')
+  })
+
+  it('keeps denied run metadata and timeline hidden through an outage and recovers only from a fresh read', async () => {
+    let status = 200
+    const privateDetail = detail(firstId)
+    privateDetail.run.metadata = { scope: 'Private run evidence' }
+    privateDetail.events = [{ id: 'private-event', task_run_id: firstId, event_type: 'progress', message: 'Private timeline evidence', payload: {}, created_at: privateDetail.run.created_at }]
+    await mount(link(firstId), () => status === 200 ? Promise.resolve(privateDetail) : Promise.reject(new ApiError('Run read unavailable', status, '/ai/ops/runs')))
+    expect(host.textContent).toContain('Private timeline evidence')
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => client.invalidateQueries({ queryKey: ['ai', 'ops', 'run', firstId] }))
+      await settle()
+      expect(host.textContent).not.toContain('Private run evidence')
+      expect(host.textContent).not.toContain('Private timeline evidence')
+    }
+    status = 200
+    await act(async () => client.invalidateQueries({ queryKey: ['ai', 'ops', 'run', firstId] }))
+    await settle()
+    expect(host.textContent).toContain('Private timeline evidence')
+  })
+
+  it('retains ordinary outage detail while pausing cancellation and retiring a pending cancellation intent', async () => {
+    let status = 200
+    const running = detail(firstId)
+    running.run.status = 'running'
+    running.run.finished_at = null
+    await mount(link(firstId), () => status === 200 ? Promise.resolve(running) : Promise.reject(new ApiError('Run temporarily unavailable', status, '/ai/ops/runs')))
+    const stop = [...host.querySelectorAll('button')].find((button) => button.textContent === 'Stop Task')!
+    act(() => stop.click())
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+    status = 503
+    await act(async () => client.invalidateQueries({ queryKey: ['ai', 'ops', 'run', firstId] }))
+    await settle()
+    expect(host.textContent).toContain(`Run ${firstId}`)
+    const confirm = [...document.querySelectorAll('button')].filter((button) => button.textContent === 'Stop Task')
+    expect(confirm.every((button) => button.disabled)).toBe(true)
+    expect(vi.mocked(apiFetch).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
+  })
+
+  it('keeps denied history titles hidden across a later outage', async () => {
+    let status = 200
+    const privateRun = detail(firstId).run
+    privateRun.item_title = 'Private history title'
+    await mount(link(firstId), (id) => Promise.resolve(detail(id)), () => status === 200
+      ? Promise.resolve({ items: [privateRun], total: 1, limit: 20, offset: 0 })
+      : Promise.reject(new ApiError('History read unavailable', status, '/ai/ops/runs')))
+    expect(host.textContent).toContain('Private history title')
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => client.invalidateQueries({ queryKey: ['ai', 'ops', 'runs'] }))
+      await settle()
+      expect(host.textContent).not.toContain('Private history title')
+    }
+  })
+
+  it('retires a cached inspection of the same run when its selected detail is denied', async () => {
+    let status = 200
+    const privateDetail = detail(firstId)
+    privateDetail.run.item_title = 'Private inspected run'
+    privateDetail.events = [{ id: 'exchange', task_run_id: firstId, event_type: 'provider_exchange', message: null, payload: { request_payload: { prompt: 'Private request payload' }, response_body: 'Private provider response' }, created_at: privateDetail.run.created_at }]
+    await mount(link(firstId), () => status === 200 ? Promise.resolve(privateDetail) : Promise.reject(new ApiError('Selected run access withdrawn', status, '/ai/ops/runs')))
+    act(() => [...host.querySelectorAll('button')].find((button) => button.textContent === 'View Request / Response')!.click())
+    await settle()
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Private provider response')
+    status = 403
+    await act(async () => client.invalidateQueries({ queryKey: ['ai', 'ops', 'run', firstId] }))
+    await settle()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.body.textContent).toContain('Selected run access withdrawn')
+    for (const privateText of ['Private inspected run', 'Private request payload', 'Private provider response']) {
+      expect(document.body.textContent).not.toContain(privateText)
+    }
+  })
+
   it('opens an exact off-page run and follows browser navigation without dropping the pin', async () => {
     await mount(link(firstId))
     expect(host.textContent).toContain(`Run ${firstId}`)

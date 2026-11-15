@@ -26,6 +26,9 @@ const domMocks = vi.hoisted(() => ({
   mutationPendingKeys: [] as string[],
   mutationVariables: {} as Record<string, unknown>,
   queryClient: {
+    // These source-mocked queries have no real fetch events; real cache
+    // withdrawal/recovery behavior is covered by AlertOccurrenceAccess.
+    getQueryCache: () => ({ subscribe: () => () => {}, find: () => undefined }),
     invalidateQueries: vi.fn(() => Promise.resolve()),
     setQueriesData: vi.fn(),
     setQueryData: vi.fn(),

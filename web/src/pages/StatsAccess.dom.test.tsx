@@ -27,6 +27,41 @@ const tab = (text: string) => Array.from(host!.querySelectorAll('nav button')).f
 
 afterEach(() => { act(() => root?.unmount()); client?.clear(); host?.remove(); vi.clearAllMocks(); vi.unstubAllGlobals(); user.role = 'analyst'; user.access.permissions = ['read:stats']; user.features.ai_enabled = true })
 describe('statistics section access and navigation', () => {
+  it('keeps permitted statistics available when the independent feed catalogue is forbidden', async () => {
+    vi.mocked(apiFetch).mockImplementation((path) => path === '/feeds'
+      ? Promise.reject(new ApiError('Feed catalogue forbidden', 403, path))
+      : Promise.resolve(ingestionSnapshot(path)) as never)
+    await mount('/stats', false)
+    await vi.waitFor(() => expect(host!.textContent).toContain('Feed catalogue forbidden'))
+    await vi.waitFor(() => expect(host!.textContent).toContain('private.example'))
+    expect(host!.textContent).toContain('Private series')
+    const refresh = [...host!.querySelectorAll('button')].find((button) => button.textContent === 'Refresh statistics')!
+    act(() => refresh.click()); await settle()
+    await vi.waitFor(() => expect(host!.textContent).toContain('private.example'))
+    expect(host!.textContent).toContain('Feed catalogue forbidden')
+  })
+
+  it.each([
+    ['/feeds', 'Private feed'], ['/stats/overview', 'private.example'],
+    ['/stats/feed-timeseries', 'Private series'], ['/stats/activity-heatmap', '2026-09-12 05:00 UTC: 73 posts'],
+    ['/stats/signal-radar', 'Ransomware'],
+  ])('keeps denied ingestion history hidden through a later outage (%s)', async (deniedPath, marker) => {
+    vi.mocked(apiFetch).mockImplementation((path) => Promise.resolve(ingestionSnapshot(path)) as never)
+    await mount('/stats', false)
+    await vi.waitFor(() => expect(host!.textContent).toContain(marker))
+    for (const status of [403, 503]) {
+      vi.mocked(apiFetch).mockImplementation((path) => path.startsWith(deniedPath)
+        ? Promise.reject(new ApiError(`Statistics history unavailable ${status}`, status, path))
+        : Promise.resolve(ingestionSnapshot(path)) as never)
+      await act(async () => { await client!.invalidateQueries() }); await settle()
+      await vi.waitFor(() => expect(host!.textContent).toContain(`Statistics history unavailable ${status}`))
+      expect(host!.textContent).not.toContain(marker)
+    }
+    vi.mocked(apiFetch).mockImplementation((path) => Promise.resolve(ingestionSnapshot(path)) as never)
+    await act(async () => { await client!.invalidateQueries() }); await settle()
+    await vi.waitFor(() => expect(host!.textContent).toContain(marker))
+  })
+
   it.each([
     ['/feeds', 'Private feed', 403], ['/feeds', 'Private feed', 503],
     ['/stats/overview', 'private.example', 403], ['/stats/overview', 'private.example', 503],

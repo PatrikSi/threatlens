@@ -63,6 +63,27 @@ afterEach(() => {
 })
 
 describe('provider usage with a real QueryClient', () => {
+  it('keeps denied provider usage hidden through a later outage and same-client remount', async () => {
+    mocks.apiFetch.mockResolvedValueOnce(response([row({ provider_name: 'Withdrawn provider' })]))
+    const { host, render } = mount()
+    await settle(() => expect(host.textContent).toContain('Withdrawn provider'))
+    mocks.apiFetch.mockRejectedValueOnce(new ApiError('Usage forbidden', 403, '/ai/ops/providers'))
+    act(() => button(host, 'Refresh provider usage').click())
+    await settle(() => expect(host.textContent).toContain('Usage forbidden'))
+    mocks.apiFetch.mockRejectedValue(new ApiError('Usage unavailable', 503, '/ai/ops/providers'))
+    act(() => button(host, 'Refresh provider usage').click())
+    await settle(() => expect(host.textContent).toContain('Usage unavailable'))
+    expect(host.textContent).not.toContain('Withdrawn provider')
+    render(7)
+    await settle(() => expect(host.textContent).toContain('Usage unavailable'))
+    render(30)
+    await settle(() => expect(host.textContent).toContain('Usage unavailable'))
+    expect(host.textContent).not.toContain('Withdrawn provider')
+    mocks.apiFetch.mockResolvedValue(response([row({ provider_name: 'Fresh provider' })]))
+    act(() => button(host, 'Refresh provider usage').click())
+    await settle(() => expect(host.textContent).toContain('Fresh provider'))
+  })
+
   it('distinguishes provider snapshots sharing a model and exposes semantic records, missing tokens, and typed failures', async () => {
     mocks.apiFetch.mockResolvedValue(response([
       row(), row({ provider_id: '00000000-0000-0000-0000-000000000002', provider_name: 'Retired provider', provider_version: 4 }),

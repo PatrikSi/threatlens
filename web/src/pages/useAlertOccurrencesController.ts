@@ -8,6 +8,7 @@ import { ApiError, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { accessibleQueryData } from '../api/queryData'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type {
   AlertBackfillApplyResponse,
   AlertBackfillPreviewResponse,
@@ -86,91 +87,34 @@ export function useAlertOccurrencesController(active = true) {
   const [snoozeUntil, setSnoozeUntil] = useState('')
   const [snoozeReason, setSnoozeReason] = useState('')
   const detailReturnTargetRef = useRef<HTMLButtonElement | null>(null)
-
-  const rulesResult = useQuery({
-    queryKey: ['alerts', 'occurrences', 'rules', filters.teamId, filters.queueScope],
-    queryFn: () => {
-      const params = new URLSearchParams({ include_disabled: 'true' })
-      if (filters.teamId) params.set('team_id', filters.teamId)
-      if (filters.queueScope && filters.queueScope !== 'all') params.set('queue_scope', filters.queueScope)
-      return apiFetch<AlertInterest[]>(`/alerts?${params}`)
-    },
-    enabled: active,
-    staleTime: 30_000,
-  })
-  const occurrencePath = useMemo(
-    () => buildAlertOccurrencesPath(filters, page, pageSize),
-    [filters, page, pageSize],
-  )
-  const filterValidationError = validateAlertOccurrenceFilters(filters)
-  const occurrencesResult = useQuery({
-    queryKey: ['alerts', 'occurrences', 'list', occurrencePath],
-    queryFn: () => apiFetch<AlertOccurrenceListResponse>(occurrencePath),
-    placeholderData: (previous) => previous,
-    enabled: active && !filterValidationError,
-    refetchInterval: OCCURRENCE_REFRESH_MS,
-    retry: retryOperationalQuery,
-  })
-  const detailResult = useQuery({
-    queryKey: ['alerts', 'occurrences', 'detail', selectedOccurrenceId],
-    queryFn: () => apiFetch<AlertOccurrence>(`/alerts/occurrences/${encodeURIComponent(selectedOccurrenceId ?? '')}`),
-    enabled: active && Boolean(selectedOccurrenceId),
-    refetchInterval: OCCURRENCE_REFRESH_MS,
-    retry: retryOperationalQuery,
-  })
-  const activityResult = useQuery({
-    queryKey: ['alerts', 'occurrences', 'activity', selectedOccurrenceId, activityPage],
-    queryFn: () => {
-      const params = new URLSearchParams({
-        page: String(activityPage),
-        page_size: String(ALERT_OCCURRENCE_ACTIVITY_PAGE_SIZE),
-      })
-      return apiFetch<AlertOccurrenceActivityListResponse>(
-        `/alerts/occurrences/${encodeURIComponent(selectedOccurrenceId ?? '')}/activity?${params.toString()}`,
-      )
-    },
-    enabled: active && Boolean(selectedOccurrenceId),
-    retry: retryOperationalQuery,
-  })
-  const teamAccess = useAlertTeamAccess(active, detailResult.data?.team_id, detailResult.dataUpdatedAt)
-  const accessLoss = teamAccess.accessLoss
+  const canonicalRefreshCountRef = useRef(0)
+  const [canonicalRefreshCount, setCanonicalRefreshCount] = useState(0)
+  const mountedRef = useRef(true)
   useEffect(() => {
-    if (!teamAccess.currentLoss) return
-    void queryClient.invalidateQueries({ queryKey: ['alerts', 'occurrences'] })
-  }, [queryClient, teamAccess.currentLoss])
-  const rulesQuery = { ...rulesResult, data: accessibleQueryData(rulesResult) }
-  const occurrencesQuery = {
-    ...occurrencesResult, data: accessLoss ? undefined : accessibleQueryData(occurrencesResult),
-    error: accessLoss ?? occurrencesResult.error, isError: Boolean(accessLoss) || occurrencesResult.isError,
-    refetch: async () => { if (accessLoss) await teamAccess.refetch(); return occurrencesResult.refetch() },
-  }
-  const detailQuery = {
-    ...detailResult, data: accessLoss ? undefined : accessibleQueryData(detailResult),
-    error: accessLoss ?? detailResult.error, isError: Boolean(accessLoss) || detailResult.isError,
-    refetch: async () => { if (accessLoss) await teamAccess.refetch(); return detailResult.refetch() },
-  }
-  const activityQuery = {
-    ...activityResult, data: accessLoss ? undefined : accessibleQueryData(activityResult),
-    error: accessLoss ?? activityResult.error, isError: Boolean(accessLoss) || activityResult.isError,
-  }
-  const accessWithdrawn = Boolean(accessLoss) || [occurrencesResult, detailResult].some(
-    (query) => query.error instanceof ApiError && [401, 403, 404].includes(query.error.status),
-  )
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
+  const {
+    rulesQuery, occurrencesQuery, detailQuery, activityQuery, occurrencePath,
+    filterValidationError, accessWithdrawn, listReadUnavailable, detailReadUnavailable, independentDetailAvailable,
+  } = useOccurrenceReads(active, filters, page, pageSize, selectedOccurrenceId, activityPage)
 
-  const applyOccurrenceUpdates = (updates: AlertOccurrence[]) => {
-    const byId = new Map(updates.map((occurrence) => [occurrence.id, occurrence]))
-    queryClient.setQueriesData<AlertOccurrenceListResponse>(
-      { queryKey: ['alerts', 'occurrences', 'list'] },
-      (current) =>
-        current
-          ? { ...current, items: current.items.map((item) => byId.get(item.id) ?? item) }
-          : current,
-    )
-    updates.forEach((occurrence) => {
-      queryClient.setQueryData(['alerts', 'occurrences', 'detail', occurrence.id], occurrence)
-    })
-    void queryClient.invalidateQueries({ queryKey: ['alerts', 'occurrences', 'list'] })
-    void queryClient.invalidateQueries({ queryKey: ['alerts', 'occurrences', 'activity'] })
+  const applyOccurrenceUpdates = async (updates: AlertOccurrence[]) => {
+    // Committed writes do not authorize cached evidence. Re-read current server
+    // state before enabling another version-sensitive action.
+    canonicalRefreshCountRef.current += 1
+    if (mountedRef.current) setCanonicalRefreshCount((count) => count + 1)
+    try {
+      await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ['alerts', 'occurrences', 'list'] }),
+        ...[...new Set(updates.map((occurrence) => occurrence.id))].map((id) =>
+          queryClient.invalidateQueries({ queryKey: ['alerts', 'occurrences', 'detail', id] })),
+        queryClient.invalidateQueries({ queryKey: ['alerts', 'occurrences', 'activity'] }),
+      ])
+    } finally {
+      canonicalRefreshCountRef.current -= 1
+      if (mountedRef.current) setCanonicalRefreshCount((count) => Math.max(0, count - 1))
+    }
   }
 
   const handleMutationFailure = (error: unknown, fallback: string) => {
@@ -204,8 +148,8 @@ export function useAlertOccurrencesController(active = true) {
           ...(disposition ? { disposition } : {}),
         }),
       }),
-    onSuccess: (occurrence, input) => {
-      applyOccurrenceUpdates([occurrence])
+    onSuccess: async (occurrence, input) => {
+      await applyOccurrenceUpdates([occurrence])
       setActivityPage(1)
       setActionError(null)
       setConflictNotice(null)
@@ -232,8 +176,8 @@ export function useAlertOccurrencesController(active = true) {
           ...(disposition ? { disposition } : {}),
         }),
       }),
-    onSuccess: (response, input) => {
-      applyOccurrenceUpdates(response.items)
+    onSuccess: async (response, input) => {
+      await applyOccurrenceUpdates(response.items)
       setSelectedIds(new Set())
       setActivityPage(1)
       setActionError(null)
@@ -258,8 +202,8 @@ export function useAlertOccurrencesController(active = true) {
           ...(reason ? { reason } : {}),
         }),
       }),
-    onSuccess: (occurrence) => {
-      applyOccurrenceUpdates([occurrence])
+    onSuccess: async (occurrence) => {
+      await applyOccurrenceUpdates([occurrence])
       setActivityPage(1)
       setActionError(null)
       setConflictNotice(null)
@@ -284,7 +228,13 @@ export function useAlertOccurrencesController(active = true) {
   const pageCount = alertOccurrencePageCount(data?.total ?? 0, data?.page_size ?? pageSize)
   const stats = alertOccurrencePageStats(visibleOccurrences, data?.total ?? 0)
   const mutationPending =
-    lifecycleMutation.isPending || bulkLifecycleMutation.isPending || snoozeMutation.isPending
+    lifecycleMutation.isPending || bulkLifecycleMutation.isPending || snoozeMutation.isPending || canonicalRefreshCount > 0
+  const canWriteDetail = (occurrence: AlertOccurrence) =>
+    !mutationPending && canonicalRefreshCountRef.current === 0 && !writeDenied && !accessWithdrawn && !detailReadUnavailable &&
+    detailQuery.data?.id === occurrence.id && detailQuery.data.version === occurrence.version
+  const canWriteCollection = (occurrences: AlertOccurrence[]) =>
+    !mutationPending && canonicalRefreshCountRef.current === 0 && !writeDenied && !accessWithdrawn && !listReadUnavailable &&
+    occurrences.every((occurrence) => loadedOccurrences.some((current) => current.id === occurrence.id && current.version === occurrence.version))
   const mutationPendingMessage = resolveMutationPendingMessage(
     lifecycleMutation.isPending ? lifecycleMutation.variables : undefined,
     bulkLifecycleMutation.isPending ? bulkLifecycleMutation.variables : undefined,
@@ -304,6 +254,13 @@ export function useAlertOccurrencesController(active = true) {
     setConflictNotice(null)
     setShareFeedback(null)
   }, [occurrencePath, selectedOccurrenceId])
+
+  useEffect(() => {
+    if (!accessWithdrawn) return
+    setSelectedIds(new Set())
+    setCloseTarget(null)
+    setSnoozeTarget(null)
+  }, [accessWithdrawn])
 
   const copyTriageLink = async () => {
     const lease = captureSessionLease()
@@ -400,6 +357,7 @@ export function useAlertOccurrencesController(active = true) {
     occurrence: AlertOccurrence,
     action: AlertOccurrenceLifecycleAction,
   ) => {
+    if (!canWriteDetail(occurrence)) return
     if (!getAlertOccurrenceLifecycleActions(occurrence.lifecycle_state).includes(action)) return
     setActionError(null)
     setActionFeedback(null)
@@ -419,19 +377,20 @@ export function useAlertOccurrencesController(active = true) {
     })
   }
   const acknowledgeSelected = () => {
-    if (!canBulkAcknowledge(selectedOccurrences)) return
+    if (!canWriteCollection(selectedOccurrences) || !canBulkAcknowledge(selectedOccurrences)) return
     setActionError(null)
     setActionFeedback(null)
     bulkLifecycleMutation.mutate({ occurrences: selectedOccurrences, action: 'acknowledge' })
   }
   const requestCloseSelected = () => {
-    if (!canBulkClose(selectedOccurrences)) return
+    if (!canWriteCollection(selectedOccurrences) || !canBulkClose(selectedOccurrences)) return
     setCloseDisposition('true_positive')
     setCloseTarget({ occurrences: selectedOccurrences, bulk: true, mode: 'close' })
   }
   const confirmClose = () => {
     if (!closeTarget || accessWithdrawn) return
     if (closeTarget.bulk) {
+      if (!canWriteCollection(closeTarget.occurrences)) return
       bulkLifecycleMutation.mutate({
         occurrences: closeTarget.occurrences,
         action: 'close',
@@ -440,7 +399,7 @@ export function useAlertOccurrencesController(active = true) {
       return
     }
     const occurrence = closeTarget.occurrences[0]
-    if (!occurrence) return
+    if (!occurrence || !canWriteDetail(occurrence)) return
     lifecycleMutation.mutate({
       occurrence,
       state: 'closed',
@@ -448,6 +407,7 @@ export function useAlertOccurrencesController(active = true) {
     })
   }
   const requestSnooze = (occurrence: AlertOccurrence) => {
+    if (!canWriteDetail(occurrence)) return
     const fourHoursFromNow = new Date(Date.now() + 4 * 60 * 60 * 1000)
     setSnoozeTarget(occurrence)
     setSnoozeUntil(toLocalDateTimeInput(fourHoursFromNow))
@@ -455,7 +415,7 @@ export function useAlertOccurrencesController(active = true) {
     setActionError(null)
   }
   const confirmSnooze = () => {
-    if (!snoozeTarget || snoozeValidationError || accessWithdrawn) return
+    if (!snoozeTarget || snoozeValidationError || !canWriteDetail(snoozeTarget)) return
     snoozeMutation.mutate({
       occurrence: snoozeTarget,
       snoozedUntil: new Date(snoozeUntil).toISOString(),
@@ -463,12 +423,14 @@ export function useAlertOccurrencesController(active = true) {
     })
   }
   const clearSnooze = (occurrence: AlertOccurrence) => {
+    if (!canWriteDetail(occurrence)) return
     setActionError(null)
     snoozeMutation.mutate({ occurrence, snoozedUntil: null, reason: null })
   }
   const snoozeValidationError = validateSnooze(snoozeUntil, snoozeReason)
   const closeConfirmationDisabled =
     !closeTarget ||
+    (closeTarget.bulk ? !canWriteCollection(closeTarget.occurrences) : !closeTarget.occurrences[0] || !canWriteDetail(closeTarget.occurrences[0])) ||
     closeTarget.occurrences.length === 0 ||
     (closeTarget.mode === 'disposition' &&
       closeTarget.occurrences[0]?.closure_disposition === closeDisposition)
@@ -486,8 +448,8 @@ export function useAlertOccurrencesController(active = true) {
     activityQuery,
     backfill,
     bulkLifecycleMutation,
-    canBulkAcknowledge: canBulkAcknowledge(selectedOccurrences),
-    canBulkClose: canBulkClose(selectedOccurrences),
+    canBulkAcknowledge: !listReadUnavailable && canBulkAcknowledge(selectedOccurrences),
+    canBulkClose: !listReadUnavailable && canBulkClose(selectedOccurrences),
     clearSelection,
     clearFilters,
     clearSnooze,
@@ -500,6 +462,8 @@ export function useAlertOccurrencesController(active = true) {
     conflictNotice,
     currentUserQuery,
     detailQuery,
+    detailReadUnavailable,
+    independentDetailAvailable,
     filters,
     filterValidationError,
     lifecycleMutation,
@@ -532,7 +496,7 @@ export function useAlertOccurrencesController(active = true) {
     setSnoozeUntil,
     snoozeMutation,
     snoozeReason,
-    snoozeTarget: accessWithdrawn ? null : snoozeTarget,
+    snoozeTarget: accessWithdrawn || detailReadUnavailable ? null : snoozeTarget,
     snoozeUntil,
     snoozeValidationError,
     stats,
@@ -543,6 +507,106 @@ export function useAlertOccurrencesController(active = true) {
     updateFilters,
     visibleOccurrences,
     writeDenied: writeDenied || accessWithdrawn,
+  }
+}
+
+function useOccurrenceReads(
+  active: boolean,
+  filters: AlertOccurrenceFilters,
+  page: number,
+  pageSize: number,
+  selectedOccurrenceId: string | null,
+  activityPage: number,
+) {
+  const queryClient = useQueryClient()
+  const rulesAccess = useQueryAccessScope(['alerts', 'occurrences', 'rules', filters.teamId ?? '', filters.queueScope ?? 'all'])
+  const listAccess = useQueryAccessScope(['alerts', 'occurrences', 'list', filters.teamId ?? '', filters.queueScope ?? 'all'])
+  const detailAccess = useQueryAccessScope(['alerts', 'occurrences', 'detail', selectedOccurrenceId ?? ''])
+  const activityAccess = useQueryAccessScope(['alerts', 'occurrences', 'activity', selectedOccurrenceId ?? ''])
+
+  const rulesResult = useQuery({
+    queryKey: ['alerts', 'occurrences', 'rules', filters.teamId, filters.queueScope],
+    ...rulesAccess.queryOptions(() => {
+      const params = new URLSearchParams({ include_disabled: 'true' })
+      if (filters.teamId) params.set('team_id', filters.teamId)
+      if (filters.queueScope && filters.queueScope !== 'all') params.set('queue_scope', filters.queueScope)
+      return apiFetch<AlertInterest[]>(`/alerts?${params}`)
+    }, 30_000),
+    enabled: active,
+  })
+  const occurrencePath = useMemo(
+    () => buildAlertOccurrencesPath(filters, page, pageSize),
+    [filters, page, pageSize],
+  )
+  const filterValidationError = validateAlertOccurrenceFilters(filters)
+  const listKey = ['alerts', 'occurrences', 'list', occurrencePath]
+  const occurrencesResult = useQuery({
+    queryKey: listKey,
+    ...listAccess.queryOptions(() => apiFetch<AlertOccurrenceListResponse>(occurrencePath)),
+    placeholderData: (previous) => listAccess.currentData(previous) === undefined ? undefined : previous,
+    enabled: active && !filterValidationError,
+    refetchInterval: OCCURRENCE_REFRESH_MS,
+    retry: retryOperationalQuery,
+  })
+  const detailKey = ['alerts', 'occurrences', 'detail', selectedOccurrenceId]
+  const detailResult = useQuery({
+    queryKey: detailKey,
+    ...detailAccess.queryOptions(() => apiFetch<AlertOccurrence>(`/alerts/occurrences/${encodeURIComponent(selectedOccurrenceId ?? '')}`)),
+    enabled: active && Boolean(selectedOccurrenceId),
+    refetchInterval: OCCURRENCE_REFRESH_MS,
+    retry: retryOperationalQuery,
+  })
+  const activityKey = ['alerts', 'occurrences', 'activity', selectedOccurrenceId, activityPage, detailAccess.generation]
+  const activityResult = useQuery({
+    queryKey: activityKey,
+    ...activityAccess.queryOptions(() => {
+      const params = new URLSearchParams({
+        page: String(activityPage),
+        page_size: String(ALERT_OCCURRENCE_ACTIVITY_PAGE_SIZE),
+      })
+      return apiFetch<AlertOccurrenceActivityListResponse>(
+        `/alerts/occurrences/${encodeURIComponent(selectedOccurrenceId ?? '')}/activity?${params.toString()}`,
+      )
+    }),
+    enabled: active && Boolean(selectedOccurrenceId) && !detailAccess.denied,
+    retry: retryOperationalQuery,
+  })
+  const teamAccess = useAlertTeamAccess(active, detailResult.data?.team_id, {
+    detail: detailKey, activity: activityKey, list: listKey,
+    listTeams: (occurrencesResult.data?.items ?? []).flatMap((item) => item.team_id ? [item.team_id] : []),
+  })
+  const accessLoss = teamAccess.accessLoss
+  const collectionAccessLoss = teamAccess.collectionAccessLoss
+  const activityAccessLoss = teamAccess.activityAccessLoss
+  useEffect(() => {
+    if (!teamAccess.currentLoss) return
+    void queryClient.invalidateQueries({ queryKey: ['alerts', 'occurrences'] })
+  }, [queryClient, teamAccess.currentLoss])
+  const rulesQuery = { ...rulesResult, data: accessibleQueryData(rulesResult) }
+  const occurrencesQuery = {
+    ...occurrencesResult, data: collectionAccessLoss ? undefined : accessibleQueryData(occurrencesResult),
+    error: collectionAccessLoss ?? occurrencesResult.error, isError: Boolean(collectionAccessLoss) || occurrencesResult.isError,
+    refetch: async () => { if (collectionAccessLoss && detailResult.data?.team_id) await teamAccess.refetch(); return occurrencesResult.refetch() },
+  }
+  const detailQuery = {
+    ...detailResult, data: accessLoss ? undefined : accessibleQueryData(detailResult),
+    error: accessLoss ?? detailResult.error, isError: Boolean(accessLoss) || detailResult.isError,
+    refetch: async () => { if (accessLoss) await teamAccess.refetch(); return detailResult.refetch() },
+  }
+  const activityQuery = {
+    ...activityResult, data: activityAccessLoss || detailAccess.denied ? undefined : accessibleQueryData(activityResult),
+    error: activityAccessLoss ?? activityResult.error, isError: Boolean(activityAccessLoss) || activityResult.isError,
+  }
+  const accessWithdrawn = Boolean(accessLoss) || listAccess.denied || detailAccess.denied || [occurrencesResult, detailResult].some(
+    (query) => query.error instanceof ApiError && [401, 403, 404].includes(query.error.status),
+  )
+
+  const listReadUnavailable = occurrencesQuery.isError || listAccess.denied
+  const detailReadUnavailable = detailQuery.isError || detailAccess.denied
+  const independentDetailAvailable = Boolean(collectionAccessLoss && detailQuery.data)
+  return {
+    rulesQuery, occurrencesQuery, detailQuery, activityQuery, occurrencePath,
+    filterValidationError, accessWithdrawn, listReadUnavailable, detailReadUnavailable, independentDetailAvailable,
   }
 }
 

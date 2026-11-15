@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
 import type { WebhookCredentialProfile } from '../types/webhookAutomation'
@@ -21,13 +22,14 @@ export function WebhookAutomationFields({
 }) {
   const { draft, setDraft, canManageWebhooks, saveWebhook } = controller
   const [open, setOpen] = useState(false)
+  const profilesAccess = useQueryAccessScope(['notifications', 'credential-profiles'])
   const profilesQuery = useQuery({
     queryKey: ['notifications', 'credential-profiles'],
-    queryFn: ({ signal }) =>
+    ...profilesAccess.queryOptions(({ signal }) =>
       apiFetch<WebhookCredentialProfile[]>(
         '/notifications/credential-profiles',
         { signal },
-      ),
+      )),
     enabled: open,
   })
   const profiles = accessibleQueryData(profilesQuery) ?? []
@@ -73,6 +75,7 @@ export function WebhookAutomationFields({
           <select
             className={INPUT}
             value={draft.credential_profile_id ?? ''}
+            disabled={profilesQuery.isError || profilesAccess.denied}
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,

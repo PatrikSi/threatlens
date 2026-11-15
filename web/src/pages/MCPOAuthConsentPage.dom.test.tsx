@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import MCPOAuthConsentPage from './MCPOAuthConsentPage'
-import { apiFetch } from '../api/client'
+import { ApiError, apiFetch } from '../api/client'
 import { deferred, intelButton, mountIntel, settle } from './articleIntelligenceTestSupport'
 vi.mock('../api/client', async (original) => ({ ...await original<typeof import('../api/client')>(), apiFetch: vi.fn() }))
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -10,6 +10,46 @@ let view: Awaited<ReturnType<typeof mountIntel>> | undefined
 afterEach(() => { view?.close(); view = undefined; vi.resetAllMocks() })
 const query = '?client_id=client-a&redirect_uri=https%3A%2F%2Fclient.example%2Fcallback&state=state-1234567890123'
 const preview = { client_name: 'Client A', scopes: ['read:mcp', 'read:items'], resource: 'https://threatlens.example/api/v1/mcp', redirect_uri: 'https://client.example/callback', expires_in: 900 }
+
+it('does not process an old authorization completion after the current preview is denied', async () => {
+  const accepted = deferred<unknown>()
+  let denied = false
+  vi.mocked(apiFetch).mockImplementation((path) => path.endsWith('/authorize') ? accepted.promise
+    : denied ? Promise.reject(new ApiError('Current consent denied', 403, path)) : Promise.resolve(preview))
+  view = await mountIntel(<MCPOAuthConsentPage />, '/' + query)
+  await vi.waitFor(() => expect(view!.host.textContent).toContain('Allow read access'))
+  act(() => intelButton(view!.host, 'Allow read access').click()); await settle()
+  denied = true
+  await act(async () => { await view!.client.invalidateQueries({ queryKey: ['mcp-consent'] }) }); await settle()
+  await vi.waitFor(() => expect(view!.host.textContent).toContain('Current consent denied'))
+  await act(async () => accepted.resolve({ redirect_uri: 'not-a-url' })); await settle()
+  await vi.waitFor(() => expect(view!.client.getMutationCache().getAll().some((mutation) => mutation.state.status === 'success')).toBe(true))
+  expect(view.host.textContent).not.toContain('approved callback could not be verified')
+  expect(view.host.textContent).toContain('Current consent denied')
+})
+
+it('keeps a denied consent preview hidden through a later outage and same-client route remount', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(preview)
+  view = await mountIntel(<MCPOAuthConsentPage />, '/' + query)
+  await vi.waitFor(() => expect(view!.host.textContent).toContain('Client A'))
+  vi.mocked(apiFetch).mockRejectedValue(new ApiError('Consent forbidden', 403, '/mcp/oauth/consent-preview'))
+  await act(async () => { await view!.client.invalidateQueries({ queryKey: ['mcp-consent'] }) }); await settle()
+  await vi.waitFor(() => expect(view!.host.textContent).toContain('Consent forbidden'))
+  expect(view.host.textContent).not.toContain('Client A')
+  vi.mocked(apiFetch).mockRejectedValue(new ApiError('Consent unavailable', 503, '/mcp/oauth/consent-preview'))
+  await act(async () => { await view!.client.invalidateQueries({ queryKey: ['mcp-consent'] }) }); await settle()
+  await vi.waitFor(() => expect(view!.host.textContent).toContain('Consent unavailable'))
+  expect(view.host.textContent).not.toContain('Client A')
+  await act(async () => { await view!.router.navigate('/other') }); await settle()
+  await act(async () => { await view!.router.navigate('/' + query) }); await settle()
+  expect(view.host.textContent).not.toContain('Client A')
+  const reordered = new URLSearchParams([...new URLSearchParams(query)].reverse()).toString()
+  await act(async () => { await view!.router.navigate('/?' + reordered) }); await settle()
+  expect(view.host.textContent).not.toContain('Client A')
+  vi.mocked(apiFetch).mockResolvedValue({ ...preview, client_name: 'Fresh client' })
+  await act(async () => { await view!.client.invalidateQueries({ queryKey: ['mcp-consent'] }) }); await settle()
+  await vi.waitFor(() => expect(view!.host.textContent).toContain('Fresh client'))
+})
 
 it('does not reuse a cached preview when a duplicate-parameter URL is visited', async () => {
   vi.mocked(apiFetch).mockResolvedValue(preview)

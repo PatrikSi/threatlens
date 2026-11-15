@@ -170,6 +170,7 @@ export function AlertOccurrencesWorkspace({ active = true }: { active?: boolean 
           )}
         </div>
       )}
+      {!data && controller.independentDetailAvailable && <AlertOccurrenceDetail controller={controller} />}
 
       <AlertOccurrenceDialogs controller={controller} />
     </section>

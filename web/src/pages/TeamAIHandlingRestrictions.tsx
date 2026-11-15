@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type { DataPolicyOverview } from '../types/api'
 import { TEAM_BUTTON } from './teamPresentation'
 
@@ -11,9 +12,10 @@ export function TeamAIHandlingRestrictions({ value, onChange, approved, destinat
   approved: string[]
   destinations: { key: string; name: string }[]
 }) {
+  const access = useQueryAccessScope(['iam', 'team-ai-handling-labels'])
   const query = useQuery({
     queryKey: ['iam', 'team-ai-handling-labels'],
-    queryFn: ({ signal }) => apiFetch<DataPolicyOverview>('/iam/data-policies', { signal }),
+    ...access.queryOptions(({ signal }) => apiFetch<DataPolicyOverview>('/iam/data-policies', { signal })),
   })
   const labels = accessibleQueryData(query)?.labels ?? []
   const name = (key: string) => destinations.find((entry) => entry.key === key)?.name ?? (key === 'legacy' ? 'Legacy provider settings' : key)

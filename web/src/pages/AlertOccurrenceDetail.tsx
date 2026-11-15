@@ -97,6 +97,7 @@ export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurre
   const actions = getAlertOccurrenceLifecycleActions(occurrence.lifecycle_state)
   const pendingLifecycleState = pendingLifecycleStateFor(controller, occurrence)
   const snoozePending = snoozePendingFor(controller, occurrence)
+  const actionsUnavailable = controller.mutationPending || controller.writeDenied || detailQuery.isError
 
   return (
     <aside
@@ -146,7 +147,7 @@ export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurre
           version {occurrence.version}
         </p>
       </header>
-      <AlertTeamTriage occurrence={occurrence} disabled={controller.mutationPending || controller.writeDenied || detailQuery.isError}
+      <AlertTeamTriage occurrence={occurrence} disabled={actionsUnavailable}
         onUpdated={controller.applyOccurrenceUpdates} />
 
       {controller.writeDenied && (
@@ -178,14 +179,14 @@ export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurre
           {actions.includes('acknowledge') && (
             <ActionButton
               label={acknowledgeActionLabel(pendingLifecycleState)}
-              disabled={controller.mutationPending || controller.writeDenied}
+              disabled={actionsUnavailable}
               onClick={() => controller.runLifecycleAction(occurrence, 'acknowledge')}
             />
           )}
           {actions.includes('investigate') && (
             <ActionButton
               label={investigateActionLabel(pendingLifecycleState)}
-              disabled={controller.mutationPending || controller.writeDenied}
+              disabled={actionsUnavailable}
               onClick={() => controller.runLifecycleAction(occurrence, 'investigate')}
             />
           )}
@@ -193,28 +194,28 @@ export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurre
             <ActionButton
               label="Close occurrence"
               primary
-              disabled={controller.mutationPending || controller.writeDenied}
+              disabled={actionsUnavailable}
               onClick={() => controller.runLifecycleAction(occurrence, 'close')}
             />
           )}
           {actions.includes('change_disposition') && (
             <ActionButton
               label="Change closure disposition"
-              disabled={controller.mutationPending || controller.writeDenied}
+              disabled={actionsUnavailable}
               onClick={() => controller.runLifecycleAction(occurrence, 'change_disposition')}
             />
           )}
           {occurrence.lifecycle_state !== 'closed' && !occurrence.is_snoozed && (
             <ActionButton
               label="Snooze"
-              disabled={controller.mutationPending || controller.writeDenied}
+              disabled={actionsUnavailable}
               onClick={() => controller.requestSnooze(occurrence)}
             />
           )}
           {occurrence.lifecycle_state !== 'closed' && occurrence.snoozed_until && (
             <ActionButton
               label={clearSnoozeActionLabel(snoozePending, occurrence.is_snoozed)}
-              disabled={controller.mutationPending || controller.writeDenied}
+              disabled={actionsUnavailable}
               onClick={() => controller.clearSnooze(occurrence)}
             />
           )}

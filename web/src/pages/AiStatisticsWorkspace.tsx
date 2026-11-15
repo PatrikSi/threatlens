@@ -5,6 +5,7 @@ import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { accessibleQueryData } from '../api/queryData'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type { AISettings, AIOpsOverviewResponse } from '../types/api'
 import type { AIStatisticsResponse } from '../types/aiStatistics'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
@@ -24,8 +25,10 @@ export function AiStatisticsWorkspace() {
 function AllowedAiStatistics() {
   const [days, setDays] = useState(30)
   const client = useQueryClient()
-  const settings = useQuery({ queryKey: ['ai', 'settings'], queryFn: ({ signal }) => apiFetch<AISettings>('/ai/settings', { signal }), staleTime: 60_000 })
-  const overview = useQuery({ queryKey: ['ai', 'ops', 'overview', days], queryFn: ({ signal }) => apiFetch<AIOpsOverviewResponse>(`/ai/ops/overview?days=${days}`, { signal }), staleTime: 30_000, refetchInterval: 60_000 })
+  const settingsAccess = useQueryAccessScope(['ai', 'settings'])
+  const overviewAccess = useQueryAccessScope(['ai', 'ops', 'overview'])
+  const settings = useQuery({ queryKey: ['ai', 'settings'], ...settingsAccess.queryOptions(({ signal }) => apiFetch<AISettings>('/ai/settings', { signal }), 60_000) })
+  const overview = useQuery({ queryKey: ['ai', 'ops', 'overview', days], ...overviewAccess.queryOptions(({ signal }) => apiFetch<AIOpsOverviewResponse>(`/ai/ops/overview?days=${days}`, { signal }), 30_000), refetchInterval: 60_000 })
   const configuration = accessibleQueryData(settings)
   return <div className="space-y-4">
     {settings.isError && <div role="alert" className="rounded border border-amber-500 p-3 text-sm">
@@ -42,7 +45,8 @@ function AllowedAiStatistics() {
 }
 
 export function AiReliabilityStatistics({ days }: { days: number }) {
-  const query = useQuery({ queryKey: ['ai', 'ops', 'statistics', days], queryFn: ({ signal }) => apiFetch<AIStatisticsResponse>(`/ai/ops/statistics?days=${days}`, { signal }), staleTime: 30_000, refetchInterval: 60_000 })
+  const access = useQueryAccessScope(['ai', 'ops', 'statistics'])
+  const query = useQuery({ queryKey: ['ai', 'ops', 'statistics', days], ...access.queryOptions(({ signal }) => apiFetch<AIStatisticsResponse>(`/ai/ops/statistics?days=${days}`, { signal }), 30_000), refetchInterval: 60_000 })
   const data = accessibleQueryData(query)
   return <Panel title="AI reliability and workload" subtitle="Provider outcomes and successful-call latency; current queue age is independent of the selected request window.">
     {query.isLoading && <p role="status">Loading AI reliability...</p>}

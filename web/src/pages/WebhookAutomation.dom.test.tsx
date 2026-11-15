@@ -21,6 +21,38 @@ function PreviewHarness() {
   return <WebhookAutomationFields controller={controller} />
 }
 describe('webhook preview lifecycle', () => {
+  it('retires a matching result and event intent after sample denial, even when a later sample succeeds', async () => {
+    let sampleStatus = 200
+    let events = [{ id: 'event-1', event_type: 'rss_item_new', label: 'Private sample event', created_at: '2026-09-26T00:00:00Z' }]
+    vi.mocked(apiFetch).mockImplementation((path) => {
+      if (path === '/notifications/webhooks/preview') return Promise.resolve({ matches: true, checks: [], missing_fields: [], template_body: 'Private preview evidence' }) as never
+      if (path.includes('/events?')) return sampleStatus === 200 ? Promise.resolve({ events }) as never : Promise.reject(new ApiError('Sample read unavailable', sampleStatus, path))
+      return Promise.resolve([]) as never
+    })
+    view = await mountIntel(<PreviewHarness />)
+    const details = view.host.querySelector('details')!
+    act(() => { details.open = true; details.dispatchEvent(new Event('toggle')) })
+    await settle()
+    editAutomation(view.host, 'Sample event', 'event-1')
+    act(() => intelButton(view!.host, 'Evaluate event').click())
+    await settle()
+    expect(view.host.textContent).toContain('Private preview evidence')
+    for (const status of [403, 503]) {
+      sampleStatus = status
+      await act(async () => { await view!.client.invalidateQueries({ queryKey: ['notifications', 'preview-events'] }) })
+      await settle()
+      expect(view.host.textContent).not.toContain('Private sample event')
+      expect(view.host.textContent).not.toContain('Private preview evidence')
+    }
+    sampleStatus = 200
+    events = []
+    act(() => intelButton(view!.host, 'Retry events').click())
+    await settle()
+    expect(view.host.textContent).not.toContain('Private preview evidence')
+    expect(intelButton(view.host, 'Evaluate event').disabled).toBe(true)
+    expect(automationField(view.host, 'Sample event').value).toBe('')
+  })
+
   it('sends only to the preview API and hides a late result after the subscription changes', async () => {
     const pending = deferred<WebhookMatchPreview>()
     vi.mocked(apiFetch).mockImplementation((url) => {
@@ -59,6 +91,23 @@ describe('webhook preview lifecycle', () => {
 
 describe('credential profile lifecycle', () => {
   const profile: WebhookCredentialProfile = { id: 'profile-1', name: 'SIEM credential', revision: 3, enabled: true, auth_type: 'bearer', header_name: null, auth_configured: true, signing_configured: true }
+  it('keeps denied profile metadata hidden across the paired cached consumer and a later outage', async () => {
+    let status = 200
+    vi.mocked(apiFetch).mockImplementation((path) => path.includes('credential-profiles')
+      ? status === 200 ? Promise.resolve([profile]) : Promise.reject(new ApiError('Profile read unavailable', status, path))
+      : Promise.resolve({ events: [] }) as never)
+    view = await mountIntel(<><WebhookCredentialProfiles writable onClose={vi.fn()} onDirtyChange={vi.fn()} /><PreviewHarness /></>)
+    const details = view.host.querySelector('details')!
+    act(() => { details.open = true; details.dispatchEvent(new Event('toggle')) })
+    await settle()
+    expect(document.body.textContent).toContain(profile.name)
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => { await view!.client.invalidateQueries({ queryKey: ['notifications', 'credential-profiles'] }) })
+      await settle()
+      expect(document.body.textContent).not.toContain(profile.name)
+    }
+  })
   it('retains blank saved secrets, submits its original revision and preserves input on conflict', async () => {
     const pending = deferred<WebhookCredentialProfile>()
     vi.mocked(apiFetch).mockImplementation((_, options) => options?.method === 'PATCH' ? pending.promise as ReturnType<typeof apiFetch> : Promise.resolve([profile]) as ReturnType<typeof apiFetch>)

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { resolveApiErrorMessage } from '../api/errors'
 import type { WebhookCredentialProfile } from '../types/webhookAutomation'
 
@@ -38,6 +39,7 @@ export function CredentialEditor({
   onSaved: (profile: WebhookCredentialProfile) => void
 }) {
   const client = useQueryClient()
+  const access = useQueryAccessScope(['notifications', 'credential-profiles'])
   const [baseline, setBaseline] = useState(profile)
   const [draft, setDraft] = useState(() => initialDraft(profile))
   const mounted = useRef(true)
@@ -49,8 +51,9 @@ export function CredentialEditor({
   }, [])
   const dirty = JSON.stringify(draft) !== JSON.stringify(initialDraft(baseline))
   const save = useMutation({
-    mutationFn: () =>
-      apiFetch<WebhookCredentialProfile>(
+    mutationFn: () => {
+      const capture = access.captureResult()
+      return apiFetch<WebhookCredentialProfile>(
         `/notifications/credential-profiles${baseline ? `/${baseline.id}` : ''}`,
         {
           method: baseline ? 'PATCH' : 'POST',
@@ -64,19 +67,25 @@ export function CredentialEditor({
             expected_revision: baseline?.revision,
           }),
         },
-      ),
-    onSuccess: (saved) => {
+      ).then(capture)
+    },
+    onSuccess: (result) => {
+      const saved = access.currentData(result)
+      if (!saved) {
+        void client.invalidateQueries({ queryKey: ['notifications', 'credential-profiles'] })
+        return
+      }
       if (!mounted.current) return
       setBaseline(saved)
       setDraft(initialDraft(saved))
       onDirtyChange(false)
       onSaved(saved)
-      client.setQueryData<WebhookCredentialProfile[]>(
+      client.setQueryData<{ generation: number; value: WebhookCredentialProfile[] }>(
         ['notifications', 'credential-profiles'],
-        (entries) => [
-          ...(entries ?? []).filter((entry) => entry.id !== saved.id),
+        (entries) => ({ ...result, value: [
+          ...(access.currentData(entries) ?? []).filter((entry) => entry.id !== saved.id),
           saved,
-        ],
+        ] }),
       )
       void client.invalidateQueries({
         queryKey: ['notifications', 'credential-profiles'],

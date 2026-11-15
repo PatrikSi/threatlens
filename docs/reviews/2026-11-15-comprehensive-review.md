@@ -387,6 +387,20 @@ controls have reproduced separate defects being fixed in subsequent increments.
 
 ### Complete backend validation remains open
 
+The next UI increment extends the same scoped-read contract to automation
+executions and previews, credential profiles, AI activity and child pagination,
+qualification receipts, usage and statistics, MCP consent, operational history,
+and alert rules and occurrences. Known team membership withdrawal is captured
+synchronously from actual query failures; fresh team metadata alone cannot
+authorize old occurrence evidence. Canonical evidence reads must recover too.
+Independent final source reviews are recorded for these frozen implementations.
+The current serial automation/statistics run passes all 132 cases, with log
+SHA-256 `e7810e4c6a22ce67ca616a88a1ffe45817e2f5c3c95cbb5e68a0ccbcff4ff782`.
+The latest team recovery run passes 30 cases; its earlier fixture was corrected
+to keep canonical evidence unavailable instead of returning a genuinely fresh
+authorized response. No permission assertion was removed. These commits retain
+the explicit remaining configuration and shared-catalogue review gates above.
+
 A reused test database contaminated a later broad run: six OIDC audit assertions
 selected old rows, and two retention assertions had persistent scan state. The
 same eight unchanged cases pass on a newly created isolated database. The

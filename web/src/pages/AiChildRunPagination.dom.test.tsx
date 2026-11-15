@@ -98,6 +98,29 @@ it('offers retry for an initial error and clears stale rows when access is denie
   expect(host.textContent).not.toContain('parent article 0')
 })
 
+it('keeps denied child pages hidden across cached page re-entry and a later outage, while isolating another parent', async () => {
+  let status = 200
+  vi.mocked(apiFetch).mockImplementation((path) => {
+    const params = new URL(path, 'https://fixture.invalid').searchParams
+    const id = params.get('parent_run_id')!
+    return status === 200 || id === 'other'
+      ? Promise.resolve(pageData(Number(params.get('offset')), 1000, id)) as never
+      : Promise.reject(new ApiError('Child read unavailable', status, path))
+  })
+  mount(); await settle(); await click('Next page')
+  expect(host.textContent).toContain('parent article 50')
+  status = 403
+  await act(async () => { await client.invalidateQueries({ queryKey: ['ai', 'ops', 'child-runs', 'parent', 1] }) }); await settle()
+  expect(host.textContent).not.toContain('parent article')
+  status = 503
+  await click('First page')
+  expect(host.textContent).not.toContain('parent article')
+  render('other'); await settle()
+  expect(host.textContent).toContain('other article 0')
+  render('parent'); await settle()
+  expect(host.textContent).not.toContain('parent article')
+})
+
 it('resets pagination and isolates late results when the selected parent changes', async () => {
   let resolveOld!: (value: AITaskRunListResponse) => void
   const oldPage = new Promise<AITaskRunListResponse>((resolve) => { resolveOld = resolve })

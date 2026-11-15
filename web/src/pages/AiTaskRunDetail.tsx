@@ -89,6 +89,7 @@ function RunDetailContent({
             run={selectedRun}
             onInspectRun={runState.setInspectedRunId}
             onCancelRun={onCancelRun}
+            readUnavailable={runDetailQuery.isError}
             cancelingRunId={cancelingRunId}
           />
           {selectedRun.task_type === 'reprocess' && (
@@ -117,11 +118,13 @@ function RunSummary({
   run,
   onInspectRun,
   onCancelRun,
+  readUnavailable,
   cancelingRunId,
 }: {
   run: AITaskRunResponse
   onInspectRun: (runId: string) => void
   onCancelRun: (run: AITaskRunResponse) => void
+  readUnavailable: boolean
   cancelingRunId: string | null
 }) {
   return (
@@ -152,7 +155,7 @@ function RunSummary({
               type="button"
               className="rounded border border-slate/30 px-3 py-2 text-xs font-semibold disabled:opacity-50 dark:border-cyan-900/40"
               onClick={() => onCancelRun(run)}
-              disabled={cancelingRunId === run.id}
+              disabled={readUnavailable || cancelingRunId === run.id}
             >
               {cancelingRunId === run.id ? 'Working...' : cancelActionLabel(run)}
             </button>

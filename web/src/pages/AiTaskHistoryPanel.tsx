@@ -75,7 +75,7 @@ export function TaskHistoryPanel(props: TaskHistoryPanelProps) {
           onInspectRun={onInspectRun}
         />
 
-        {!history.isLoading && !history.isPageLoading && !runsQuery.isError && !runsQuery.data?.items.length && (
+        {!history.isLoading && !history.isPageLoading && !runsQuery.isError && !data?.items.length && (
           <EmptyInline>No AI runs matched the current filters.</EmptyInline>
         )}
 

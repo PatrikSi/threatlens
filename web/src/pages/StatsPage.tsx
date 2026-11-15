@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useIngestionStatisticsScope } from './useIngestionStatisticsScope'
 import { AiStatisticsWorkspace } from './AiStatisticsWorkspace'
 import { ActivityHeatmapPanel } from './ActivityHeatmapPanel'
 import { PermissionRoute } from '../components/PermissionRoute'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
 import { apiFetch } from '../api/client'
@@ -31,6 +32,18 @@ const FEED_CHART_COLORS = [
   'var(--tl-chart-8)',
 ]
 const FEED_TABLE_PREVIEW_LIMIT = 50
+
+function statisticsReadError(
+  overview: { data: unknown; isError: boolean; error: unknown },
+  otherReaders: readonly { isError: boolean; error: unknown }[],
+  denied: boolean,
+): string | null {
+  const failed = [overview, ...otherReaders].find((query) => query.isError)
+  if (!overview.isError && (overview.data || !denied && !failed)) return null
+  return failed
+    ? resolveApiErrorMessage(failed.error, 'Statistics could not be loaded')
+    : 'Statistics access must be verified again. Refresh statistics to retry.'
+}
 
 export function StatsPage() {
   return <PermissionRoute permissions={[]}><StatisticsSections /></PermissionRoute>
@@ -79,60 +92,66 @@ function IngestionStatistics() {
   const { days, setDays, selectedFeedIds, setSelectedFeedIds } = useIngestionStatisticsScope()
   const [showAllFeedRows, setShowAllFeedRows] = useState(false)
   const [mobileFeedFiltersOpen, setMobileFeedFiltersOpen] = useState(false)
+  const client = useQueryClient()
+  const access = useQueryAccessScope(['stats'])
+  // Feed catalogue access is independent of permission to view statistics.
+  const feedsAccess = useQueryAccessScope(['stats', 'feeds'])
 
   const feedsResult = useQuery({
-    queryKey: ['feeds'],
-    queryFn: () => apiFetch<Feed[]>('/feeds'),
+    // Keep this scoped response separate from the raw shared feed catalogue.
+    // A real read on entry also observes feed changes made in other settings.
+    queryKey: ['stats', 'feeds'],
+    ...feedsAccess.queryOptions(({ signal }) => apiFetch<Feed[]>('/feeds', { signal }), 0),
   })
 
   const feedIdsParam = useMemo(() => selectedFeedIds.slice().sort().join(','), [selectedFeedIds])
 
   const statsResult = useQuery({
     queryKey: ['stats', 'overview', days, feedIdsParam],
-    queryFn: () => {
+    ...access.queryOptions(({ signal }) => {
       const params = new URLSearchParams()
       params.set('days', String(days))
       if (feedIdsParam) {
         params.set('feed_ids', feedIdsParam)
       }
-      return apiFetch<StatsOverviewResponse>(`/stats/overview?${params.toString()}`)
-    },
+      return apiFetch<StatsOverviewResponse>(`/stats/overview?${params.toString()}`, { signal })
+    }),
   })
 
   const feedTimeSeriesResult = useQuery({
     queryKey: ['stats', 'feed-timeseries', days, feedIdsParam],
-    queryFn: () => {
+    ...access.queryOptions(({ signal }) => {
       const params = new URLSearchParams()
       params.set('days', String(days))
       if (feedIdsParam) {
         params.set('feed_ids', feedIdsParam)
       }
-      return apiFetch<StatsFeedTimeSeriesResponse>(`/stats/feed-timeseries?${params.toString()}`)
-    },
+      return apiFetch<StatsFeedTimeSeriesResponse>(`/stats/feed-timeseries?${params.toString()}`, { signal })
+    }),
   })
 
   const activityHeatmapResult = useQuery({
     queryKey: ['stats', 'activity-heatmap', days, feedIdsParam],
-    queryFn: () => {
+    ...access.queryOptions(({ signal }) => {
       const params = new URLSearchParams()
       params.set('days', String(days))
       if (feedIdsParam) {
         params.set('feed_ids', feedIdsParam)
       }
-      return apiFetch<StatsActivityHeatmapResponse>(`/stats/activity-heatmap?${params.toString()}`)
-    },
+      return apiFetch<StatsActivityHeatmapResponse>(`/stats/activity-heatmap?${params.toString()}`, { signal })
+    }),
   })
 
   const signalRadarResult = useQuery({
     queryKey: ['stats', 'signal-radar', days, feedIdsParam],
-    queryFn: () => {
+    ...access.queryOptions(({ signal }) => {
       const params = new URLSearchParams()
       params.set('days', String(days))
       if (feedIdsParam) {
         params.set('feed_ids', feedIdsParam)
       }
-      return apiFetch<StatsSignalRadarResponse>(`/stats/signal-radar?${params.toString()}`)
-    },
+      return apiFetch<StatsSignalRadarResponse>(`/stats/signal-radar?${params.toString()}`, { signal })
+    }),
   })
 
   const feedsQuery = { ...feedsResult, data: accessibleQueryData(feedsResult) }
@@ -140,6 +159,7 @@ function IngestionStatistics() {
   const feedTimeSeriesQuery = { ...feedTimeSeriesResult, data: accessibleQueryData(feedTimeSeriesResult) }
   const activityHeatmapQuery = { ...activityHeatmapResult, data: accessibleQueryData(activityHeatmapResult) }
   const signalRadarQuery = { ...signalRadarResult, data: accessibleQueryData(signalRadarResult) }
+  const statisticsError = statisticsReadError(statsQuery, [feedTimeSeriesQuery, activityHeatmapQuery, signalRadarQuery], access.denied)
 
   const statusTotal = useMemo(
     () => (statsQuery.data?.status_breakdown ?? []).reduce((acc, row) => acc + row.count, 0),
@@ -195,6 +215,9 @@ function IngestionStatistics() {
           <div>
             <h2 className="font-display text-2xl">Statistics</h2>
             <p className="text-sm text-slate dark:text-slate-300">Feed ingestion and article extraction analytics over time.</p>
+            <button type="button" className="mt-2 rounded border border-slate/30 px-3 py-2 text-sm disabled:opacity-50"
+              disabled={[feedsResult, statsResult, feedTimeSeriesResult, activityHeatmapResult, signalRadarResult].some((query) => query.isFetching)}
+              onClick={() => { void client.invalidateQueries({ queryKey: ['stats'] }) }}>Refresh statistics</button>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-2">
             <label htmlFor="stats-time-window" className="sr-only">
@@ -287,8 +310,10 @@ function IngestionStatistics() {
       </section>
 
       {statsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading stats...</p>}
-      {statsQuery.isError && (
-        <p className="text-sm text-red-600">{resolveApiErrorMessage(statsQuery.error, 'Statistics could not be loaded')}</p>
+      {statisticsError && (
+        <p role="alert" className="text-sm text-red-600">
+          {statisticsError}
+        </p>
       )}
 
       {statsQuery.data && (

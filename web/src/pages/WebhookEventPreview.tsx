@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
 import type { WebhookMatchPreview, WebhookPreviewEvent } from '../types/webhookAutomation'
@@ -22,31 +23,50 @@ export function WebhookEventPreview({
   const [eventId, setEventId] = useState('')
   const payload = createRequestFromDraft(draft)
   const fingerprint = JSON.stringify(payload)
+  const access = useQueryAccessScope(['notifications', 'preview-events', draft.event_type])
   const eventsQuery = useQuery({
     queryKey: ['notifications', 'preview-events', draft.event_type],
-    queryFn: ({ signal }) =>
+    ...access.queryOptions(({ signal }) =>
       apiFetch<{ events: WebhookPreviewEvent[] }>(
         `/notifications/webhooks/events?event_type=${encodeURIComponent(draft.event_type)}&limit=20`,
         { signal },
-      ),
+      )),
     retry: false,
     enabled: !disabled,
   })
   const events = disabled ? [] : accessibleQueryData(eventsQuery)?.events ?? []
   const preview = useMutation({
-    mutationFn: (submission: { fingerprint: string; eventId: string }) =>
-      apiFetch<WebhookMatchPreview>('/notifications/webhooks/preview', {
+    mutationFn: (submission: { fingerprint: string; eventId: string; generation: number }) => {
+      const capture = access.captureResult()
+      return apiFetch<WebhookMatchPreview>('/notifications/webhooks/preview', {
         method: 'POST',
         body: JSON.stringify({
           webhook: JSON.parse(submission.fingerprint),
           event_id: submission.eventId,
         }),
-      }),
+      }).then(capture)
+    },
   })
+  const selectedEvent = events.find((event) => event.id === eventId)
+  const resetPreview = preview.reset
+  useEffect(() => {
+    if (access.denied || (eventsQuery.isSuccess && !eventsQuery.isFetching && eventId && !selectedEvent)) {
+      setEventId('')
+      resetPreview()
+    }
+  }, [access.denied, eventsQuery.isSuccess, eventsQuery.isFetching, eventId, selectedEvent, resetPreview])
   const current =
     preview.variables?.fingerprint === fingerprint &&
-    preview.variables.eventId === eventId
-  const result = !disabled && current && !eventsQuery.isError ? preview.data : undefined
+    preview.variables.eventId === eventId &&
+    preview.variables.generation === access.generation
+  const result = !disabled && current && selectedEvent && !eventsQuery.isError ? access.currentData(preview.data) : undefined
+  const evaluateAllowed = canEvaluateWebhookEvent({
+    disabled,
+    eventAvailable: Boolean(selectedEvent),
+    pending: preview.isPending,
+    readUnavailable: eventsQuery.isError || access.denied,
+    invalidConditions: Boolean(validateConditions(draft.conditions ?? null)),
+  })
   return (
     <section
       aria-label="Webhook matching preview"
@@ -102,14 +122,12 @@ export function WebhookEventPreview({
         <button
           type="button"
           className={BUTTON}
-          disabled={
-            disabled ||
-            !eventId ||
-            preview.isPending ||
-            eventsQuery.isError ||
-            Boolean(validateConditions(draft.conditions ?? null))
-          }
-          onClick={() => preview.mutate({ fingerprint, eventId })}
+          disabled={!evaluateAllowed}
+          onClick={() => {
+            if (evaluateAllowed) {
+              preview.mutate({ fingerprint, eventId, generation: access.generation })
+            }
+          }}
         >
           {preview.isPending ? 'Evaluating…' : 'Evaluate event'}
         </button>
@@ -141,6 +159,16 @@ export function WebhookEventPreview({
       {result && <WebhookPreviewResult result={result} />}
     </section>
   )
+}
+
+function canEvaluateWebhookEvent(state: {
+  disabled: boolean
+  eventAvailable: boolean
+  pending: boolean
+  readUnavailable: boolean
+  invalidConditions: boolean
+}) {
+  return !state.disabled && state.eventAvailable && !state.pending && !state.readUnavailable && !state.invalidConditions
 }
 
 function WebhookPreviewResult({ result }: { result: WebhookMatchPreview }) {

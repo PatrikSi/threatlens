@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { resolveApiErrorMessage } from '../api/errors'
 import { accessibleQueryData } from '../api/queryData'
 import type { AITaskRunDetailResponse } from '../types/api'
@@ -21,8 +22,9 @@ export function useAiActivityRunState({
   selectedRunId,
   runDetailQuery,
 }: RunStateInput) {
-  const selectedRun = accessibleQueryData(runDetailQuery)?.run
-  const [inspectedRunId, setInspectedRunId] = useState<string | null>(null)
+  const selectedAccess = useQueryAccessScope(['ai', 'ops', 'run', selectedRunId ?? ''])
+  const selectedRun = selectedAccess.denied ? undefined : accessibleQueryData(runDetailQuery)?.run
+  const [inspectedRunId, selectInspectedRunId] = useState<string | null>(null)
   const history = useRunHistoryMetrics(runPage, runsQuery)
 
   useEffect(() => {
@@ -33,11 +35,11 @@ export function useAiActivityRunState({
     setRunPage(Math.max(0, Math.ceil(runsQuery.data.total / AI_RUN_PAGE_SIZE) - 1))
   }, [runPage, runsQuery.data, runsQuery.isPlaceholderData, setRunPage])
 
+  const inspectedAccess = useQueryAccessScope(['ai', 'ops', 'run', inspectedRunId ?? ''])
   const inspectedRunDetailQuery = useQuery({
     queryKey: ['ai', 'ops', 'inspect-run', inspectedRunId],
-    queryFn: ({ signal }) => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${inspectedRunId}`, { signal }),
+    ...inspectedAccess.queryOptions(({ signal }) => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${inspectedRunId}`, { signal }), 5000),
     enabled: Boolean(inspectedRunId),
-    staleTime: 5000,
   })
   const inspectedDetail = accessibleQueryData(inspectedRunDetailQuery)
   const inspectedProviderEvent = useMemo(
@@ -45,7 +47,11 @@ export function useAiActivityRunState({
     [inspectedDetail?.events],
   )
 
-  const childRunPage = useAiChildRunPage(selectedRunId, selectedRun)
+  const childRunPage = useAiChildRunPage(selectedRunId, selectedRun, selectedAccess.generation)
+  const setInspectedRunId = (runId: string | null) => {
+    if (runId && runId === inspectedRunId) void inspectedRunDetailQuery.refetch()
+    selectInspectedRunId(runId)
+  }
 
   return {
     selectedRun,

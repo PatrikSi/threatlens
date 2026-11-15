@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { accessibleQueryData } from '../api/queryData'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { AIProviderUsageResponse } from '../types/aiProviderUsage'
 import { Panel } from './aiSettingsSupport'
 import { formatTimestamp } from './aiSettingsUtils'
@@ -17,12 +18,12 @@ function latency(value: number | null): string {
 
 export function AiProviderUsagePanel({ days }: { days: number }) {
   const [page, setPage] = useState(0)
+  const access = useQueryAccessScope(['ai', 'ops', 'providers'])
   const query = useQuery({
     queryKey: ['ai', 'ops', 'providers', days, page],
-    queryFn: ({ signal }) => apiFetch<AIProviderUsageResponse>(
+    ...access.queryOptions(({ signal }) => apiFetch<AIProviderUsageResponse>(
       `/ai/ops/providers?days=${days}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`, { signal },
-    ),
-    staleTime: 15_000,
+    ), 15_000),
   })
   const data = accessibleQueryData(query)
   const start = data?.items.length ? data.offset + 1 : 0
@@ -46,6 +47,7 @@ export function AiProviderUsagePanel({ days }: { days: number }) {
         </p>
       )}
       <div aria-busy={query.isFetching}>
+        {query.isSuccess && !data && <p role="status" className="py-4 text-sm">Refresh provider usage to verify current access.</p>}
         {query.isLoading && !data && <p role="status" className="py-4 text-sm">Loading provider usage…</p>}
         {data && !data.items.length && (
           <p className="py-4 text-sm">

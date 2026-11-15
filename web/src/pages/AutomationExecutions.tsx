@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
 import { DialogSurface } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type { InvestigationSummary } from '../types/investigations'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
@@ -44,13 +45,14 @@ function Findings({
   const [page, setPage] = useState(1)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const access = useQueryAccessScope(['automation', 'investigations'])
   const query = useQuery({
     queryKey: ['automation', 'investigations', page],
-    queryFn: ({ signal }) =>
+    ...access.queryOptions(({ signal }) =>
       apiFetch<{ investigations: Investigation[]; total: number }>(
         `/investigations?page=${page}&page_size=25`,
         { signal },
-      ),
+      )),
     enabled: writable && !execution.investigation_note_id,
   })
   const data = accessibleQueryData(query)
@@ -61,8 +63,14 @@ function Findings({
       (!entry.team_id || teamWritable),
   ) ?? []
   const selected = destinations.find((entry) => entry.id === selection)
+  useEffect(() => {
+    if (access.denied) {
+      setSelection('')
+      setError('')
+    }
+  }, [access.denied])
   async function attach() {
-    if (!writable || !selected || busy) return
+    if (!writable || !selected || busy || query.isError || access.denied) return
     setBusy(true)
     setError('')
     try {
@@ -187,6 +195,7 @@ export function AutomationExecutions({
   const [includeArchived, setIncludeArchived] = useState(false)
   const [cursors, setCursors] = useState<(string | null)[]>([null])
   const cursor = cursors[cursors.length - 1]
+  const access = useQueryAccessScope(['notifications', 'automation-executions', webhookId ?? ''])
   const query = useQuery({
     queryKey: [
       'notifications',
@@ -195,11 +204,11 @@ export function AutomationExecutions({
       includeArchived,
       webhookId,
     ],
-    queryFn: ({ signal }) =>
+    ...access.queryOptions(({ signal }) =>
       apiFetch<ExecutionPage>(
         `/notifications/automation/executions?limit=25${webhookId ? `&webhook_id=${encodeURIComponent(webhookId)}` : ''}${includeArchived ? '&include_archived=true' : ''}${cursor ? `&after=${encodeURIComponent(cursor)}` : ''}`,
         { signal },
-      ),
+      )),
     refetchInterval: 30_000,
   })
   const data = accessibleQueryData(query)
@@ -264,7 +273,7 @@ export function AutomationExecutions({
               <Findings
                 key={`${entry.id}:${entry.sequence}`}
                 execution={entry}
-                writable={canAttach}
+              writable={canAttach && !query.isError && !access.denied}
                 teamWritable={hasRequiredPermissions(permissions, ['write:teams'])}
                 onSaved={() => void query.refetch()}
               />

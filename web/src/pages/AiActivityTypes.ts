@@ -1,5 +1,5 @@
 import type { Dispatch, RefObject, SetStateAction } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import type { UseQueryResult } from '@tanstack/react-query'
 
 import type {
   AIDailyBriefSourceItemResponse,
@@ -19,8 +19,8 @@ export type RunFilters = {
   onlyFailures: boolean
 }
 
-export type TaskRunListQuery = ReturnType<typeof useQuery<AITaskRunListResponse>>
-export type TaskRunDetailQuery = ReturnType<typeof useQuery<AITaskRunDetailResponse>>
+export type TaskRunListQuery = UseQueryResult<AITaskRunListResponse | undefined>
+export type TaskRunDetailQuery = UseQueryResult<AITaskRunDetailResponse | undefined>
 
 export type ActivityTabProps = {
   days: number
@@ -83,5 +83,6 @@ export type ActivityTabProps = {
   briefSourcesErrorMessage: string
   selectedRunSectionRef: RefObject<HTMLDivElement | null>
   onCancelRun: (run: AITaskRunResponse) => void
+  cancellationUnavailable?: (runId: string) => boolean
   cancelingRunId: string | null
 }

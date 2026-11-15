@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const operationsDomMocks = vi.hoisted(() => ({
+  client: { invalidateQueries: vi.fn() },
   overviewAvailable: true,
   overviewError: null as Error | null,
   overviewRefetch: vi.fn(),
@@ -357,7 +358,7 @@ const healthHistory = {
 }
 
 vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  useQueryClient: () => operationsDomMocks.client,
   useQuery: (options: { queryKey: unknown[]; refetchInterval?: number | false }) => {
     operationsDomMocks.queryOptions.push(options)
     if (options.queryKey[1] === 'overview') {
@@ -417,7 +418,8 @@ vi.mock('@tanstack/react-query', () => ({
         options.onError?.(operationsDomMocks.diagnosticsError)
         return
       }
-      options.onSuccess?.({
+      // This mock bypasses mutationFn; return its scoped-read result shape.
+      options.onSuccess?.({ generation: 0, value: {
         schema_version: 2,
         generated_at: '2026-08-27T12:00:00Z',
         overview,
@@ -425,7 +427,7 @@ vi.mock('@tanstack/react-query', () => ({
         recent_runs_truncated: false,
         worker_topology: workerTopology,
         health_history: healthHistory,
-      })
+      } })
     }),
     isPending: false,
   }),
@@ -438,6 +440,7 @@ let root: Root | null = null
 let container: HTMLDivElement | null = null
 
 beforeEach(() => {
+  operationsDomMocks.client = { invalidateQueries: vi.fn() }
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-08-27T12:00:30Z'))
 })
