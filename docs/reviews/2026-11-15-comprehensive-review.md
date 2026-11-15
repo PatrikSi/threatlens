@@ -673,6 +673,26 @@ Whole-project TypeScript passes; the full lint report has no findings in these
 files. Three remaining lint findings belong to the still-open group/workspace/
 team configuration units. Full frontend and release gates remain open.
 
+### N21 — dashboard intent extraction and rebuilt backend artifacts
+
+Dashboard saved-view intent state and existing availability predicates now use
+small cohesive helpers, preserving all conditions and the existing complexity
+limit. All 97 related cases pass after extraction (log
+`67bf62db14d4cb5813abeba786f4b772bdd940d38e19a93dfa46755a531739df`),
+with independent final two-file proof
+`263e681b8925a61f01e1bf3013b6314fa3120732b53d0f0919de305fb353eb02`.
+Current project types pass; the global lint report has no dashboard findings.
+
+The tracked backend at `ed571a8b` was rebuilt, including the migration correction,
+as native amd64 image `e7b290c9890b423b40db9f67d147c9ed9f18733cfa2d6a60fd5cb19a9a98125e`.
+Its runtime API/worker/Beat import build checks pass. All 234 extracted dependency/
+legal artifacts match the repository exactly. The final-image scan reports zero
+fixable HIGH/CRITICAL vulnerabilities (log
+`b4e5fad3772263463b3dad6cdabb74b8f95b59fbb36519073931e69ad57f1890`).
+An initial scan targeted the wrong default Docker daemon and failed image lookup;
+it was not a vulnerability result. The successful scan explicitly used the owned
+local daemon. This is native image evidence, without ARM or deployment claims.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

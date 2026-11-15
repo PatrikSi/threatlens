@@ -69,9 +69,9 @@ import { useDashboardItemReadAccess } from './useDashboardItemReadAccess'
 import { useDashboardWindowActions } from './useDashboardWindowActions'
 import { useDashboardWindowFilters } from './useDashboardWindowFilters'
 import { useDashboardWorkspacePersistence } from './useDashboardWorkspacePersistence'
+import { dashboardItemWritesAvailable, dashboardViewActionsAvailable, readableSavedViewBaseline, useDashboardViewIntents } from './useDashboardViewIntents'
 import { useEnforcedDashboardLayout } from './useEnforcedDashboardLayout'
 import { useWorkspace } from '../workspace/useWorkspace'
-import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
 type SavedViewBaseline = Pick<SavedView, 'revision' | 'can_edit' | 'team_id'>
 
@@ -96,7 +96,6 @@ export function useDashboardPageController() {
   const alertInterestsAccess = useQueryAccessScope(['dashboard', 'alert-interests'])
   const alertMatchesAccess = useQueryAccessScope(['dashboard', 'alert-matches'])
   const dailyBriefsAccess = useQueryAccessScope(['dashboard', 'daily-briefs'])
-  const captureViewResult = viewsAccess.captureResult()
   const meQuery = useCurrentUser()
   const workspace = useWorkspace()
   const workspaceDefaultsReady = workspace.effective?.role === workspace.userContext.role
@@ -113,14 +112,8 @@ export function useDashboardPageController() {
   const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null)
   const [savedViewBaseline, setSavedViewBaseline] = useState<SavedViewBaseline | null>(null)
   const [savedViewReadGeneration, setSavedViewReadGeneration] = useState(viewsAccess.generation)
-  const [pendingViewDeleteRead, setPendingViewDeleteRead] = useState<ReturnType<typeof captureViewResult<DashboardSavedViewPreview>> | null>(null)
-  const [pendingSavedViewLoadRead, setPendingSavedViewLoadRead] = useState<ReturnType<typeof captureViewResult<{ id: string; name: string }>> | null>(null)
-  const pendingViewDelete = viewsAccess.currentData(pendingViewDeleteRead ?? undefined) ?? null
-  const pendingSavedViewLoad = viewsAccess.currentData(pendingSavedViewLoadRead ?? undefined) ?? null
-  const setPendingViewDelete = (view: DashboardSavedViewPreview | null) =>
-    setPendingViewDeleteRead(view ? viewsAccess.captureResult()(view) : null)
-  const setPendingSavedViewLoad = (view: { id: string; name: string } | null) =>
-    setPendingSavedViewLoadRead(view ? viewsAccess.captureResult()(view) : null)
+  const { pendingViewDelete, pendingSavedViewLoad, setPendingViewDelete,
+    setPendingSavedViewLoad, retireDeletedView } = useDashboardViewIntents(viewsAccess)
   const [showManageViewsModal, setShowManageViewsModal] = useState(false)
   const [isImportingViews, setIsImportingViews] = useState(false)
   const [importViewsError, setImportViewsError] = useState('')
@@ -192,10 +185,7 @@ export function useDashboardPageController() {
     savedNoteValuesByItemIdRef, setNoteDraftsByItemId,
   )
 
-  const canManage = !meQuery.isError && !meQuery.isLoading && hasRequiredPermissions(
-    meQuery.data?.access?.permissions ?? [],
-    ['write:items'],
-  )
+  const canManage = dashboardItemWritesAvailable(meQuery)
   const aiSummaryEnabled = Boolean(aiFeatures?.ai_summary_enabled)
   const aiRelevanceEnabled = Boolean(aiFeatures?.ai_relevance_enabled)
   const aiDailyBriefEnabled = Boolean(aiFeatures?.ai_daily_brief_enabled)
@@ -357,7 +347,7 @@ export function useDashboardPageController() {
     ...viewsAccess.queryOptions(({ signal }) => apiFetch<SavedView[]>('/views', { signal }), 300_000),
   })
 
-  const viewsActionsAvailable = Boolean(viewsQuery.data) && !viewsQuery.isError && !viewsQuery.isFetching
+  const viewsActionsAvailable = dashboardViewActionsAvailable(viewsQuery)
   const readableSavedView = (viewId: string) => {
     const state = queryClient.getQueryState<Awaited<ReturnType<typeof viewsAccess.read<SavedView[]>>>>(['dashboard', 'views'])
     if (state?.status !== 'success' || state.fetchStatus !== 'idle') return null
@@ -444,8 +434,7 @@ export function useDashboardPageController() {
           savedViewBaseline: null,
         }
       })
-      setPendingSavedViewLoadRead((current) => (current?.value.id === deletedViewId ? null : current))
-      setPendingViewDeleteRead((current) => (current?.value.id === deletedViewId ? null : current))
+      retireDeletedView(deletedViewId)
       setViewDeleteError('')
       await refreshViews()
     },
@@ -949,8 +938,7 @@ export function useDashboardPageController() {
     })
   }
 
-  const verifiedSavedViewBaseline = !viewsAccess.denied && savedViewReadGeneration === viewsAccess.generation
-    ? savedViewBaseline : null
+  const verifiedSavedViewBaseline = readableSavedViewBaseline(viewsAccess, savedViewReadGeneration, savedViewBaseline)
   const canUpdateActiveView = viewsActionsAvailable
     && canUpdateDashboardSavedView(activeSavedViewId, verifiedSavedViewBaseline, viewsQuery.data)
 
