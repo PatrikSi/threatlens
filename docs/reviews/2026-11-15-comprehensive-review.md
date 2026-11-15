@@ -2,8 +2,11 @@
 
 ## Scope and checkpoint
 
-Work is in progress on local branch `review/2026-11-15`, starting from
-`7426dbe9cc3c9585bd5b217b70521767bc98b17b`. This pass covers the shipped
+Code corrections and available local engineering gates are complete on branch
+`review/2026-11-15`, starting from `7426dbe9cc3c9585bd5b217b70521767bc98b17b`.
+The final executable source/image revision is `161fbde324ff45f05fdc7804205d5234d722aacc`;
+the following artifact/evidence commit preserves those application inputs.
+This pass covers the shipped
 ThreatLens application across analyst and administrator workflows, accessibility,
 API and worker correctness, authorization and secrets, resilience, query and
 queue growth, deployment and recovery, dependency security and freshness, and
@@ -17,21 +20,26 @@ reconciles findings, serializes tests and commits, and requests independent
 review of the actual final changes. Source inspection is not a browser,
 native-vendor, load, or fault-injection test.
 
-The October evidence is historical. Its final quality, browser, and capacity
-passes do not qualify new November source or dependency changes. No November
-release-readiness claim has been made.
+The October evidence is historical. Its browser and capacity passes do not
+qualify new November changes. Available November local checks are recorded in
+[the final gate ledger](2026-11-15-final-gates.json). Hosted/browser/ARM64,
+native recovery and capacity-sensitive public-release gates remain pending;
+this review does not declare a public release ready.
+
+N01–N37 retain chronological checkpoints, including earlier failures and pending
+steps. N38 and the final JSON ledger describe the latest local qualification.
 
 ## Review coverage
 
 | Area | Current November status | Evidence or next check |
 |---|---|---|
-| Analyst/admin UI, forms, state races, keyboard and accessibility | implemented-unverified | Independent frontend source/test review in progress; no new browser run |
-| Authentication, authorization, workspace and external-data boundaries | implemented-unverified | Independent backend security review in progress |
-| Durable workers, retries, cancellation, leases and recovery | implemented-unverified | Independent resilience review in progress |
-| Query, queue, storage and resource growth | implemented-unverified | Source and existing acceptance-test review in progress; no performance campaign |
-| Runtime/development packages and container bases | implemented-unverified | Current upstream metadata, advisories, compatibility and notices being checked |
-| Migrations, API contract, install/upgrade and dependency artifacts | implemented-unverified | Existing CI commands identified; final-source checks pending |
-| Documented feature boundaries and incomplete shipped behavior | implemented-unverified | Trace source, tests and current ADRs before assigning findings |
+| Analyst/admin UI, forms, state races, keyboard and accessibility | verified-in-scope | Independent source review; 1,718 DOM/unit cases, types/lint/build and actual native bundle smoke pass. Real-browser visual/accessibility matrix remains pending. |
+| Authentication, authorization, workspace and external-data boundaries | verified-in-scope | Negative/unit/PostgreSQL controls and actual OAuth/MCP/SDK proxy checks pass. No live IdP or attack campaign claimed. |
+| Durable workers, retries, cancellation, leases and recovery | verified-in-scope | Routine worker/lease/progress tests and independent reviews pass. Real outage/restore/host-loss campaigns are not qualified. |
+| Query, queue, storage and resource growth | partial | Source bounds and actual Node GC retention correction verified. Current throughput, latency, long retention and target operating envelope remain unmeasured; see capacity assessment. |
+| Runtime/development packages and container bases | verified-in-scope | Exact native 96-package graph, dev/SDK/auditor and npm audits pass; both images have zero fixable findings across all severities. Actual inventories/notices checked; no legal clearance. |
+| Migrations, API contract, install/upgrade and dependency artifacts | verified-in-scope | Fourteen populated migration steps, API/preview regeneration, native startup, packaged-source bytes and image reference checks pass. Full production topology and native restore remain pending. |
+| Documented feature boundaries and incomplete shipped behavior | verified-in-scope | Confirmed N01–N37 findings addressed; independent final ledger audit found no unresolved confirmed product defect or incomplete approved shipped feature. No product-parity claim. |
 
 ## Execution constraints and preservation
 
@@ -1139,11 +1147,70 @@ database-cleanup absence check also required a typed Docker lookup; both owned
 database containers and their volumes are now independently verified absent.
 These verification failures are not application failures or counted passes.
 
+### N38 — final available local gates and artifacts
+
+Final base backend validation passes 4,913 cases with no failures or errors and
+four intended test skips. JUnit adds one collection-level optional SDK module
+skip: 4,917 normal items and 4,918 XML cases are reconciled from raw files and
+executed commands, covering all 460 test files once. The single fixture-only
+clock correction and successful-scope reuse are explicit; failed original runs
+remain retained. Strict root ledger:
+`937d1311b50ba55ae9e06f7bf8af2c40b2587e0d5c317c87426989bc16d91bd8`;
+independent raw-ledger review:
+`d87010797cbc8872a6f519646683921463f780f5d313feab5436c55326d2c000`.
+
+The patched SDK environment separately passes 213 worker/protocol cases and two
+ASGI HTTP cases, with no skips. Overall branch coverage is 87.1155%, reporting
+87.2504%, and all 58 critical floors pass. All 14 populated migration steps pass,
+including preservation/guards, schema check and head→base→head. Routine operator
+checks pass 123 recovery and 152 operations cases; four native recovery drills
+and one host-loss drill remain skipped. These controlled fake-daemon/temporary
+filesystem checks are not native recovery passes. Full backend revision/count/
+coverage/migration proof:
+`37939931a4e5bafb0d4edc495fd042c498af0e1df46a24ac7a78b47cddcacbac`.
+
+Both native amd64 images are built from committed revision `161fbde3`:
+backend `sha256:09f29fc093974fd20d707d005a698210fb5014ef079f2f5d4d85ac52b454483d`
+and web `sha256:2dcebc0e48486a214c6c3240552114215576f694bde272f8d2de6d3013d6ef03`.
+Both raw HIGH/CRITICAL and all-severity fixable Trivy scans pass, without new
+advisory ignores. The actual native backend contains exactly the unchanged 96
+application distributions; its strict PyPI audit has no findings or skips.
+Unfixed image findings are outside these scan flags.
+
+All 764 embedded backend application/migration files match the committed build
+context. The final proxy check uses that embedded backend code and a synthetic
+source-derived nginx configuration. Actual official SDK auto/legacy HTTP,
+cookie/CSRF/OAuth/PKCE/replay/revocation checks and both web non-root filesystem
+startup/restart cases pass (log
+`6d591c15c1ba37732c667358f96a540061596cd78d639b947e78f0c5c2bb3e43`).
+The actual final native bundle DOM smoke passes too. All qualification-owned
+containers/networks/volumes are removed; this is not full production-topology,
+browser or performance qualification.
+
+Updated backend runtime inventory/metadata and removal of the two obsolete pip
+legal payloads match the actual image's 232 generated references. The web's 197
+references remain byte-identical to its extracted artifacts. Both images retain
+18 supplemental notices. The final dependency-artifact verifier passes. Complete
+commands, hashes, qualified skips and remaining gates are in the final JSON
+ledger. Original untracked work and real environments remain preserved. Only
+exact-owned review database/Redis/BuildKit and qualification resources were
+removed; their absence is verified and prior partial attempts retained.
+
+Independent committed-source/native delta reconciliation:
+`c4e41d6e95324fdb2cf3e6efc496ea2169d5f2b3e5e8414b3c0a5ce8280ef3a1`.
+Final actual native dependency/license/artifact/runtime assessment:
+`c6682ff1aa228799e3b978882b0c9bab0832d5232e3a23ecf7faed3a40d62624`.
+The latter independently checks 122 backend legal payloads, all 114 frontend
+runtime records, supplemental notices, fonts and 58 bundle files. No unresolved
+bounded finding remains; these checks do not provide legal or global release
+clearance.
+
 ## Next executable steps
 
-Build and qualify the committed runtime-only image pair, refresh actual package
-inventories/notices and complete the embedded-backend HTTP check.
-Reconcile the final revision with independent reviews and actual gate receipts,
-then remove only owned disposable resources. Browser and ARM CI,
-current capacity campaigns and full production-topology qualification remain
-unexecuted; no version bump, push, merge or deployment is included.
+Review the final local commits and run the existing hosted quality workflow on
+the intended merge revision, including browser, ARM64, native recovery and vendor
+platform jobs. Complete the release process's compatible committed-ref capacity
+comparison for capacity-sensitive public-release changes in an authorized target
+environment. Version remains 2.1.0; no push, merge, tag, publication or deployment
+was performed. These remaining gates prevent an unconditional release-readiness
+claim.

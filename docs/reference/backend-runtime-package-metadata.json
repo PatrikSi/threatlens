@@ -1736,47 +1736,6 @@
     ]
   },
   {
-    "name": "pip",
-    "version": "25.0.1",
-    "license": "MIT",
-    "license_source": "license",
-    "summary": "The PyPA recommended tool for installing Python packages.",
-    "metadata_license": "MIT",
-    "license_files": [
-      "LICENSE.txt"
-    ],
-    "notice_files": [],
-    "redistribution_files": [
-      {
-        "kind": "authors",
-        "file_name": "AUTHORS.txt",
-        "source_path": "pip-25.0.1.dist-info/AUTHORS.txt",
-        "artifact_path": "pip/25.0.1/pip-25.0.1.dist-info/AUTHORS.txt",
-        "sha256": "1eace90552df4f5941b61a907e20e555e16483ae6127b650bef5a1a2af8102c0"
-      },
-      {
-        "kind": "license",
-        "file_name": "LICENSE.txt",
-        "source_path": "pip-25.0.1.dist-info/LICENSE.txt",
-        "artifact_path": "pip/25.0.1/pip-25.0.1.dist-info/LICENSE.txt",
-        "sha256": "634300a669d49aeae65b12c6c48c924c51a4cdf3d1ff086dc3456dc8bcaa2104"
-      }
-    ],
-    "project_urls": [
-      "Homepage, https://pip.pypa.io/",
-      "Documentation, https://pip.pypa.io",
-      "Source, https://github.com/pypa/pip",
-      "Changelog, https://pip.pypa.io/en/stable/news/"
-    ],
-    "license_classifiers": [
-      "License :: OSI Approved :: MIT License"
-    ],
-    "metadata_license_files": [
-      "LICENSE.txt",
-      "AUTHORS.txt"
-    ]
-  },
-  {
     "name": "prompt_toolkit",
     "version": "3.0.53",
     "license": "OSI Approved :: BSD License",

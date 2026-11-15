@@ -1,0 +1,580 @@
+{
+  "schema_version": 1,
+  "version": "2.1.0",
+  "runtime_source_revision": "161fbde324ff45f05fdc7804205d5234d722aacc",
+  "ci_dependency_revision": "c2927e59a9791756b4a47a64229c9b7e4afeab2a",
+  "status": "Available local engineering gates passed; hosted/platform and capacity qualification remain pending.",
+  "source_trees": {
+    "backend/app": "2d522a77ea9be44a919167d4cb7467469d149e0b",
+    "backend/alembic": "6752bd7da31234992b6ddd9903ed80cf73445cb5",
+    "backend/scripts": "41cce55fd87502f6e57a782291de9e013a6e38ca",
+    "web/src": "9634583f4855b95b8ee240e500912cf4b90e8e4e"
+  },
+  "backend_suite": {
+    "method": "Six fresh-database shards: unchanged successful shards 1\u20133 plus full corrected shard 4 and shards 5\u20136. Only two fixture timelines changed; original failed shard 4 retained and excluded.",
+    "python": "3.12",
+    "pytest": "9.0.3",
+    "normal_collected_items": 4917,
+    "junit_cases": 4918,
+    "passed": 4913,
+    "failed": 0,
+    "errors": 0,
+    "skipped_test_cases": 4,
+    "skipped_modules": 1,
+    "coverage_percent": 87.11550339715873,
+    "reporting_coverage_percent": 87.25038402457757,
+    "critical_module_floors_passed": 58,
+    "coverage_gate": {
+      "command": [
+        "$REVIEW_EVIDENCE/backend-venv/bin/python",
+        "$REPOSITORY/scripts/check_coverage.py",
+        "$REVIEW_EVIDENCE/backend-v7-combined-coverage.json"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "ff001570315a6f05f619c8c1a8427ed6ee2bf54279665723a0a63e37ad942959",
+      "receipt_sha256": "c26fd34c516ea5ef87499cc558467516d9b0ffd7471be0e9546d512a2e4e9d22"
+    },
+    "strict_raw_count_ledger_sha256": "937d1311b50ba55ae9e06f7bf8af2c40b2587e0d5c317c87426989bc16d91bd8",
+    "composite_receipt_sha256": "1d6369abc265740120aafc69340a00f8c121873d7e58eca56b25915a556878ee",
+    "skip_qualification": "Two opt-in capacity/recovery tests, two optional SDK wire cases and one SDK HTTP module. SDK cases are separately passed in the SDK environment and actual proxy.",
+    "private_manifest_erratum": "Original stale top-level expectations retained; actual XML/command/job counts independently reconcile to these totals."
+  },
+  "frontend_suite": {
+    "passed": 1718,
+    "failed": 0,
+    "files": 210,
+    "unhandled_errors": 0,
+    "handled_route_crash_markers": 0,
+    "run": {
+      "command": [
+        "$REVIEW_EVIDENCE/tools/node-v22.23.5-linux-x64/bin/node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--reporter=default",
+        "--reporter=json",
+        "--reporter=$REVIEW_EVIDENCE/sixth-unhandled-evidence-reporter.mjs",
+        "--outputFile.json=$REVIEW_EVIDENCE/frontend-complete-reviewed-suite-sixth-final-vitest.json",
+        "--maxWorkers=1"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "737de02d9d94ccccc27968b959bb40333e9abf9b441b7382e35f0e79a2d37325",
+      "receipt_sha256": "07626ff3568cf126f371fe577a833d224c269c5b3643c4e35e2b86647f098c34"
+    }
+  },
+  "quality": {
+    "typescript": {
+      "command": [
+        "$REVIEW_EVIDENCE/tools/node-v22.23.5-linux-x64/bin/node",
+        "node_modules/typescript/bin/tsc",
+        "-b",
+        "--force",
+        "--pretty",
+        "false"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "receipt_sha256": "609956abd973f7f91ebe003f25923f4fe72d1d4f79197ad506e507ea2f2e9e29"
+    },
+    "frontend_lint": {
+      "command": [
+        "$REVIEW_EVIDENCE/tools/node-v22.23.5-linux-x64/bin/node",
+        "node_modules/eslint/bin/eslint.js",
+        "src",
+        "--ext",
+        ".ts,.tsx",
+        "--max-warnings=0",
+        "--format=json",
+        "--output-file=$REVIEW_EVIDENCE/frontend-final-eslint-report-v9.json"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "receipt_sha256": "adc79aa4ea812140ddc9dd91b32524fb8d376b740eb2a52fb154562ae11e1217"
+    },
+    "frontend_audit": {
+      "command": [
+        "$REVIEW_EVIDENCE/tools/node-v22.23.5-linux-x64/bin/node",
+        "node_modules/audit-ci/dist/bin.js",
+        "--config",
+        ".audit-ci.jsonc"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "9e6d18af871e16d47d45331422d540e9d3c3a1c29f2862987ea9fa8c5a9980ec",
+      "receipt_sha256": "bcd9de13ce14f5154055fdfc53eeb6ba8ea6317714217c1120e22357fc5fa519"
+    },
+    "production_build": {
+      "command": [
+        "$REVIEW_EVIDENCE/tools/node-v22.23.5-linux-x64/bin/node",
+        "node_modules/vite/bin/vite.js",
+        "build"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "7a706fb0c3954fc6ff34a9739380d844bcd5ae924e91af926a7a2d1ecdfe8361",
+      "receipt_sha256": "b0337d672fdc5fd397ccfaef923630dbcec08ab6cbb64c6e838886a038432f57"
+    },
+    "production_bundle_dom_smoke": {
+      "command": [
+        "$REVIEW_EVIDENCE/tools/node-v22.23.5-linux-x64/bin/node",
+        "scripts/smoke_production_bundle.mjs"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "4e7c7a57a81475b745ae5be46034d5b16483e2952137a4afa694d6284880c696",
+      "receipt_sha256": "fc09bc2762c0b4be6bebd78a55cbb9ef353778c9f911860d5e773eb1cd26c914"
+    },
+    "actual_native_bundle_dom_smoke": {
+      "command": [
+        "$REVIEW_EVIDENCE/tools/node-v22.23.5-linux-x64/bin/node",
+        "$REVIEW_EVIDENCE/smoke_native_runtime_only_image_bundle.mjs"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "4e7c7a57a81475b745ae5be46034d5b16483e2952137a4afa694d6284880c696",
+      "receipt_sha256": "2d95df6a7f259f07f0e93abd3a2d3def2dd80bec1c477510346cb820943b95cd"
+    },
+    "source_size": "Passed for 1018 production files.",
+    "backend_ruff": "Passed across app/tests/scripts after the clock-fixture correction.",
+    "runtime_lock": {
+      "command": [
+        "$REVIEW_EVIDENCE/backend-venv/bin/python",
+        "backend/scripts/generate_runtime_lockfile.py",
+        "--output",
+        "$REVIEW_EVIDENCE/requirements-lock-pip263-validated.txt"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "receipt_sha256": "9b568de358621eee7c0d099b2e6e4c603ed219909f10072956902046aa65e45d"
+    },
+    "api_preview_and_source_size": {
+      "command": [
+        "python3",
+        "$REVIEW_EVIDENCE/verify_final_contract_generation.py"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "1240dc09a268ed060ee41ac72160613e5f5f3dcf9ba516c0eedf62345a1e2147",
+      "receipt_sha256": "2398ae010a5dac08b77e2c3fc1633a95dfb53ec51ef796d39fa135449b485f53"
+    }
+  },
+  "ci_static_checks": {
+    "dependency_and_compose_cases": 16,
+    "new_dependency_cases": 5,
+    "fake_process_safety_cases": 2,
+    "hosted_workflow_executed": false,
+    "contract_run": {
+      "command": [
+        "$REVIEW_EVIDENCE/backend-venv/bin/python",
+        "-m",
+        "pytest",
+        "--rootdir=$REPOSITORY/backend",
+        "--confcutdir=$REPOSITORY/backend/tests/unit",
+        "$REPOSITORY/backend/tests/unit/test_ci_dependency_contracts.py",
+        "$REPOSITORY/backend/tests/unit/test_compose_settings.py",
+        "-q",
+        "-p",
+        "no:cacheprovider"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "ecf57d762b443151696ef4727347520d0d5715719bac1e0cd93caddf627ffa61",
+      "receipt_sha256": "601842b2a1f7002dcaf1d73ac7a4711c2ee8bb6fd7a7fb4b124c2035bd6ffb7a"
+    },
+    "fake_process_run": {
+      "command": [
+        "$REVIEW_EVIDENCE/backend-venv/bin/python",
+        "-m",
+        "unittest",
+        "test_capacity_diagnostic.CapacityDiagnosticTests.test_workflow_selects_original_or_identical_observer_for_both_refs",
+        "test_capacity_reference_cleanup.CapacityReferenceWorkflowTests.test_owned_baseline_remnant_blocks_candidate"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "19c9f83b47e055964858e6b44515074ca5b3728d23c31da92fc59ba97e9ce307",
+      "receipt_sha256": "d2d35bcf2f70c61bcf43c9d0816a124913cbf016c4aceb8cb609fe669060b7f0"
+    },
+    "independent_contracts_passed": 9,
+    "external_action_uses": 57,
+    "official_action_families": 12
+  },
+  "native_images": {
+    "backend": {
+      "image_id": "sha256:09f29fc093974fd20d707d005a698210fb5014ef079f2f5d4d85ac52b454483d",
+      "platform": "linux/amd64",
+      "oci_revision": "161fbde324ff45f05fdc7804205d5234d722aacc",
+      "build": {
+        "command": [
+          "docker",
+          "--host",
+          "unix:///var/run/docker.sock",
+          "buildx",
+          "build",
+          "--builder",
+          "threatlens-nov15-22fde3ae80",
+          "--platform",
+          "linux/amd64",
+          "--load",
+          "--progress",
+          "plain",
+          "--tag",
+          "threatlens-review/nov15-backend:reviewed",
+          "--iidfile",
+          "$REVIEW_EVIDENCE/backend-runtime-only-committed-image-id.txt",
+          "--build-arg",
+          "APP_VERSION=2.1.0",
+          "--build-arg",
+          "BUILD_DATE=2026-11-15T12:43:32Z",
+          "--build-arg",
+          "VCS_REF=161fbde324ff45f05fdc7804205d5234d722aacc",
+          "-f",
+          "$REVIEW_EVIDENCE/backend-runtime-only-tracked-161fbde3.Dockerfile",
+          "$REVIEW_EVIDENCE/backend-runtime-only-tracked-161fbde3"
+        ],
+        "actual_exit": 0,
+        "log_sha256": "ff1c511dbf648e8ec50dc0fe58740e77bfb9d2ee5bbbcbbffe29509b0cf0ddf3",
+        "receipt_sha256": "691f6a203b1e20b0cecc6dd337067d8d7ed378a8da67085958f2840c30aab459"
+      },
+      "common_notice_files": 18,
+      "generated_reference_files": 232,
+      "high_critical_scan": {
+        "command": [
+          "$REVIEW_EVIDENCE/tools/trivy-v0.76.2/trivy",
+          "image",
+          "--cache-dir",
+          "$REVIEW_EVIDENCE/trivy-cache",
+          "--scanners",
+          "vuln",
+          "--ignore-unfixed",
+          "--severity",
+          "HIGH,CRITICAL",
+          "--format",
+          "json",
+          "--output",
+          "$REVIEW_EVIDENCE/backend-final-runtime-only-native-vulnerabilities.json",
+          "--exit-code",
+          "1",
+          "--timeout",
+          "2m",
+          "sha256:09f29fc093974fd20d707d005a698210fb5014ef079f2f5d4d85ac52b454483d"
+        ],
+        "actual_exit": 0,
+        "log_sha256": "60587e8ce31435421c2f0af28bdbfb6cdde642a98d8670203da9d59194811a9f",
+        "receipt_sha256": "740135e3a6d3482d256ee05aaac3884498b9410096d0a6c01070d4c0553cb791"
+      },
+      "all_severity_fixable_scan": {
+        "command": [
+          "$REVIEW_EVIDENCE/tools/trivy-v0.76.2/trivy",
+          "image",
+          "--cache-dir",
+          "$REVIEW_EVIDENCE/trivy-cache",
+          "--scanners",
+          "vuln",
+          "--ignore-unfixed",
+          "--severity",
+          "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+          "--format",
+          "json",
+          "--output",
+          "$REVIEW_EVIDENCE/backend-final-runtime-only-all-severity-fixable-vulnerabilities.json",
+          "--exit-code",
+          "1",
+          "--timeout",
+          "2m",
+          "sha256:09f29fc093974fd20d707d005a698210fb5014ef079f2f5d4d85ac52b454483d"
+        ],
+        "actual_exit": 0,
+        "log_sha256": "76acf6a2a4664b2d889c5ccf1d99191549c761911c589945ae0d75b685054976",
+        "receipt_sha256": "ddc9ce9454c95d48e84199324dc827738db4a53737d1a01b0b53253a079db47f"
+      },
+      "artifact_receipt_sha256": "699390022c72b433534fb7f41ec7fd5addf17f448b2921349a6a626f3f68b11a",
+      "runtime_distributions": 96,
+      "all_application_pins_match": true,
+      "pip_ensurepip_and_pip_entrypoints_absent": true,
+      "embedded_source_files": 764,
+      "embedded_source_matches_committed_context": true,
+      "installed_distribution_audit": {
+        "command": [
+          "$REPOSITORY/backend/.venv/bin/pip-audit",
+          "--requirement",
+          "$REVIEW_EVIDENCE/backend-final-runtime-only-release-artifacts/docs/backend-runtime-dependencies.txt",
+          "--no-deps",
+          "--disable-pip",
+          "--vulnerability-service",
+          "pypi",
+          "--format",
+          "json",
+          "--output",
+          "$REVIEW_EVIDENCE/backend-native-runtime-only-all-installed-audit-report.json",
+          "--strict",
+          "--progress-spinner",
+          "off",
+          "--cache-dir",
+          "$REVIEW_EVIDENCE/installed-python-tool-audits/cache",
+          "--timeout",
+          "15"
+        ],
+        "actual_exit": 0,
+        "log_sha256": "79d30422388543b2563e1dde76bb7e7857d7ef0c6fdf05c8c71598633ca07e1e",
+        "receipt_sha256": "50a160a21fd6a4dfb2620c853f5df23af0c5670cdcc5dc614504ea2a3b4cbbfa"
+      }
+    },
+    "web": {
+      "image_id": "sha256:2dcebc0e48486a214c6c3240552114215576f694bde272f8d2de6d3013d6ef03",
+      "platform": "linux/amd64",
+      "oci_revision": "161fbde324ff45f05fdc7804205d5234d722aacc",
+      "build": {
+        "command": [
+          "docker",
+          "--host",
+          "unix:///var/run/docker.sock",
+          "buildx",
+          "build",
+          "--builder",
+          "threatlens-nov15-22fde3ae80",
+          "--platform",
+          "linux/amd64",
+          "--load",
+          "--progress",
+          "plain",
+          "--tag",
+          "threatlens-review/nov15-web:reviewed",
+          "--iidfile",
+          "$REVIEW_EVIDENCE/web-runtime-only-committed-image-id.txt",
+          "--build-arg",
+          "APP_VERSION=2.1.0",
+          "--build-arg",
+          "BUILD_DATE=2026-11-15T12:43:34Z",
+          "--build-arg",
+          "VCS_REF=161fbde324ff45f05fdc7804205d5234d722aacc",
+          "-f",
+          "$REVIEW_EVIDENCE/web-runtime-only-tracked-161fbde3.Dockerfile",
+          "$REVIEW_EVIDENCE/web-runtime-only-tracked-161fbde3"
+        ],
+        "actual_exit": 0,
+        "log_sha256": "061dd21fdafe48963bf9c8b9cd263aeb14a777ed0a2bab0c8e070ce6acde25f3",
+        "receipt_sha256": "eb350ef10c9af24ba398b0d4acf6e8d1171a49bbafd93dfa6651a98c16320f91"
+      },
+      "common_notice_files": 18,
+      "generated_reference_files": 197,
+      "high_critical_scan": {
+        "command": [
+          "$REVIEW_EVIDENCE/tools/trivy-v0.76.2/trivy",
+          "image",
+          "--cache-dir",
+          "$REVIEW_EVIDENCE/trivy-cache",
+          "--scanners",
+          "vuln",
+          "--ignore-unfixed",
+          "--severity",
+          "HIGH,CRITICAL",
+          "--format",
+          "json",
+          "--output",
+          "$REVIEW_EVIDENCE/web-final-runtime-only-native-vulnerabilities.json",
+          "--exit-code",
+          "1",
+          "--timeout",
+          "2m",
+          "sha256:2dcebc0e48486a214c6c3240552114215576f694bde272f8d2de6d3013d6ef03"
+        ],
+        "actual_exit": 0,
+        "log_sha256": "eb9687c7a4f470afd33b1417a3a1cb2b36188a0579f111f2f03e2ca01e07780c",
+        "receipt_sha256": "b84c8f7bc9c7c62b0f3602e939529d110e05b3a95fc492c4c04b883ba6c1da3f"
+      },
+      "all_severity_fixable_scan": {
+        "command": [
+          "$REVIEW_EVIDENCE/tools/trivy-v0.76.2/trivy",
+          "image",
+          "--cache-dir",
+          "$REVIEW_EVIDENCE/trivy-cache",
+          "--scanners",
+          "vuln",
+          "--ignore-unfixed",
+          "--severity",
+          "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+          "--format",
+          "json",
+          "--output",
+          "$REVIEW_EVIDENCE/web-final-runtime-only-all-severity-fixable-vulnerabilities.json",
+          "--exit-code",
+          "1",
+          "--timeout",
+          "2m",
+          "sha256:2dcebc0e48486a214c6c3240552114215576f694bde272f8d2de6d3013d6ef03"
+        ],
+        "actual_exit": 0,
+        "log_sha256": "1a583f707a6957f66b905dc26249825855d62c5d957726e16bf0f25b0e7bebe6",
+        "receipt_sha256": "65439a7b3bfd3082717b0a7695df1bca2440f896ce35090d915f5b1b5e03687d"
+      },
+      "artifact_receipt_sha256": "15b9b8441924d9366d4371021b52bdbbae4ecd26ca65cee130e91ba16dbbc60d"
+    }
+  },
+  "native_reference_pair": {
+    "command": [
+      "python3",
+      "scripts/verify_image_dependency_artifacts.py",
+      "--backend-image",
+      "sha256:09f29fc093974fd20d707d005a698210fb5014ef079f2f5d4d85ac52b454483d",
+      "--web-image",
+      "sha256:2dcebc0e48486a214c6c3240552114215576f694bde272f8d2de6d3013d6ef03"
+    ],
+    "actual_exit": 0,
+    "log_sha256": "4a699055e538cfe1afe0106a67e71c402292c48c0c4a95f7b691dc0bba379b82",
+    "receipt_sha256": "bd0dd5c70017176f67b596e6b32d8321f11c73c20a0a94d1b5c679d8332b470a"
+  },
+  "runtime_qualification": {
+    "run": {
+      "command": [
+        "python3",
+        "$REVIEW_EVIDENCE/qualify_python_security_native_images.py",
+        "--mode",
+        "both",
+        "--receipt-name",
+        "final-runtime-only-native-proxy-and-web-startup",
+        "--backend-image-id",
+        "sha256:09f29fc093974fd20d707d005a698210fb5014ef079f2f5d4d85ac52b454483d",
+        "--web-image",
+        "threatlens-review/nov15-web:reviewed",
+        "--web-image-id",
+        "sha256:2dcebc0e48486a214c6c3240552114215576f694bde272f8d2de6d3013d6ef03"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "6d591c15c1ba37732c667358f96a540061596cd78d639b947e78f0c5c2bb3e43",
+      "receipt_sha256": "e284a72fb119e532235b0eaae660a69f75826edb33d090eca8d83f24be605b9a"
+    },
+    "configuration": "embedded backend app/migrations on native images; synthetic source-derived nginx config; not a full production topology",
+    "official_sdk": "mcp 2.3.0: auto and legacy over real HTTP.",
+    "completed_phases": [
+      "embedded backend MCP proxy plus actual official SDK HTTP",
+      "native web image startup/filesystem/restart"
+    ],
+    "fixture_cleanup": {
+      "status": "passed",
+      "remaining": {
+        "container": [],
+        "network": [],
+        "volume": []
+      },
+      "errors": []
+    },
+    "source_receipt_sha256": "1f9c077e1f5bdb256e414c5e0d1782634d42c149beecc84e2a4756a28775d1f4",
+    "no_container_oom_observed": true,
+    "configured_live_container_caps_sum_mib": 1504,
+    "capacity_qualification_claimed": false
+  },
+  "independent_reviews": {
+    "ci_a": "6e001d92c263cf243867546c9830e3a05f083bc57808799a0336c7b3fb1cf0ca",
+    "ci_b": "54353d1875f9929df6a7694e80e6a48356f9bdcd706ebddf4ec89518ee76c36e",
+    "backend_v7_source_counts": "37939931a4e5bafb0d4edc495fd042c498af0e1df46a24ac7a78b47cddcacbac",
+    "backend_raw_ledger": "d87010797cbc8872a6f519646683921463f780f5d313feab5436c55326d2c000",
+    "python_tooling_source": "c51ec258e1cbe7258827f3a1ee203357ba1dafe4d421fb129931f14f320984d2",
+    "clock_fixture": "bc17870941389e7a707255adb516f3d633a018b06bae0f81d8e4964967fd2b9b",
+    "runtime_installer_removal": "9fc6ae6a00855a96979f3351ca7ece567e6fc199ea02436a23b9a1d3970c073d",
+    "runtime_helpers": "e37fd6397b7770c14c4cc6109cdf4db0e234b74f960ca90c766ea574d243e9fb",
+    "prior_be5_functional_source": "1626845af42e1107ade92b08403139f93d806dd14b411e8688a63836dd7fa5ad",
+    "prior_be5_native_pair": "66952433bdffb52ff41eb10990f6926731ed10a1113d4a4eb9e00b548a9fa8a7",
+    "runtime_source_and_native_delta": "c4e41d6e95324fdb2cf3e6efc496ea2169d5f2b3e5e8414b3c0a5ce8280ef3a1",
+    "native_runtime_only_final": "c6682ff1aa228799e3b978882b0c9bab0832d5232e3a23ecf7faed3a40d62624"
+  },
+  "remaining_gates": [
+    "Hosted quality workflow, including Chromium/Firefox/WebKit fixture and real-server browser checks, native recovery/host-loss and vendor-platform jobs.",
+    "ARM64 build, scan and startup; hosted multi-architecture image/digest qualification.",
+    "Actual GitHub Actions/OIDC/GHCR execution and installed self-hosted runner compatibility.",
+    "The release process requires a compatible committed-ref capacity comparison for capacity-sensitive changes before public release; no current performance/fault campaign was run."
+  ],
+  "not_claimed": [
+    "Current sustained capacity, fault or full production-topology campaign passes.",
+    "Deployment sizing, supported throughput, latency SLA or real-browser/accessibility clearance.",
+    "Legal clearance; only bounded engineering license/artifact triage was performed.",
+    "Unfixed vulnerability clearance: the image scans exclude unfixed findings."
+  ],
+  "review_resource_cleanup": {
+    "databases": {
+      "status": "passed",
+      "receipt_sha256": "932e042c8b09dfd0e51f4fc2a8b5af0ba8c64a47d3a792a10a7390b3709ca4b3"
+    },
+    "builder": {
+      "status": "passed",
+      "receipt_sha256": "2aa28e173e8fd4198fd92eef8da8421c71782b2317683084351f8f043335ca6f"
+    },
+    "runtime_qualification": "Exact-owned containers, networks and volume absent; triage extraction container also removed."
+  },
+  "push_merge_tag_or_version_change_performed": false,
+  "python_security_revision": "d2efc54d912c407467f88b80fb4fd2e26669ad9e",
+  "reviewed_source_revision": "161fbde324ff45f05fdc7804205d5234d722aacc",
+  "backend_sdk": {
+    "sdk": "mcp 2.3.0",
+    "worker_protocol_cases": 213,
+    "asgi_http_cases": 2,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "counts_are_separate_from_base_suite": true,
+    "worker_protocol_run": {
+      "command": [
+        "$REVIEW_EVIDENCE/mcp-sdk-venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/unit/test_integration_recovery_publication.py",
+        "tests/unit/test_integration_events.py",
+        "tests/unit/test_integration_delivery.py",
+        "tests/unit/test_integration_tasks.py",
+        "tests/unit/test_mcp_protocol.py",
+        "tests/unit/test_mcp_sdk_protocol.py",
+        "--maxfail=5",
+        "--tb=short",
+        "--junitxml=$REVIEW_EVIDENCE/backend-v7-pytest903-sdk-unit213-junit.xml"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "e8211dec228d24a47d0b9a0bbc76ae7ae246805c2cbb5845e16c7b249ef54dcb",
+      "receipt_sha256": "f91370a1eaf80bd1f25e5b875f52e594efb2333a96d6b9b9b3b3c4fb2579f4b3"
+    },
+    "asgi_http_run": {
+      "command": [
+        "$REVIEW_EVIDENCE/mcp-sdk-venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/integration/test_mcp_sdk_http.py",
+        "--maxfail=5",
+        "--tb=short",
+        "--junitxml=$REVIEW_EVIDENCE/backend-v7-pytest903-sdk-asgi2-junit.xml"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "8b7d9f4f977bb6a8093f6c52117169607cacd62d8244b109ca61150ac80ed4a4",
+      "receipt_sha256": "ce1e09843c4ebeb9e5e1ec78105b395697a0db5427a0f75ed459c0eb55ccf199"
+    }
+  },
+  "populated_migration_roundtrip": {
+    "steps_passed": 14,
+    "head": "0125_webhook_article_text",
+    "method": "0042 seed \u2192 0100 enterprise seed \u2192 head \u2192 preservation and guards \u2192 schema check \u2192 base \u2192 head.",
+    "app_env": "development",
+    "ci_app_env": "test",
+    "qualification": "Ordinary synthetic fresh owned PostgreSQL database; no real restore or host-loss campaign.",
+    "run": {
+      "command": [
+        "$REVIEW_EVIDENCE/backend-venv/bin/python",
+        "$REVIEW_EVIDENCE/run_backend_v7_populated_migrations.py"
+      ],
+      "actual_exit": 0,
+      "log_sha256": "1bbcab36d30bfe00c74f899d135df452a75d9fc26a1e65fd0c19eb78274e97ff",
+      "receipt_sha256": "d8cc44b9299e5d833e9ebeee8aca7cb32a699e77f2db8bcb742f61dd76330751"
+    },
+    "steps_receipt_sha256": "43a71a62a92da5f365f773b3d0868dce7ff0ace565826b5ce8982305fe99aace"
+  },
+  "operator_routine_tests": {
+    "recovery_passed": 123,
+    "operations_passed": 152,
+    "opt_in_skips": 5,
+    "failed": 0,
+    "errors": 0,
+    "qualification": "Controlled fake-daemon/synthetic filesystem unit checks; daemon-free Compose parsing. No native restore, host-loss or capacity qualification.",
+    "initial_guard_stop_retained": true,
+    "assessment_sha256": "b0ec871426d9a0073f49a24e2c5f4ff7c214a03242275c6534bb831c3b06b4f3"
+  },
+  "python_tooling": {
+    "test_pip": "26.3",
+    "pytest": "9.0.3",
+    "backend_installed_distributions": 105,
+    "sdk_installed_distributions": 113,
+    "ci_auditor_installed_distributions": 131,
+    "runtime_installers_present": false,
+    "upgrade_assessment_sha256": "43e3757507c73c300e32c5a91856009060461d2eccbf2a975a4f2a42d4f35c1b",
+    "old_image_setuptools_sbom_match": "Actual exported files lack the affected module; independent not-affected disposition retained with failed raw scan. Unused pip/ensurepip subsequently removed without an advisory ignore.",
+    "post_upgrade_audits_failed": 0,
+    "post_upgrade_audit_skips": 0
+  }
+}
