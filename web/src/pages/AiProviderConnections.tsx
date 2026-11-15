@@ -512,7 +512,7 @@ function ProviderRouting({ c, onReload }: { c: AiProviderConnectionsController; 
                     <button
                       type="button"
                       className={buttonClass}
-                      aria-label={`Assign selected provider to ${label.toLowerCase()}`}
+                      aria-label={`Use selected provider for ${label.toLowerCase()}`}
                       disabled={
                         !selected ||
                         !selected.enabled ||

@@ -141,9 +141,10 @@ describe('SettingsLayout navigation', () => {
     )
 
     expect(menuButton).not.toBeNull()
+    expect(menuButton?.textContent).toBe('Settings My account Administrator')
     expect(menuButton?.textContent).toContain('My account')
     expect(menuButton?.getAttribute('aria-label')).toBe(
-      'Open settings navigation. Current section: My account',
+      'Settings: My account, Administrator. Open settings navigation',
     )
     expect(view.querySelector('#mobile-settings-navigation')).toBeNull()
 
@@ -153,7 +154,7 @@ describe('SettingsLayout navigation', () => {
 
     expect(menuButton?.getAttribute('aria-expanded')).toBe('true')
     expect(menuButton?.getAttribute('aria-label')).toBe(
-      'Close settings navigation. Current section: My account',
+      'Settings: My account, Administrator. Close settings navigation',
     )
     expect(view.querySelector('#mobile-settings-navigation nav')).not.toBeNull()
   })
@@ -238,7 +239,7 @@ describe('SettingsLayout navigation', () => {
 
     expect(menuButton?.textContent).toContain('Email delivery')
     expect(menuButton?.getAttribute('aria-label')).toContain(
-      'Current section: Email delivery',
+      'Settings: Email delivery, Unavailable.',
     )
     expect(view.querySelector('#desktop-settings-navigation')?.textContent).not.toContain(
       'Email delivery',
@@ -295,6 +296,9 @@ describe('SettingsLayout navigation', () => {
     const view = renderLayout('/settings/account')
 
     expect(view.textContent).toContain('Unavailable')
+    expect(view.querySelector('[aria-controls="mobile-settings-navigation"]')?.getAttribute('aria-label')).toBe(
+      'Settings: My account, Unavailable. Open settings navigation',
+    )
     expect(view.textContent).not.toContain('Content tagging')
     expect(view.textContent).not.toContain('Single sign-on')
     expect(view.textContent).not.toContain('Users')

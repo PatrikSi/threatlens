@@ -128,7 +128,7 @@ test('adds, tests, assigns and deletes an AI provider using accessible keyboard 
   await expect(page.getByLabel('Replacement API key', { exact: true })).toHaveValue('')
   await page.getByRole('button', { name: 'Test this saved provider', exact: true }).click()
   await expect(page.getByText('Connection succeeded · Model: local-model · 20 ms')).toBeVisible()
-  await page.getByRole('button', { name: 'Assign selected provider to default provider', exact: true }).click()
+  await page.getByRole('button', { name: 'Use selected provider for default provider', exact: true }).click()
   await page.getByRole('button', { name: 'Save feature assignments', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Delete provider', exact: true })).toBeDisabled()
   expect(state.assignments().default_provider_id).toBe([...state.providers.keys()][0])

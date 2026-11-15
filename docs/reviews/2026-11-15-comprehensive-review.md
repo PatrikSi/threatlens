@@ -1240,6 +1240,60 @@ concurrent remote change cannot be overwritten. No version tag is created.
 Pushing main starts the existing gated image workflow; its future result is not
 recorded as a local pass here.
 
+### N40 — hosted browser gate repair
+
+The first 2.1.1 [publication workflow](https://github.com/PatrikSi/threatlens/actions/runs/43721267152)
+failed in all three isolated browser jobs on source `d2567fa4`. Backend,
+frontend, CodeQL, migration, MCP, OpenSearch and disposable recovery jobs passed;
+real-server browser and image publication steps did not run. Job logs and all
+three trace artifacts were inspected rather than treating skipped steps as passes.
+
+The failures have three separate causes. Updated axe rules exposed accessible
+names that omit visible text in theme, mobile settings and provider routing
+controls. The labels now retain their visible wording and action context, with
+DOM regressions and updated interaction selectors. The operations recovery test
+mocked only overview even though recovery deliberately verifies overview,
+workers, history and runs. Its test-local typed responses now cover all four,
+with fresh-read assertions retaining the outage/denial/recovery sequence and
+strict unexpected-request guard.
+
+Playwright 1.65.1's Firefox 159 also crashes when ARIA reference reflection is
+read from both the page and role-selector execution worlds. A synthetic local
+Node 22 reproduction passes a same-world control, then fails with a page crash
+and a child SIG11, without an OOM. Matching Playwright 1.64.1/Firefox 157 passes
+the control and both cross-world orders. This matches the
+[upstream regression](https://github.com/microsoft/playwright/issues/43967).
+The exact fallback keeps axe 4.14 and all accessibility rules. Two new browser
+regressions guard future updates; Dependabot ignores only the two known bad
+versions, leaving later fixed versions eligible. Earlier local harness startup
+failures are retained as failures and do not count as browser results.
+
+The first full local Chromium run additionally found that adjacent Settings
+spans concatenate words in the DOM despite visual separation. Explicit spaces
+and a text-content assertion correct this; the fresh Chromium suite passes all
+51 tests with no retries or skips. The full frontend suite passes 1,720 tests in
+210 files, with zero unhandled errors. Clean install, lint, both TypeScript
+checks, production build, bundle smoke, npm audit (zero findings) and 12 CI
+dependency-policy tests pass. The Docker browser launcher now derives its image
+from the exact package pin rather than a stale constant, with regression checks.
+
+The full local Firefox run is **not a pass**: its hard 1,280 MiB cgroup limit
+recorded an OOM kill and child SIG9. The owned container was stopped and verified
+removed. This differs from the reproducible 1.65.1 SIG11; the minimal 1.64.1
+cross-world cases pass without OOM. Hosted Firefox and WebKit acceptance remains
+required, along with all real-server and publication gates. No retry, rule,
+assertion, browser, worker count or timeout in CI has been relaxed.
+
+A separate non-author review checked the final 15 code files, including the
+browser-observed whitespace correction, package graph, fixtures and runner.
+Its exact manifest is
+`e1f783be411c2d5bcd533c15a327942b1b889f1b6a88c5b19d973be13076eb64`.
+Actual changed paths, commands, outcomes, source and artifact hashes, failed
+attempts and environment limits are in the
+[CI repair check ledger](2026-11-15-ci-repair-checks.json). Next: push this reviewed
+repair normally to main, observe the new hosted run and fix any remaining
+failures before claiming pipeline success.
+
 ## Next executable steps
 
 Observe the hosted quality workflow on the updated main revision, including

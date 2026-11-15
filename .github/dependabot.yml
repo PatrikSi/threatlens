@@ -13,6 +13,11 @@ updates:
     directory: /web
     schedule:
       interval: weekly
+    ignore:
+      # Firefox ARIA reflection crashes; later fixed versions remain eligible.
+      # https://github.com/microsoft/playwright/issues/43967
+      - dependency-name: "@playwright/test"
+        versions: ["1.65.0", "1.65.1"]
     groups:
       frontend:
         patterns:

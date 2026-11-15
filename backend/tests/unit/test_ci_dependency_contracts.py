@@ -1,11 +1,51 @@
+import importlib.util
+import json
 import re
 import shlex
 from pathlib import Path
 
+import pytest
 import yaml
 
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+@pytest.fixture
+def browser_runner():
+    spec = importlib.util.spec_from_file_location(
+        "browser_server_runner", ROOT / "web/browser/server/run.py"
+    )
+    assert spec and spec.loader
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    return runner
+
+
+def test_browser_docker_image_follows_the_exact_playwright_pin(browser_runner, monkeypatch, tmp_path):
+    manifest = json.loads((ROOT / "web/package.json").read_text())
+    version = manifest["devDependencies"]["@playwright/test"]
+    assert browser_runner.playwright_image() == f"mcr.microsoft.com/playwright:v{version}-noble"
+
+    monkeypatch.setattr(browser_runner, "ROOT", tmp_path)
+    (tmp_path / "web").mkdir()
+    for version in ("1.64.1", "2.0.0"):
+        (tmp_path / "web/package.json").write_text(json.dumps({
+            "devDependencies": {"@playwright/test": version},
+        }))
+        assert browser_runner.playwright_image() == f"mcr.microsoft.com/playwright:v{version}-noble"
+
+
+@pytest.mark.parametrize("version", (None, "^1.64.1", "~1.64.1", "latest", "1.64", "1.64.1-rc.1"))
+def test_browser_docker_image_rejects_unpinned_versions(browser_runner, monkeypatch, tmp_path, version):
+    monkeypatch.setattr(browser_runner, "ROOT", tmp_path)
+    (tmp_path / "web").mkdir()
+    (tmp_path / "web/package.json").write_text(json.dumps({
+        "devDependencies": {"@playwright/test": version},
+    }))
+
+    with pytest.raises(ValueError, match="exact stable version"):
+        browser_runner.playwright_image()
 
 
 def workflow_steps():

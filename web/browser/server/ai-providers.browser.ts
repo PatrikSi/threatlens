@@ -76,9 +76,9 @@ test('real AI provider settings preserve credentials and enforce versioned routi
   await discard.getByRole('button', { name: 'Discard changes', exact: true }).click()
   await expect(page.getByLabel('Provider base URL', { exact: true })).toHaveValue('https://provider.example.invalid/v1')
 
-  await page.getByRole('button', { name: 'Assign selected provider to default provider', exact: true }).click()
-  await page.getByRole('button', { name: 'Assign selected provider to reports', exact: true }).click()
-  await page.getByRole('button', { name: 'Assign selected provider to team assessments and hunt suggestions', exact: true }).click()
+  await page.getByRole('button', { name: 'Use selected provider for default provider', exact: true }).click()
+  await page.getByRole('button', { name: 'Use selected provider for reports', exact: true }).click()
+  await page.getByRole('button', { name: 'Use selected provider for team assessments and hunt suggestions', exact: true }).click()
   expect(await saveAssignments()).toMatchObject({
     default_provider_id: provider.id, report_provider_id: provider.id, team_assessment_provider_id: provider.id,
   })

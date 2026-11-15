@@ -89,7 +89,7 @@ export function AppShell() {
               onClick={() => setMobileNavOpen((current) => !current)}
               aria-expanded={mobileNavOpen}
               aria-controls="mobile-primary-navigation"
-              aria-label="Toggle navigation menu"
+              aria-label={mobileNavOpen ? 'Close navigation menu' : 'Menu: open navigation'}
             >
               {mobileNavOpen ? 'Close' : 'Menu'}
             </button>
@@ -134,7 +134,7 @@ export function AppShell() {
                   className="tl-subtle-control w-full rounded px-3 py-2 text-left text-sm transition"
                   onClick={() => setMode(isDark ? 'light' : 'dark')}
                   aria-pressed={isDark}
-                  aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+                  aria-label={isDark ? 'Appearance: Dark mode. Switch to light mode' : 'Appearance: Light mode. Switch to dark mode'}
                 >
                   Appearance: {isDark ? 'Dark mode' : 'Light mode'}
                 </button>
@@ -192,7 +192,7 @@ export function AppShell() {
               className="tl-subtle-control rounded px-2.5 py-1.5 text-sm transition"
               onClick={() => setMode(isDark ? 'light' : 'dark')}
               aria-pressed={isDark}
-              aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-label={isDark ? 'Dark mode. Switch to light mode' : 'Light mode. Switch to dark mode'}
             >
               {isDark ? 'Dark mode' : 'Light mode'}
             </button>

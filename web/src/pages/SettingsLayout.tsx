@@ -57,17 +57,19 @@ export function SettingsLayout() {
           className="flex w-full items-center gap-3 text-left"
           aria-expanded={mobileSettingsOpen}
           aria-controls="mobile-settings-navigation"
-          aria-label={`${mobileSettingsOpen ? 'Close' : 'Open'} settings navigation. Current section: ${activeSettingsLabel}`}
+          aria-label={`Settings: ${activeSettingsLabel}, ${roleLabel}. ${mobileSettingsOpen ? 'Close' : 'Open'} settings navigation`}
           onClick={() => setMobileSettingsOpen((current) => !current)}
         >
           <span className="min-w-0 flex-1">
             <span className="block text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-400">
               Settings
             </span>
+            {' '}
             <span className="mt-0.5 block truncate font-semibold text-ink dark:text-slate-100">
               {activeSettingsLabel}
             </span>
           </span>
+          {' '}
           <span className="rounded-full border border-slate/20 px-2 py-0.5 text-xs font-semibold text-slate dark:border-white/10 dark:text-slate-300">
             {roleLabel}
           </span>

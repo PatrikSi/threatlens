@@ -6,6 +6,12 @@ intercepts API responses for deterministic asynchronous races. The server suite
 runs real FastAPI, PostgreSQL, Redis, and a controlled OIDC provider. Neither
 suite needs an existing deployment, real account, or deployment `.env`.
 
+Playwright is pinned to 1.64.1 while the 1.65.0/1.65.1 Firefox
+[ARIA reflection crash](https://github.com/microsoft/playwright/issues/43967)
+awaits a verified stable fix. Axe 4.14 and its full rule set remain enabled.
+The two execution-world regression scenarios must pass with browser-toolchain
+updates. Dependabot excludes only those two affected releases.
+
 With Node.js 22 and npm installed:
 
 ```sh
@@ -70,7 +76,8 @@ python web/browser/server/run.py --ai-providers --grep 'real AI provider setting
 Use the backend virtual-environment interpreter when dependencies are installed
 there. On Linux, `--docker-browser` runs the pinned Playwright image, including
 all three matched browser binaries and system libraries; host Node is then
-unnecessary. The frontend `node_modules` must still be installed. For example:
+unnecessary. Its image version follows the exact `@playwright/test` pin in
+`web/package.json`. The frontend `node_modules` must still be installed. For example:
 
 ```sh
 docker run --rm --user "$(id -u):$(id -g)" \

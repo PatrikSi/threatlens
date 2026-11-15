@@ -488,6 +488,30 @@ describe('AI provider lifecycle with a real query cache', () => {
     expect(document.getElementById('provider-endpoint-help')?.textContent).toContain('different request format')
   })
 
+  it('includes visible routing button text in distinct feature assignment names', async () => {
+    mount(true)
+    await settle()
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>(
+      '[aria-labelledby="ai-provider-routing-title"] button[aria-label]',
+    )]
+
+    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Use selected provider for default provider',
+      'Use legacy settings for default provider',
+      'Use selected provider for article enrichment',
+      'Use default provider for article enrichment',
+      'Use selected provider for team assessments and hunt suggestions',
+      'Use article provider for team assessments and hunt suggestions',
+      'Use selected provider for daily briefs',
+      'Use default provider for daily briefs',
+      'Use selected provider for reports',
+      'Use default provider for reports',
+    ])
+    for (const button of buttons) {
+      expect(button.getAttribute('aria-label')).toContain(button.textContent?.trim())
+    }
+  })
+
   it('exposes recoverable API errors when connected to a server without provider support', async () => {
     vi.mocked(apiFetch).mockRejectedValue(new ApiError('Not Found', 404, '/ai/providers'))
     mount(true)

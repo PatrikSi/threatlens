@@ -1,0 +1,337 @@
+{
+  "schema_version": 1,
+  "version": "2.1.1",
+  "base_revision": "d2567fa4e75a4800467a7338b2a270654340ee34",
+  "failed_hosted_run": "https://github.com/PatrikSi/threatlens/actions/runs/43721267152",
+  "reviewed_code_manifest_sha256": "e1f783be411c2d5bcd533c15a327942b1b889f1b6a88c5b19d973be13076eb64",
+  "reviewed_files": {
+    ".github/dependabot.yml": "b869b019306d0c535e411bc4c7828241ab949bc88bc22dbe354f3b50188ae0a5",
+    "backend/tests/unit/test_ci_dependency_contracts.py": "2e06a4970b47128a375d77665fef3626050cf2edde4ec5c3fa1d02ca0fb952d1",
+    "web/browser/ai-providers.browser.ts": "446b71dc2ed1e6678745caa8a3a924c92b8e11689faf45468a0006135f8ec71b",
+    "web/browser/aria-reflection.browser.ts": "6aa0f9dd31a3d92c43bf6efe7f80ba28a333c2f1f907b987d4a7e959cf54a303",
+    "web/browser/server/ai-providers.browser.ts": "aee27052cab28918a081cf66d834a5367b4c0673dc6e12051f9d69dab970912c",
+    "web/browser/server/run.py": "2157c6b6183551110a21e60b132a3f35a549eaee6250a227a7c5b1f81505818e",
+    "web/browser/ui-lifecycles.browser.ts": "85ee7a5e6c4597571eaaadc7c1db8a3365d0504647b3c215e729798181dfabad",
+    "web/package-lock.json": "fa47a1b18d5adcd93ba6cb4543c933b2b9b708d9b2653b9768eb228b1a1a53ec",
+    "web/package.json": "3c042c063347b8bd2fd1de9cf16b34704152738c2a5cf4a44472f95ddedef2a5",
+    "web/src/components/AppShell.dom.test.tsx": "c90fec4b5baad336acd58eb716d9d476954dab2c64a9bb1b7e8c260bc2432df3",
+    "web/src/components/AppShell.tsx": "7d71ce5488e255d044d184d06e7db8fa1ac3cc46e283c6130a5017ed42407588",
+    "web/src/pages/AiProviderConnections.dom.test.tsx": "72a2249791e1ea1aa07fa0e3e6e8f6b4b97b8739132885a7c1553804c8816480",
+    "web/src/pages/AiProviderConnections.tsx": "620bdb162d3420f9f02a0127496b48855c9fcf43bffd924a667364a008ae8f34",
+    "web/src/pages/SettingsLayout.dom.test.tsx": "36e2427275a1014f6e9e4dd34bac190ad10dc45a46c9fa5a9ba342bba03124ec",
+    "web/src/pages/SettingsLayout.tsx": "a65b64d55cfe85a37aa30ddaeb312c386371fa28639f60ee71b9dd573f7338a5"
+  },
+  "independent_review": "Separate non-author source/package review found no remaining bounded issue on this exact 15-file manifest. A second reviewer checked accessibility and ARIA-test changes; the final whitespace correction was included in the first reviewer’s updated manifest.",
+  "checks": {
+    "frontend-clean-install": {
+      "command": [
+        "$REVIEW_TOOLS/tools/node-v22.23.5-linux-x64/bin/node",
+        "$REVIEW_TOOLS/tools/npm-11.21.2/package/bin/npm-cli.js",
+        "ci"
+      ],
+      "cwd": "$REPOSITORY/web",
+      "actual_exit": 0,
+      "wall_seconds": 6.521,
+      "log_sha256": "03c7bfecf6f21dcc1bf667f139d277a5db7bfbc934175bca63c4d6523f9ab0b7",
+      "receipt_sha256": "5a4686c695bcf95d45830bd5792899cef7beee1675007b91af2dc0aa0d8b8ab3"
+    },
+    "frontend-complete-suite": {
+      "command": [
+        "$REVIEW_TOOLS/tools/node-v22.23.5-linux-x64/bin/node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--maxWorkers=1",
+        "--reporter=default",
+        "--reporter=json",
+        "--reporter=$CI_REPAIR_EVIDENCE/unhandled-evidence-reporter.mjs",
+        "--outputFile.json=$CI_REPAIR_EVIDENCE/frontend-vitest.json"
+      ],
+      "cwd": "$REPOSITORY/web",
+      "actual_exit": 0,
+      "wall_seconds": 206.667,
+      "log_sha256": "2af59274447c0a3c999f742a167a9d57cb69b0883c9263ec738701f2ad53c55f",
+      "receipt_sha256": "6fc5399b3801b7c8fb71c61f59650b934b6c5e15d76daac1b9e1545ca517d416"
+    },
+    "frontend-lint": {
+      "command": [
+        "$REVIEW_TOOLS/tools/node-v22.23.5-linux-x64/bin/node",
+        "node_modules/eslint/bin/eslint.js",
+        "src",
+        "--ext",
+        ".ts,.tsx",
+        "--max-warnings=0"
+      ],
+      "cwd": "$REPOSITORY/web",
+      "actual_exit": 0,
+      "wall_seconds": 8.162,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "receipt_sha256": "ec3817778a9447cab01502d6ee40b647f0cee0aacdef89f44086b6fb16df2089"
+    },
+    "frontend-typescript": {
+      "command": [
+        "$REVIEW_TOOLS/tools/node-v22.23.5-linux-x64/bin/node",
+        "node_modules/typescript/bin/tsc",
+        "-b",
+        "--force",
+        "--pretty",
+        "false"
+      ],
+      "cwd": "$REPOSITORY/web",
+      "actual_exit": 0,
+      "wall_seconds": 15.6,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "receipt_sha256": "f25f24e6311677793a5209466a95e90981fcb6253e3761864d795dc14e8a2bb0"
+    },
+    "browser-typescript-final": {
+      "command": [
+        "$REVIEW_TOOLS/tools/node-v22.23.5-linux-x64/bin/node",
+        "node_modules/typescript/bin/tsc",
+        "-p",
+        "tsconfig.browser.json"
+      ],
+      "cwd": "$REPOSITORY/web",
+      "actual_exit": 0,
+      "wall_seconds": 1.536,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "receipt_sha256": "f143b6e40f862f62dee1df203c7fe03409024eb1e155ca2e0cef1944d40ad771"
+    },
+    "frontend-build": {
+      "command": [
+        "$REVIEW_TOOLS/tools/node-v22.23.5-linux-x64/bin/node",
+        "node_modules/vite/bin/vite.js",
+        "build"
+      ],
+      "cwd": "$REPOSITORY/web",
+      "actual_exit": 0,
+      "wall_seconds": 5.081,
+      "log_sha256": "4dae8187cf13cf1b93d8eb3571d5faf72ca42cdd93c8971a05b0890ccbd397a1",
+      "receipt_sha256": "d71d89632ab6ee39d6cc270839c701217cd5224d3b537ea1d6bab02ad00a1fb9"
+    },
+    "frontend-production-smoke": {
+      "command": [
+        "$REVIEW_TOOLS/tools/node-v22.23.5-linux-x64/bin/node",
+        "scripts/smoke_production_bundle.mjs"
+      ],
+      "cwd": "$REPOSITORY/web",
+      "actual_exit": 0,
+      "wall_seconds": 0.658,
+      "log_sha256": "4e7c7a57a81475b745ae5be46034d5b16483e2952137a4afa694d6284880c696",
+      "receipt_sha256": "99f6c0b3b16512a5b0e76be30c2b108ebf56c1f63a0787300b83819299c40e3f"
+    },
+    "frontend-audit-v2": {
+      "command": [
+        "$REVIEW_TOOLS/tools/node-v22.23.5-linux-x64/bin/node",
+        "$REVIEW_TOOLS/tools/npm-11.21.2/package/bin/npm-cli.js",
+        "run",
+        "audit"
+      ],
+      "cwd": "$REPOSITORY/web",
+      "actual_exit": 0,
+      "wall_seconds": 1.1,
+      "log_sha256": "94c52062650ad9f2772dbe383159acd2e22aae5f4a0165580b9daa9460b9f476",
+      "receipt_sha256": "24840bf573702768bd65dd4e2600f7ecb7bbe59912330369491181c8bcd9db01"
+    },
+    "ci-dependency-policy": {
+      "command": [
+        "$REVIEW_TOOLS/backend-venv/bin/python",
+        "-m",
+        "pytest",
+        "--confcutdir=tests/unit",
+        "tests/unit/test_ci_dependency_contracts.py",
+        "-q"
+      ],
+      "cwd": "$REPOSITORY/backend",
+      "actual_exit": 0,
+      "wall_seconds": 0.766,
+      "log_sha256": "eb27a136c18598aedc0e4f11e6893b614a04335a9faf3ec03433325d777e2663",
+      "receipt_sha256": "b188eea4f5f9a9a86fdd8b54b01fe89a7310d48ca719ad70e1ac0e79e1c30a2a"
+    }
+  },
+  "frontend_suite": {
+    "passed": 1720,
+    "failed": 0,
+    "skipped": 0,
+    "files": 210,
+    "unhandled_errors": 0,
+    "results_sha256": "53fe1f953aa2bc0f579632527f642ee88875a28b41b23a709b504ba1a3d22363",
+    "unhandled_receipt_sha256": "2f06f167f676568b68fe136279d6909c72f1b11ed8c2c1691b999e31f2272783"
+  },
+  "dependency_policy_tests": {
+    "passed": 12,
+    "failed": 0
+  },
+  "firefox_regression_before_after": {
+    "firefox1651-crossworld-privatehome": {
+      "run": {
+        "command": [
+          "python3",
+          "$CI_REPAIR_EVIDENCE/run_browser_container_privatehome.py",
+          "--name",
+          "firefox1651-crossworld-privatehome",
+          "--image",
+          "mcr.microsoft.com/playwright:v1.65.1-noble",
+          "--mode",
+          "minimal"
+        ],
+        "cwd": "$REPOSITORY",
+        "actual_exit": 1,
+        "wall_seconds": 3.958,
+        "log_sha256": "cf5c9778a279a6ac840fbd53f000cada1a9dabd255466d5dd6cc85e7dde2ef5c",
+        "receipt_sha256": "11f170d8b03fbfc89c353dd3cf96c5a55f3222598ef865ddd741913256ca99ea"
+      },
+      "node": "v22.23.5",
+      "playwright": "1.65.1",
+      "firefox": "159.0",
+      "status": "failed",
+      "cases": [
+        {
+          "mode": "same-world-control",
+          "crashed": false,
+          "status": "passed"
+        },
+        {
+          "mode": "main-world-then-role",
+          "crashed": true,
+          "status": "failed",
+          "error": "Error: locator.click: Page crashed\nCall log:\n  - waiting for getByRole('button', { name: 'Save', exact: true })\n"
+        }
+      ],
+      "OOMKilled": false,
+      "browser_log_sha256": "f771b94357e53ab5c8419dfdb0d4c61a5b70a70bef660cbc65142e8b404ae703",
+      "container_receipt_sha256": "44f7d9b146df6a2c49f30ed07d361e642d1373e168bd70e608f335c9dbf1a921"
+    },
+    "firefox1641-crossworld-after": {
+      "run": {
+        "command": [
+          "python3",
+          "$CI_REPAIR_EVIDENCE/run_browser_container_final.py",
+          "--name",
+          "firefox1641-crossworld-after",
+          "--image",
+          "mcr.microsoft.com/playwright:v1.64.1-noble",
+          "--mode",
+          "minimal"
+        ],
+        "cwd": "$REPOSITORY",
+        "actual_exit": 0,
+        "wall_seconds": 5.509,
+        "log_sha256": "dd54f1d26773ec8eb839fd533c3a96734a3c95b44bacf124efa856f3f971ef45",
+        "receipt_sha256": "fb195b1db98085728d88fe0722721cea8422b98ab16d5a709ad2be859ad4209b"
+      },
+      "node": "v22.23.5",
+      "playwright": "1.64.1",
+      "firefox": "157.0",
+      "status": "passed",
+      "cases": [
+        {
+          "mode": "same-world-control",
+          "crashed": false,
+          "status": "passed"
+        },
+        {
+          "mode": "main-world-then-role",
+          "crashed": false,
+          "status": "passed"
+        },
+        {
+          "mode": "role-then-main-world",
+          "crashed": false,
+          "status": "passed"
+        }
+      ],
+      "OOMKilled": false,
+      "browser_log_sha256": "71fd250000524ca696922ab8506188f4be9bb99328dc43e3a3b38d710c9ca065",
+      "container_receipt_sha256": "e3790fb084e868dfc9b44e59d0220c22055b158e28f870b592bc1afb9ab77c04"
+    }
+  },
+  "isolated_browser_suites": {
+    "chromium": {
+      "run": {
+        "command": [
+          "python3",
+          "$CI_REPAIR_EVIDENCE/run_browser_container_final.py",
+          "--name",
+          "isolated-chromium-final",
+          "--image",
+          "mcr.microsoft.com/playwright:v1.64.1-noble",
+          "--mode",
+          "suite",
+          "--",
+          "--project=chromium"
+        ],
+        "cwd": "$REPOSITORY",
+        "actual_exit": 0,
+        "wall_seconds": 117.736,
+        "log_sha256": "2befb205e25a8095053ad3ae1a04c3f99ceb72e7f54df155485cd56d355c764b",
+        "receipt_sha256": "3e8a68daf9408c4a1b6ce2e41a3b5b93acdf1602153272b04358da29582fce71"
+      },
+      "stats": {
+        "startTime": "2026-11-15T14:48:34.227Z",
+        "duration": 116370.522,
+        "expected": 51,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "results_sha256": "beebc2dd7fbca5db05bd8d980359bad1329cd52f18b1b91c9d6ad6e6e71b34ed",
+      "container_receipt_sha256": "b0c60457be967254572e36992a5ce59ab5b86d074f45f94948ec77a555af4a3f",
+      "image_reference": "mcr.microsoft.com/playwright:v1.64.1-noble",
+      "image_id": "sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f",
+      "container_exit": 0,
+      "OOMKilled": false,
+      "cleanup": "verified_absent"
+    }
+  },
+  "local_browser_environment": {
+    "platform": "linux/amd64",
+    "node": "22.23.5",
+    "playwright": "1.64.1",
+    "axe": "4.14.0",
+    "test_config": "Original interaction config, with a private wrapper setting one worker, zero retries, fullyParallel=false, private output paths, loopback-only Vite and polling for this host’s exhausted inotify quota. Test assertions, 30-second per-test deadline, full axe rules and all 51 tests are unchanged.",
+    "container_limits": {
+      "memory_bytes": 1342177280,
+      "swap_disabled": true,
+      "cpu_limit": 2,
+      "pids": 512,
+      "network": "none",
+      "source_mount": "read-only",
+      "capabilities": "ALL dropped"
+    },
+    "config_sha256": "50759996c9fe4c921801ed8149c27db23f35e11e57b15afdf8ee83b989765f83",
+    "driver_sha256": "b188cc2b67d827052c2705622f189a52ce5b311e262cd0fa7d9b4ed8e2fac4e8"
+  },
+  "local_firefox_full_suite": {
+    "status": "failed-resource-limited; not a pass",
+    "run": {
+      "command": [
+        "python3",
+        "$CI_REPAIR_EVIDENCE/run_browser_container_final.py",
+        "--name",
+        "isolated-firefox-final",
+        "--image",
+        "mcr.microsoft.com/playwright:v1.64.1-noble",
+        "--mode",
+        "suite",
+        "--",
+        "--project=firefox"
+      ],
+      "cwd": "$REPOSITORY",
+      "actual_exit": 137,
+      "wall_seconds": 145.029,
+      "log_sha256": "badf49c286dbef7b7639406b771fb34db845495ab6f1e3f0885c2ad0ddf0cfaa",
+      "receipt_sha256": "e2edcb165bf3fc57a0d7eec95076fdf49ca5473933b43d34a63f90f258a83af2"
+    },
+    "OOMKilled": true,
+    "oom_kill_events": 1,
+    "memory_limit_bytes": 1342177280,
+    "memory_peak_bytes": 1342423040,
+    "memory_diagnostic_sha256": "a82d7206ff1b1f7a47597b3df7aadb256fcc63b5d287bea94c0da4f37d164ef4",
+    "cleanup": "verified_absent",
+    "explanation": "Full run hit the hard local cgroup memory ceiling (child SIG9), then its owned container was stopped and removed. This differs from the reproduced 1.65.1 child SIG11. Full Firefox acceptance must come from the hosted job."
+  },
+  "local_webkit_full_suite": {
+    "status": "not run; hosted job required"
+  },
+  "excluded_attempts": "Local harness startup/configuration attempts, the incorrect first audit executable path, and the first Chromium suite (one Settings whitespace accessibility failure) remain retained as failed evidence. They are excluded from all final pass totals. The initial Chromium run started before the final whitespace correction.",
+  "hosted_validation": "Pending the normal push of this repair to main. This ledger does not claim real-server browser, native image, ARM64, registry or deployment passes for this revision."
+}

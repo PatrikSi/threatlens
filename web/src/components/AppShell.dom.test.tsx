@@ -180,6 +180,7 @@ describe('AppShell', () => {
     const menuButton = view.querySelector<HTMLButtonElement>('[aria-controls="mobile-primary-navigation"]')
 
     expect(menuButton).not.toBeNull()
+    expect(menuButton?.getAttribute('aria-label')).toBe('Menu: open navigation')
     expect(view.querySelector('#mobile-primary-navigation')).toBeNull()
 
     act(() => {
@@ -191,9 +192,48 @@ describe('AppShell', () => {
     expect(mobileNavigation?.className).toContain('divide-y')
     expect(mobileNavigation?.className).not.toContain('grid-cols-2')
     expect(menuButton?.getAttribute('aria-expanded')).toBe('true')
+    expect(menuButton?.getAttribute('aria-label')).toBe('Close navigation menu')
     expect(mobileNavigation?.textContent).toContain('Export')
     expect(mobileNavigation?.textContent).toContain('Reporting')
     expect(mobileNavigation?.textContent).toContain('Investigations')
+
+    act(() => {
+      menuButton!.click()
+    })
+
+    expect(menuButton?.getAttribute('aria-expanded')).toBe('false')
+    expect(menuButton?.getAttribute('aria-label')).toBe('Menu: open navigation')
+    expect(view.querySelector('#mobile-primary-navigation')).toBeNull()
+  })
+
+  it('names theme controls with their visible current mode and the next action', () => {
+    const view = renderShell()
+    const desktopThemeButton = view.querySelector<HTMLButtonElement>('header .hidden button[aria-pressed]')!
+    const menuButton = view.querySelector<HTMLButtonElement>('[aria-controls="mobile-primary-navigation"]')!
+
+    act(() => menuButton.click())
+    const mobileThemeButton = view.querySelector<HTMLButtonElement>('#mobile-primary-navigation button[aria-pressed]')!
+
+    expect(desktopThemeButton.textContent).toBe('Light mode')
+    expect(desktopThemeButton.getAttribute('aria-label')).toBe('Light mode. Switch to dark mode')
+    expect(mobileThemeButton.textContent).toBe('Appearance: Light mode')
+    expect(mobileThemeButton.getAttribute('aria-label')).toBe('Appearance: Light mode. Switch to dark mode')
+
+    act(() => desktopThemeButton.click())
+
+    expect(desktopThemeButton.textContent).toBe('Dark mode')
+    expect(desktopThemeButton.getAttribute('aria-label')).toBe('Dark mode. Switch to light mode')
+    expect(desktopThemeButton.getAttribute('aria-pressed')).toBe('true')
+    expect(mobileThemeButton.textContent).toBe('Appearance: Dark mode')
+    expect(mobileThemeButton.getAttribute('aria-label')).toBe('Appearance: Dark mode. Switch to light mode')
+    expect(mobileThemeButton.getAttribute('aria-pressed')).toBe('true')
+
+    act(() => mobileThemeButton.click())
+
+    expect(desktopThemeButton.getAttribute('aria-label')).toBe('Light mode. Switch to dark mode')
+    expect(desktopThemeButton.getAttribute('aria-pressed')).toBe('false')
+    expect(mobileThemeButton.getAttribute('aria-label')).toBe('Appearance: Light mode. Switch to dark mode')
+    expect(mobileThemeButton.getAttribute('aria-pressed')).toBe('false')
   })
 
   it('shows a subtle app version in the footer', () => {

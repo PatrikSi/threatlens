@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright'
 import type { Page } from '@playwright/test'
 import { assessmentFixture } from '../tests/fixtures/articleIntelligence'
 import { operationsHistoryFixture, operationsSampleFixture } from '../src/testing/operationsHistoryFixtures'
+import type { OperationsWorkerTopology, SystemOperationRunListResponse } from '../src/types/operations'
 import { test, expect } from './fixtures'
 
 const team = { id: 'team-1', key: 'soc', name: 'SOC', description: 'Security operations team', membership_group_id: 'group-1', manager_group_id: 'group-2', active: true, revision: 1, can_manage: true, created_at: '2026-09-27T00:00:00Z', updated_at: '2026-09-27T00:00:00Z' }
@@ -66,7 +67,41 @@ const overview = {
 }
 test('retains health during a transient outage but hides snapshots and actions on explicit denial', async ({ page }) => {
   let status = 200
-  await page.route('**/api/v1/operations/overview', (route) => route.fulfill({ status, json: status === 200 ? overview : { detail: status === 403 ? 'Operations permission revoked' : 'Snapshot temporarily unavailable' } }))
+  const recoveryReads = new Set<string>()
+  // Recovery verifies every operations reader, including inactive views.
+  const workers: OperationsWorkerTopology = {
+    generated_at: overview.generated_at, status: 'healthy', reason: 'healthy', timeout_seconds: 1, duration_ms: 20,
+    responding_worker_count: 1, observed_worker_count: 1, worker_inventory_truncated: false,
+    total_capacity: 4, active_count: 0, reserved_count: 0, scheduled_count: 0,
+    missing_queues: [], stale_execution_queues: [], missing_execution_evidence_queues: [],
+    canary_dispatch_ok: true, canary_dispatch_reason: 'healthy', canary_dispatch_heartbeat_at: overview.generated_at, canary_dispatch_age_seconds: 0,
+    probes: (['ping', 'active_queues', 'stats', 'active', 'reserved', 'scheduled'] as const).map((probe) => ({
+      probe, quality: 'complete' as const, responder_count: 1, observed_responder_count: 1, responses_truncated: false,
+      missing_responder_count: 0, invalid_response_count: 0, duration_ms: 3,
+    })),
+    workers: [{
+      name: 'worker@browser', queues: ['processing'], responded_to: ['ping', 'active_queues', 'stats', 'active', 'reserved', 'scheduled'],
+      missing_responses: [], ping_ok: true, capacity: 4, active_count: 0, reserved_count: 0, scheduled_count: 0,
+      processed_total: 10, uptime_seconds: 3600, saturated: false,
+    }],
+    queues: [{
+      key: 'processing', label: 'Item processing', service_hint: 'worker', required: true, status: 'healthy',
+      consumers: ['worker@browser'], consumer_count: 1, capacity: 4, active_count: 0, reserved_count: 0, scheduled_count: 0,
+      saturated: false, execution_reason: 'fresh', execution_heartbeat_at: overview.generated_at, execution_age_seconds: 0, execution_worker: 'worker@browser',
+    }],
+  }
+  const runs: SystemOperationRunListResponse = { runs: [], total: 0, page: 1, page_size: 20 }
+  const recoveryResponses = { workers, 'health-history': operationsHistoryFixture([operationsSampleFixture()]), runs }
+  await page.route('**/api/v1/operations/overview', (route) => {
+    recoveryReads.add('overview')
+    return route.fulfill({ status, json: status === 200 ? overview : { detail: status === 403 ? 'Operations permission revoked' : 'Snapshot temporarily unavailable' } })
+  })
+  for (const [resource, response] of Object.entries(recoveryResponses)) {
+    await page.route(`**/api/v1/operations/${resource}${resource === 'workers' ? '' : '?*'}`, (route) => {
+      recoveryReads.add(resource)
+      return route.fulfill({ json: response })
+    })
+  }
   await page.goto('/settings/operations?signal=database')
   await expect(page.getByText('Database queries are responding.', { exact: true })).toBeVisible()
   status = 503
@@ -79,16 +114,20 @@ test('retains health during a transient outage but hides snapshots and actions o
   await expect(page.getByText('Database queries are responding.', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Download diagnostics', exact: true })).toBeDisabled()
   status = 503
+  recoveryReads.clear()
   const deniedRecovery = page.waitForResponse((response) => response.url().endsWith('/operations/overview') && response.status() === 503)
   await page.getByRole('button', { name: 'Retry health', exact: true }).click()
   await deniedRecovery
   await expect(page.getByRole('button', { name: 'Retry health', exact: true })).toBeEnabled()
   await expect(page.getByText('Database queries are responding.', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Download diagnostics', exact: true })).toBeDisabled()
+  expect([...recoveryReads].sort()).toEqual(['health-history', 'overview', 'runs', 'workers'])
   status = 200
+  recoveryReads.clear()
   await page.getByRole('button', { name: 'Retry health', exact: true }).click()
   await expect(page.getByText('Database queries are responding.', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Download diagnostics', exact: true })).toBeEnabled()
+  expect([...recoveryReads].sort()).toEqual(['health-history', 'overview', 'runs', 'workers'])
 })
 
 test('keeps mobile operation controls in the viewport and scrolls chart data within its wrapper', async ({ page }) => {

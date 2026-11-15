@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
+import re
 import secrets
 import signal
 import socket
@@ -18,7 +20,14 @@ import uuid
 
 
 ROOT = Path(__file__).resolve().parents[3]
-PLAYWRIGHT_IMAGE = "mcr.microsoft.com/playwright:v1.63.0-noble"
+
+
+def playwright_image() -> str:
+    manifest = json.loads((ROOT / "web/package.json").read_text(encoding="utf-8"))
+    version = manifest.get("devDependencies", {}).get("@playwright/test")
+    if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+        raise ValueError("Pin @playwright/test to an exact stable version in web/package.json")
+    return f"mcr.microsoft.com/playwright:v{version}-noble"
 
 
 def clean_environment() -> dict[str, str]:
@@ -202,7 +211,7 @@ def main() -> int:
                     for key in browser_env:
                         if key.startswith("THREATLENS_BROWSER_") or key == "CI":
                             docker_command += ["-e", key]
-                    command = docker_command + [PLAYWRIGHT_IMAGE] + command
+                    command = docker_command + [playwright_image()] + command
                 browser = subprocess.Popen(
                     command, cwd=ROOT / "web", env=browser_env, start_new_session=True
                 )
