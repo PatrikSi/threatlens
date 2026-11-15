@@ -33,7 +33,7 @@ export function SMTPIntegrationSettingsPage() {
             testRunPage={controller.testRunPage}
             onTestRunPageChange={controller.setTestRunPage}
             replaying={controller.replayDelivery.isPending}
-            canReplay={controller.canManageEmailDelivery}
+            canReplay={controller.canManageEmailDelivery && !controller.replayReadUnavailable}
             onReplay={controller.setPendingReplay}
           />
         </div>
@@ -90,9 +90,9 @@ function SMTPConfirmationDialogs({
           : undefined}
         confirmLabel="Delete destination"
         isConfirming={controller.deleteHook.isPending}
-        confirmDisabled={!controller.canManageEmailDelivery}
+        confirmDisabled={!controller.canManageEmailDelivery || controller.editorReadUnavailable}
         onConfirm={() => {
-          if (!controller.pendingDelete || !controller.canManageEmailDelivery) return
+          if (!controller.pendingDelete || !controller.canManageEmailDelivery || controller.editorReadUnavailable) return
           controller.setDeleteError(null)
           controller.deleteHook.mutate(controller.pendingDelete.id)
         }}
@@ -114,9 +114,9 @@ function SMTPConfirmationDialogs({
         confirmLabel="Replay delivery"
         confirmTone="primary"
         isConfirming={controller.replayDelivery.isPending}
-        confirmDisabled={!controller.canManageEmailDelivery}
+        confirmDisabled={!controller.canManageEmailDelivery || controller.replayReadUnavailable}
         onConfirm={() => {
-          if (!controller.pendingReplay || !controller.selectedHookId || !controller.canManageEmailDelivery) return
+          if (!controller.pendingReplay || !controller.selectedHookId || !controller.canManageEmailDelivery || controller.replayReadUnavailable) return
           controller.replayDelivery.mutate({
             hookId: controller.selectedHookId,
             deliveryId: controller.pendingReplay.id,

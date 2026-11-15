@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
@@ -31,22 +31,51 @@ export function TeamIntegrationConfiguration({
   base,
   unavailable,
   onChanged,
+  onDirtyChange,
+  hidden = false,
+  teamId,
 }: {
   base: string
   unavailable: boolean
   onChanged: () => void
+  onDirtyChange?: (dirty: boolean) => void
+  hidden?: boolean
+  teamId?: string
 }) {
   const access = useQueryAccessScope(['teams', 'integration-configuration', base])
+  const parentAccess = useQueryAccessScope(['teams', teamId ?? '', 'integrations'])
+  const queryKey = ['teams', 'integration-configuration', base, ...(teamId ? [parentAccess.generation] : [])]
+  const retained = useRef<{ base: string; value: NotificationWebhook } | undefined>(undefined)
+  const dirtyEditor = useRef(false)
+  const reportDirty = useCallback((dirty: boolean) => {
+    dirtyEditor.current = dirty
+    onDirtyChange?.(dirty)
+  }, [onDirtyChange])
   const query = useQuery({
-    queryKey: ['teams', 'integration-configuration', base],
+    queryKey,
     ...access.queryOptions(({ signal }) =>
       apiFetch<NotificationWebhook>(`${base}/configuration`, { signal })),
-    enabled: !unavailable,
+    enabled: !unavailable && !hidden,
   })
   const data = accessibleQueryData(query)
+  if (data && !data.secrets_redacted) retained.current = { base, value: data }
+  const saved = data && !data.secrets_redacted ? data
+    : dirtyEditor.current && retained.current?.base === base ? retained.current.value : undefined
+  const editor = saved && <ConfigurationEditor
+    key={base} base={base} teamId={teamId} saved={saved}
+    hidden={hidden || !data || Boolean(data.secrets_redacted)}
+    disabled={unavailable || access.denied || query.isError || Boolean(data?.secrets_redacted)}
+    onDirtyChange={reportDirty}
+    onChanged={() => { onChanged(); void query.refetch() }}
+    onReload={async () => {
+      const latest = await query.refetch({ throwOnError: true })
+      if (!latest.data || latest.data.secrets_redacted) throw new Error('The destination is no longer editable under your current access.')
+      return latest.data
+    }}
+  />
   return (
     <section className="space-y-2" aria-label="Team destination configuration">
-      {query.isError && (
+      {!hidden && query.isError && (
         <p role="alert">
           {resolveApiErrorMessage(
             query.error,
@@ -57,30 +86,13 @@ export function TeamIntegrationConfiguration({
           </button>
         </p>
       )}
-      {data?.secrets_redacted ? (
+      {!hidden && data?.secrets_redacted && (
         <p>
           Adopt this destination to edit its configuration under your source
           access.
         </p>
-      ) : (
-        data && (
-          <ConfigurationEditor
-            key={base}
-            base={base}
-            saved={data}
-            disabled={unavailable || access.denied || query.isError}
-            onChanged={() => {
-              onChanged()
-              void query.refetch()
-            }}
-            onReload={async () => {
-              const latest = await query.refetch({ throwOnError: true })
-              if (!latest.data || latest.data.secrets_redacted) throw new Error('The destination is no longer editable under your current access.')
-              return latest.data
-            }}
-          />
-        )
       )}
+      {editor}
     </section>
   )
 }
@@ -91,17 +103,27 @@ function ConfigurationEditor({
   disabled,
   onChanged,
   onReload,
+  onDirtyChange,
+  hidden,
+  teamId,
 }: {
   base: string
   saved: NotificationWebhook
   disabled: boolean
   onChanged: () => void
   onReload: () => Promise<NotificationWebhook>
+  onDirtyChange?: (dirty: boolean) => void
+  hidden: boolean
+  teamId?: string
 }) {
+  const client = useQueryClient()
+  const access = useQueryAccessScope(['teams', 'integration-configuration', base])
+  const parentAccess = useQueryAccessScope(['teams', teamId ?? '', 'integrations'])
   const [baseline, setBaseline] = useState(saved)
   const [draft, setDraft] = useState(() => createDraftFromWebhook(saved))
   const dirty =
     JSON.stringify(draft) !== JSON.stringify(createDraftFromWebhook(baseline))
+  useEffect(() => { onDirtyChange?.(dirty) }, [dirty, onDirtyChange])
   const discard = useUnsavedChangesWarning(
     dirty,
     'Discard unsaved team destination changes?',
@@ -112,20 +134,31 @@ function ConfigurationEditor({
     ...feedAccess.queryOptions(({ signal }) => apiFetch<Feed[]>('/feeds', { signal })),
   })
   const save = useMutation({
-    mutationFn: () =>
-      apiFetch<NotificationWebhook>(
+    mutationFn: () => {
+      if (disabled || hidden || !currentRead()) throw new Error('Reload destination configuration before saving. Your draft is preserved.')
+      const capture = access.captureResult()
+      const parent = parentAccess.captureResult()(true)
+      return apiFetch<NotificationWebhook>(
         `${base}/configuration?expected_revision=${baseline.ownership_revision ?? 1}`,
         { method: 'PUT', body: JSON.stringify(createRequestFromDraft(draft)) },
-      ),
-    onSuccess: (result) => {
-      setBaseline(result)
-      setDraft(createDraftFromWebhook(result))
+      ).then((saved) => ({ result: capture(saved), parent }))
+    },
+    onSuccess: ({ result, parent }) => {
+      const saved = access.currentData(result)
+      if (!saved || !parentAccess.currentData(parent) || !currentRead()) { onChanged(); return }
+      setBaseline(saved)
+      setDraft(createDraftFromWebhook(saved))
       onChanged()
     },
   })
   const reload = useMutation({
-    mutationFn: onReload,
-    onSuccess: (latest) => {
+    mutationFn: () => {
+      const capture = access.captureResult()
+      return onReload().then(capture)
+    },
+    onSuccess: (result) => {
+      const latest = access.currentData(result)
+      if (!latest || !currentRead()) return
       setBaseline(latest)
       setDraft(createDraftFromWebhook(latest))
       save.reset()
@@ -137,6 +170,15 @@ function ConfigurationEditor({
     key: K,
     value: (typeof draft)[K],
   ) => setDraft((current) => ({ ...current, [key]: value }))
+  function currentRead() {
+    const key = ['teams', 'integration-configuration', base, ...(teamId ? [parentAccess.generation] : [])]
+    if (client.getQueryState(key)?.status === 'error') return undefined
+    if (teamId && (client.getQueryState(['teams', teamId, 'integrations'])?.status === 'error'
+      || !parentAccess.currentData<{ items: { id: string }[] }>(client.getQueryData(['teams', teamId, 'integrations'])))) return undefined
+    const current = access.currentData<NotificationWebhook>(client.getQueryData(key))
+    return current?.secrets_redacted ? undefined : current
+  }
+  if (hidden) return <>{discard.discardDialog}</>
   return (
     <div className="space-y-3">
       {discard.discardDialog}

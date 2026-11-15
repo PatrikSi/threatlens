@@ -11,6 +11,8 @@ const integrationsPageDomMocks = vi.hoisted(() => ({
   queryClient: {
     invalidateQueries: vi.fn(),
     setQueryData: vi.fn(),
+    getQueryState: vi.fn(() => ({ status: 'success' })),
+    getQueryData: vi.fn(),
   },
   saveMutate: vi.fn(),
   testMutate: vi.fn(),
@@ -20,6 +22,7 @@ const integrationsPageDomMocks = vi.hoisted(() => ({
   deferReplaySuccess: false,
   pendingReplaySuccess: null as null | (() => void),
   queryData: {} as Record<string, unknown>,
+  canonicalQueryData: new Map<string, unknown>(),
   currentUser: {
     data: {
       id: 'admin-1',
@@ -136,11 +139,12 @@ function mutationResult(mutate: ReturnType<typeof vi.fn>) {
   }
 }
 
-vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => integrationsPageDomMocks.queryClient,
-  useQuery: ({ queryKey }: { queryKey: unknown[] }) => {
-    const key = queryKey.join(':')
+function smtpQueryFixture({ queryKey }: { queryKey: unknown[] }) {
+    const fixtureKey = queryKey.length === 7 && queryKey[0] === 'integrations' && ['deliveries', 'test-runs'].includes(String(queryKey[4])) ? queryKey.slice(0, -1) : queryKey
+    const key = fixtureKey.join(':')
     const baseResult = {
+      isSuccess: true,
+      refetch: vi.fn(),
       isLoading: false,
       isError: false,
       error: null,
@@ -333,10 +337,23 @@ vi.mock('@tanstack/react-query', () => ({
       }
     }
     return { ...baseResult, data: undefined }
+}
+
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => integrationsPageDomMocks.queryClient,
+  useQuery: (options: { queryKey: unknown[]; select?: (raw: unknown) => unknown }) => {
+    const result = smtpQueryFixture(options)
+    // Static component fixture: raw envelope cache and observer selection are
+    // separate. Real-client denial, recovery and RPC guards are covered elsewhere.
+    const raw = options.select ? { generation: 0, value: result.data } : result.data
+    integrationsPageDomMocks.canonicalQueryData.set(JSON.stringify(options.queryKey), raw)
+    integrationsPageDomMocks.queryClient.getQueryData.mockImplementation((key: unknown) => integrationsPageDomMocks.canonicalQueryData.get(JSON.stringify(key)))
+    return { ...result, data: options.select ? options.select(raw) : result.data }
   },
   useMutation: (options: {
     mutationKey?: unknown
-    onSuccess?: (result: unknown, variables: unknown) => void
+    onMutate?: () => unknown
+    onSuccess?: (result: unknown, variables: unknown, context?: unknown) => void
     onError?: (error: unknown, variables: unknown) => void
   }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
@@ -346,12 +363,13 @@ vi.mock('@tanstack/react-query', () => ({
     if (mutationKey === 'integrations:smtp:hooks:delete') {
       return mutationResult(
         vi.fn((hookId: string) => {
+          const context = options.onMutate?.()
           integrationsPageDomMocks.deleteMutate(hookId)
           if (integrationsPageDomMocks.deleteShouldFail) {
             options.onError?.(new Error('SMTP hook deletion failed.'), hookId)
             return
           }
-          options.onSuccess?.(undefined, hookId)
+          options.onSuccess?.(undefined, hookId, context)
         }),
       )
     }
@@ -423,6 +441,7 @@ afterEach(() => {
   container?.remove()
   container = null
   document.body.innerHTML = ''
+  integrationsPageDomMocks.canonicalQueryData.clear()
   integrationsPageDomMocks.queryClient.invalidateQueries.mockReset()
   integrationsPageDomMocks.queryClient.setQueryData.mockReset()
   integrationsPageDomMocks.saveMutate.mockReset()

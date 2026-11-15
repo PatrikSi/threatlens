@@ -48,7 +48,7 @@ function DeliveryDetails({
           {!isReadOnly && isRetryableDelivery(delivery) ? (
             <button
               className="rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50 dark:border-cyan-900/40"
-              disabled={retryDelivery.isPending || !canManageWebhooks}
+              disabled={controller.retryReadUnavailable || retryDelivery.isPending || !canManageWebhooks}
               onClick={() => {
                 retryDelivery.reset()
                 setPendingDeliveryRetry(delivery)

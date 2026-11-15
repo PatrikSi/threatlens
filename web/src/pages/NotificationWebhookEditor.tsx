@@ -291,12 +291,12 @@ function EditorActions({ controller }: { controller: NotificationWebhooksControl
   if (!canManageWebhooks || isReadOnly) return null
   return (
     <div className="mt-4 flex flex-wrap items-center gap-2">
-      <button className="rounded bg-ink px-3 py-2 text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={saveWebhook.isPending || Boolean(validateConditions(draft.conditions ?? null))} onClick={onSave}>
+      <button className="rounded bg-ink px-3 py-2 text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={controller.editorReadUnavailable || saveWebhook.isPending || Boolean(validateConditions(draft.conditions ?? null))} onClick={onSave}>
         {selectedWebhookId ? 'Save changes' : 'Create webhook'}
       </button>
       <button
         className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
-        disabled={testWebhook.isPending || draft.payload_mode === 'automation_v1' || draft.event_type === 'article.ai.ready' || (draft.feed_scope === 'selected' && !draft.feed_ids.length)}
+        disabled={controller.editorReadUnavailable || testWebhook.isPending || draft.payload_mode === 'automation_v1' || draft.event_type === 'article.ai.ready' || (draft.feed_scope === 'selected' && !draft.feed_ids.length)}
         onClick={onTest}
       >
         Test webhook
@@ -305,7 +305,7 @@ function EditorActions({ controller }: { controller: NotificationWebhooksControl
       {selectedWebhookId && (
         <button
           className="rounded border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50 dark:border-red-900/60 dark:text-red-300"
-          disabled={deleteWebhook.isPending || Boolean(pendingWebhookDelete)}
+          disabled={controller.editorReadUnavailable || deleteWebhook.isPending || Boolean(pendingWebhookDelete)}
           onClick={() => onRequestDeleteWebhook(webhooks.find((entry) => entry.id === selectedWebhookId) ?? null)}
         >
           Delete webhook
@@ -354,6 +354,12 @@ export function NotificationWebhookEditor({ controller }: { controller: Notifica
   const { canManageWebhooks, draft, selectedWebhookId, setDraft } = controller
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      {controller.editorReadUnavailable && <p role="status" className="mb-3 text-sm">
+        Saved webhook access must be verified before continuing. Your edited draft is kept.
+        <button type="button" className="ml-2 rounded border px-3 py-2" onClick={controller.reloadSavedWebhook}>Reload saved webhook</button>
+      </p>}
+      {!controller.editorReadHidden && <>
+      <fieldset disabled={controller.editorReadUnavailable} className="m-0 min-w-0 border-0 p-0">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-display text-lg">{selectedWebhookId ? 'Edit webhook' : 'Create webhook'}</h2>
         <label className={`flex items-center gap-2 rounded-full border px-3 py-1 text-sm ${canManageWebhooks ? 'border-slate/20 dark:border-cyan-900/40' : 'border-slate/15 text-slate/70 dark:border-white/10 dark:text-white/55'}`}>
@@ -366,7 +372,9 @@ export function NotificationWebhookEditor({ controller }: { controller: Notifica
       <WebhookAutomationFields controller={controller} />
       <RequestPayloadEditors controller={controller} />
       <EditorActions controller={controller} />
+      </fieldset>
       <EditorNotices controller={controller} />
+      </>}
     </section>
   )
 }

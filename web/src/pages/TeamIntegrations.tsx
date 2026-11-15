@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../api/client'
 import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { AutomationExecutions } from './AutomationExecutions'
 import { TeamIntegrationConfiguration } from './TeamIntegrationConfiguration'
 import { TEAM_BUTTON } from './teamPresentation'
@@ -34,28 +35,47 @@ export function TeamIntegrations({
   unavailable: boolean
 }) {
   const cache = useQueryClient()
+  const access = useQueryAccessScope(['teams', teamId, 'integrations'])
+  const personalAccess = useQueryAccessScope(['notifications', 'webhooks'])
+  const [retained, setRetained] = useState<{ teamId: string; rows: Record<string, Destination> }>({ teamId, rows: {} })
+  const retainDraft = useCallback((row: Destination, dirty: boolean) => {
+    setRetained((current) => {
+      const rows = current.teamId === teamId ? current.rows : {}
+      if (dirty ? rows[row.id] === row : !rows[row.id]) return current
+      const next = { ...rows }
+      if (dirty) next[row.id] = row
+      else delete next[row.id]
+      return { teamId, rows: next }
+    })
+  }, [teamId])
   const [selected, setSelected] = useState('')
   const base = `/teams/${teamId}/integrations`
   const query = useQuery({
     queryKey: ['teams', teamId, 'integrations'],
-    queryFn: ({ signal }) =>
-      apiFetch<{ items: Destination[] }>(base, { signal }),
+    ...access.queryOptions(({ signal }) =>
+      apiFetch<{ items: Destination[] }>(base, { signal })),
     enabled: !unavailable,
   })
   const personal = useQuery({
     queryKey: ['notifications', 'webhooks'],
-    queryFn: ({ signal }) =>
-      apiFetch<Personal[]>('/notifications/webhooks', { signal }),
+    ...personalAccess.queryOptions(({ signal }) =>
+      apiFetch<Personal[]>('/notifications/webhooks', { signal })),
     enabled: !unavailable,
   })
   const adopt = useMutation({
-    mutationFn: ({ id, revision }: { id: string; revision: number }) =>
-      apiFetch(`${base}/${id}/adopt`, {
+    mutationFn: ({ id, revision }: { id: string; revision: number }) => {
+      if (unavailable || cache.getQueryState(['teams', teamId, 'integrations'])?.status === 'error' || access.denied) throw new Error('Refresh team integrations before transferring a destination.')
+      const owned = access.currentData<{ items: Destination[] }>(cache.getQueryData(['teams', teamId, 'integrations']))?.items.find((row) => row.id === id)
+      const source = cache.getQueryState(['notifications', 'webhooks'])?.status === 'error' ? undefined : personalAccess.currentData<Personal[]>(cache.getQueryData(['notifications', 'webhooks']))?.find((row) => row.id === id)
+      if (!(owned?.ownership_revision === revision || source && (source.ownership_revision ?? 1) === revision)) throw new Error('Reload the selected destination before transferring it.')
+      const capture = access.captureResult()
+      return apiFetch(`${base}/${id}/adopt`, {
         method: 'POST',
         body: JSON.stringify({ expected_revision: revision }),
-      }),
-    onSuccess: () => {
-      setSelected('')
+      }).then(capture)
+    },
+    onSuccess: (result) => {
+      if (access.currentData(result) !== undefined) setSelected('')
       void cache.invalidateQueries({
         queryKey: ['teams', teamId, 'integrations'],
       })
@@ -64,6 +84,9 @@ export function TeamIntegrations({
   })
   const data = accessibleQueryData(query)
   const personalData = accessibleQueryData(personal) ?? []
+  const rows = data?.items ?? []
+  const retainedRows = Object.values(retained.teamId === teamId ? retained.rows : {}).filter((row) => !rows.some((current) => current.id === row.id))
+  useEffect(() => { if (access.denied || personalAccess.denied) setSelected('') }, [access.denied, personalAccess.denied])
   return (
     <section className="space-y-3" aria-label="Team integrations">
       <h2 className="font-display text-lg">Team integrations</h2>
@@ -83,7 +106,7 @@ export function TeamIntegrations({
       </p>
       <fieldset
         disabled={
-          unavailable || adopt.isPending || query.isError || personal.isError
+          unavailable || adopt.isPending || query.isError || personal.isError || access.denied || personalAccess.denied
         }
         className="flex flex-wrap gap-2"
       >
@@ -152,12 +175,15 @@ export function TeamIntegrations({
         </p>
       )}
       {data?.items.length === 0 && <p>No team integrations yet.</p>}
-      {data?.items.map((row) => (
+      {[...rows, ...retainedRows].map((row) => (
         <DestinationCard
           key={row.id}
           row={row}
           base={base}
-          unavailable={unavailable || query.isError || adopt.isPending}
+          teamId={teamId}
+          hidden={!rows.some((current) => current.id === row.id)}
+          onDirtyChange={retainDraft}
+          unavailable={unavailable || query.isError || adopt.isPending || access.denied}
           onAdopt={() =>
             adopt.mutate({ id: row.id, revision: row.ownership_revision })
           }
@@ -171,36 +197,53 @@ export function TeamIntegrations({
 function DestinationCard({
   row,
   base,
+  teamId,
+  hidden,
+  onDirtyChange,
   unavailable,
   onAdopt,
   onChanged,
 }: {
   row: Destination
   base: string
+  teamId: string
+  hidden: boolean
+  onDirtyChange: (row: Destination, dirty: boolean) => void
   unavailable: boolean
   onAdopt: () => void
   onChanged: () => void
 }) {
   const cache = useQueryClient()
+  const access = useQueryAccessScope(['teams', teamId, 'integrations'])
+  const reportDirty = useCallback((dirty: boolean) => onDirtyChange(row, dirty), [onDirtyChange, row])
   const [credentialsOpen, setCredentialsOpen] = useState(false)
   const [configurationOpen, setConfigurationOpen] = useState(false)
   const [executionsOpen, setExecutionsOpen] = useState(false)
   const toggle = useMutation({
-    mutationFn: () =>
-      apiFetch(`${base}/${row.id}/enabled`, {
+    mutationFn: () => {
+      const current = cache.getQueryState(['teams', teamId, 'integrations'])?.status === 'error' ? undefined
+        : access.currentData<{ items: Destination[] }>(cache.getQueryData(['teams', teamId, 'integrations']))?.items.find((entry) => entry.id === row.id)
+      if (unavailable || hidden || !current || current.ownership_revision !== row.ownership_revision) throw new Error('Reload this destination before changing its state.')
+      return apiFetch(`${base}/${row.id}/enabled`, {
         method: 'PATCH',
         body: JSON.stringify({
           expected_revision: row.ownership_revision,
           enabled: !row.enabled,
         }),
-      }),
+      })
+    },
     onSuccess: () => {
       onChanged()
       void cache.invalidateQueries({ queryKey: ['teams', 'integration-configuration', `${base}/${row.id}`] })
     },
   })
+  const configuration = configurationOpen && <TeamIntegrationConfiguration
+    base={`${base}/${row.id}`} teamId={teamId} hidden={hidden}
+    unavailable={unavailable} onChanged={onChanged} onDirtyChange={reportDirty}
+  />
   return (
-    <article className="space-y-2 rounded border border-slate/30 p-3">
+    <>
+    {!hidden && <article className="space-y-2 rounded border border-slate/30 p-3">
       <h3 className="font-semibold">{row.name}</h3>
       <p className="text-sm">
         {row.event_type} · {row.enabled ? 'Enabled' : 'Paused'} ·{' '}
@@ -240,13 +283,6 @@ function DestinationCard({
       >
         Edit destination configuration
       </button>
-      {configurationOpen && (
-        <TeamIntegrationConfiguration
-          base={`${base}/${row.id}`}
-          unavailable={unavailable}
-          onChanged={onChanged}
-        />
-      )}
       <button
         className={TEAM_BUTTON}
         disabled={unavailable}
@@ -274,43 +310,73 @@ function DestinationCard({
           key={row.id}
           base={`${base}/${row.id}/receiver-credentials`}
           unavailable={unavailable}
+          parentGeneration={access.generation}
+          teamId={teamId}
+          destinationId={row.id}
         />
       )}
-    </article>
+    </article>}
+    {configuration}
+    </>
   )
 }
 
 function ReceiverCredentials({
   base,
   unavailable,
+  parentGeneration,
+  teamId,
+  destinationId,
 }: {
   base: string
   unavailable: boolean
+  parentGeneration: number
+  teamId: string
+  destinationId: string
 }) {
   const [name, setName] = useState('SIEM receiver')
   const [token, setToken] = useState('')
+  const access = useQueryAccessScope(['teams', 'receiver-credentials', base])
+  const client = useQueryClient()
+  const parentAccess = useQueryAccessScope(['teams', teamId, 'integrations'])
+  function parentReadable() {
+    const key = ['teams', teamId, 'integrations']
+    return client.getQueryState(key)?.status !== 'error'
+      && parentAccess.currentData({ generation: parentGeneration, value: true })
+      && parentAccess.currentData<{ items: Destination[] }>(client.getQueryData(key))?.items.some((row) => row.id === destinationId)
+  }
+  const queryKey = ['teams', 'receiver-credentials', base, parentGeneration]
   const query = useQuery({
-    queryKey: ['teams', 'receiver-credentials', base],
-    queryFn: ({ signal }) =>
-      apiFetch<{ items: Credential[] }>(base, { signal }),
+    queryKey,
+    ...access.queryOptions(({ signal }) =>
+      apiFetch<{ items: Credential[] }>(base, { signal })),
     enabled: !unavailable,
   })
   const create = useMutation({
-    mutationFn: () =>
-      apiFetch<{ token: string }>(base, {
+    mutationFn: () => {
+      if (unavailable || !parentReadable() || access.denied || client.getQueryState(queryKey)?.status === 'error') throw new Error('Reload receiver credentials before creating a token.')
+      const capture = access.captureResult()
+      return apiFetch<{ token: string }>(base, {
         method: 'POST',
         body: JSON.stringify({
           name,
           expires_at: new Date(Date.now() + 90 * 86400000).toISOString(),
         }),
-      }),
-    onSuccess: (saved) => {
-      setToken(saved.token)
+      }).then(capture)
+    },
+    onSuccess: (result) => {
+      const saved = access.currentData(result)
+      if (saved && !unavailable && parentReadable() && client.getQueryState(queryKey)?.status !== 'error') setToken(saved.token)
       void query.refetch()
     },
   })
   const revoke = useMutation({
-    mutationFn: (id: string) => apiFetch(`${base}/${id}`, { method: 'DELETE' }),
+    mutationFn: (id: string) => {
+      const current = client.getQueryState(queryKey)?.status === 'error' ? undefined
+        : access.currentData<{ items: Credential[] }>(client.getQueryData(queryKey))?.items.find((row) => row.id === id)
+      if (unavailable || !parentReadable() || !current || current.revoked_at) throw new Error('Reload receiver credentials before revoking the selected token.')
+      return apiFetch(`${base}/${id}`, { method: 'DELETE' })
+    },
     onSuccess: () => {
       setToken('')
       void query.refetch()

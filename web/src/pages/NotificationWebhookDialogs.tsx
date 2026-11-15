@@ -25,7 +25,7 @@ export function NotificationWebhookDialogs({ controller }: { controller: Notific
         confirmLabel="Delete webhook"
         onCancel={() => setPendingWebhookDelete(null)}
         onConfirm={onConfirmDeleteWebhook}
-        confirmDisabled={deleteWebhook.isPending || !canManageWebhooks}
+        confirmDisabled={controller.editorReadUnavailable || deleteWebhook.isPending || !canManageWebhooks}
         isConfirming={deleteWebhook.isPending}
       >
         {pendingWebhookDelete && (
@@ -43,7 +43,7 @@ export function NotificationWebhookDialogs({ controller }: { controller: Notific
         confirmLabel="Retry delivery"
         onCancel={() => setPendingDeliveryRetry(null)}
         onConfirm={onConfirmRetryDelivery}
-        confirmDisabled={retryDelivery.isPending || !canManageWebhooks}
+        confirmDisabled={controller.retryReadUnavailable || retryDelivery.isPending || !canManageWebhooks}
         isConfirming={retryDelivery.isPending}
       >
         {pendingDeliveryRetry ? (

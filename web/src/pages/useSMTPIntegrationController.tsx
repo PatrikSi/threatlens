@@ -1,5 +1,5 @@
 import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { rebaseSavedDraft } from '../hooks/rebaseSavedDraft'
@@ -22,6 +22,7 @@ import {
   SMTPTestRunListResponse,
 } from '../types/api'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
+import { admittedRecordValue } from './notificationReadPresentation'
 import {
   applySMTPTemplateDefault,
   createSMTPHookDraft,
@@ -49,7 +50,7 @@ const DELIVERY_HISTORY_REFRESH_MS = 30_000
 export function useSMTPIntegrationController() {
   const queryClient = useQueryClient()
   const currentUserQuery = useCurrentUser()
-  const canManageEmailDelivery = hasRequiredPermissions(
+  const canManageEmailDelivery = !currentUserQuery.isError && hasRequiredPermissions(
     currentUserQuery.data?.access?.permissions ?? [],
     ['write:integrations'],
   )
@@ -60,28 +61,33 @@ export function useSMTPIntegrationController() {
   const [selectedHookId, setSelectedHookId] = useState<string | null>(null)
   const selectedHookIdRef = useRef(selectedHookId)
   selectedHookIdRef.current = selectedHookId
+  const collectionAccess = useQueryAccessScope(['integrations', 'smtp', 'hooks'])
+  const analyticsAccess = useQueryAccessScope(['integrations', 'smtp', 'analytics'])
+  const deliveryAccess = useQueryAccessScope(['integrations', 'smtp', 'hooks', selectedHookId ?? '', 'deliveries'])
+  const testRunAccess = useQueryAccessScope(['integrations', 'smtp', 'hooks', selectedHookId ?? '', 'test-runs'])
+  const [baselineAdmission, setBaselineAdmission] = useState(() => collectionAccess.captureResult()(true))
+  const [baselineDraft, setBaselineDraft] = useState<SMTPHookDraft>(DEFAULT_SMTP_HOOK_DRAFT)
   const draftRef = useRef<SMTPHookDraft>(DEFAULT_SMTP_HOOK_DRAFT)
   const [selectionInitialized, setSelectionInitialized] = useState(false)
   const [draft, setDraftState] = useState<SMTPHookDraft>(DEFAULT_SMTP_HOOK_DRAFT)
   draftRef.current = draft
-  const [hasUserEdited, setHasUserEdited] = useState(false)
   const [notice, setNotice] = useState<NoticeState | null>(null)
   const [sendTestEmail, setSendTestEmail] = useState(false)
   const [testRecipient, setTestRecipient] = useState('')
-  const [testResult, setTestResult] = useState<SMTPTestResponse | null>(null)
-  const [pendingDelete, setPendingDelete] = useState<SMTPHook | null>(null)
+  const [testReceipt, setTestReceipt] = useState<{ value: SMTPTestResponse; admission: typeof baselineAdmission; hookId: string | null } | null>(null)
+  const [deleteIntent, setDeleteIntent] = useState<{ value: SMTPHook; admission: typeof baselineAdmission } | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
-  const [pendingReplay, setPendingReplay] = useState<SMTPDelivery | null>(null)
+  const [replayIntent, setReplayIntent] = useState<{ value: SMTPDelivery; admission: typeof baselineAdmission; collection: typeof baselineAdmission; page: number } | null>(null)
   const [deliveryPage, setDeliveryPage] = useState(1)
   const [testRunPage, setTestRunPage] = useState(1)
 
   const hooksQuery = useQuery({
     queryKey: ['integrations', 'smtp', 'hooks'],
-    queryFn: () => apiFetch<SMTPHook[]>('/integrations/smtp/hooks'),
+    ...collectionAccess.queryOptions(({ signal }) => apiFetch<SMTPHook[]>('/integrations/smtp/hooks', { signal })),
   })
   const analyticsQuery = useQuery({
     queryKey: ['integrations', 'smtp', 'analytics'],
-    queryFn: () => apiFetch<SMTPAnalyticsResponse>('/integrations/smtp/analytics'),
+    ...analyticsAccess.queryOptions(({ signal }) => apiFetch<SMTPAnalyticsResponse>('/integrations/smtp/analytics', { signal })),
     refetchInterval: DELIVERY_HISTORY_REFRESH_MS,
   })
   const defaultsQuery = useQuery({
@@ -104,10 +110,6 @@ export function useSMTPIntegrationController() {
   const templateDefaults = defaultsQuery.data ?? EMPTY_TEMPLATE_DEFAULTS
   const selectedHook = hooks.find((hook) => hook.id === selectedHookId) ?? null
   const newHookDraft = useMemo(() => createNewHookDraft(templateDefaults), [templateDefaults])
-  const baselineDraft = useMemo(
-    () => (selectedHook ? createSMTPHookDraft(selectedHook) : newHookDraft),
-    [newHookDraft, selectedHook],
-  )
   const validation = useMemo(() => validateSMTPHookDraft(draft), [draft])
   const firstValidationError = getFirstSMTPHookDraftValidationError(validation)
   const draftDirty = smtpHookDraftFingerprint(draft) !== smtpHookDraftFingerprint(baselineDraft)
@@ -125,56 +127,89 @@ export function useSMTPIntegrationController() {
     aiReportingIsAvailable(currentUserQuery.data),
   )
 
+  const baselineAuthorized = Boolean(collectionAccess.currentData(baselineAdmission))
+  const editorReadHidden = Boolean(selectedHookId) && collectionAccess.generation > 0 && !selectedHook
+  const editorReadUnavailable = Boolean(selectedHookId) && (hooksQuery.isError || !selectedHook || !baselineAuthorized)
+  const visibleDraft = selectedHookId && !baselineAuthorized && !draftDirty ? newHookDraft : draft
+  const collectionKey = ['integrations', 'smtp', 'hooks'] as const
+  function currentHooks() {
+    return queryClient.getQueryState(collectionKey)?.status === 'error' ? undefined
+      : collectionAccess.currentData<SMTPHook[]>(queryClient.getQueryData(collectionKey))
+  }
+  function assertSavedHook(hookId: string | null) {
+    if (!canManageEmailDelivery || hookId !== selectedHookIdRef.current) throw new Error('Verify the selected email destination before continuing.')
+    if (hookId && (!collectionAccess.currentData(baselineAdmission) || !currentHooks()?.some((row) => row.id === hookId))) {
+      throw new Error('Reload the saved email destination before continuing. Your local draft is kept.')
+    }
+  }
   const setDraft: Dispatch<SetStateAction<SMTPHookDraft>> = (value) => {
-    if (!canManageEmailDelivery) return
-    setHasUserEdited(true)
-    setTestResult(null)
+    if (!canManageEmailDelivery || editorReadUnavailable) return
+    setTestReceipt(null)
     setDraftState(value)
   }
-
+  const adoptHook = useCallback((hook: SMTPHook) => {
+    const next = createSMTPHookDraft(hook)
+    setSelectedHookId(hook.id)
+    setDraftState(next)
+    setBaselineDraft(next)
+    setBaselineAdmission(collectionAccess.captureResult()(true))
+  }, [collectionAccess])
   useEffect(() => {
     if (selectionInitialized || !hooksQuery.data) return
-    const firstHook = hooksQuery.data[0]
     setSelectionInitialized(true)
-    if (firstHook) {
-      setSelectedHookId(firstHook.id)
-      setDraftState(createSMTPHookDraft(firstHook))
-      return
-    }
-    setDraftState(createNewHookDraft(templateDefaults))
-  }, [hooksQuery.data, selectionInitialized, templateDefaults])
-
-  useEffect(() => {
-    if (hasUserEdited) return
-    if (selectedHook) {
-      setDraftState(createSMTPHookDraft(selectedHook))
-    } else if (selectionInitialized) {
+    const firstHook = hooksQuery.data[0]
+    if (firstHook) adoptHook(firstHook)
+    else {
       setDraftState(newHookDraft)
+      setBaselineDraft(newHookDraft)
     }
-  }, [hasUserEdited, newHookDraft, selectedHook, selectionInitialized])
-
+  }, [adoptHook, hooksQuery.data, newHookDraft, selectionInitialized])
   useEffect(() => {
-    setDeliveryPage(1)
-    setTestRunPage(1)
-  }, [selectedHookId])
+    if (draftDirty) return
+    if (selectedHook) {
+      const next = createSMTPHookDraft(selectedHook)
+      if (baselineAuthorized && smtpHookDraftFingerprint(next) === smtpHookDraftFingerprint(draft)) return
+      adoptHook(selectedHook)
+    } else if (selectionInitialized && !selectedHookId && smtpHookDraftFingerprint(draft) !== smtpHookDraftFingerprint(newHookDraft)) {
+      setDraftState(newHookDraft)
+      setBaselineDraft(newHookDraft)
+    }
+  }, [adoptHook, baselineAuthorized, draft, draftDirty, newHookDraft, selectedHook, selectedHookId, selectionInitialized])
+  useEffect(() => { setDeliveryPage(1); setTestRunPage(1) }, [selectedHookId])
+  useEffect(() => { setReplayIntent(null) }, [deliveryPage, selectedHookId])
+  const reloadSavedHook = () => {
+    const row = currentHooks()?.find((entry) => entry.id === selectedHookIdRef.current)
+    if (row) confirmDiscardUnsavedChanges(() => adoptHook(row))
+    else void hooksQuery.refetch()
+  }
 
   const saveHook = useMutation({
     mutationKey: ['integrations', 'smtp', 'hooks', 'save'],
-    mutationFn: ({ hookId, hook }: { hookId: string | null; hook: SMTPHookWriteRequest; submittedDraft: SMTPHookDraft }) =>
-      apiFetch<SMTPHook>(hookId ? `/integrations/smtp/hooks/${hookId}` : '/integrations/smtp/hooks', {
-        method: hookId ? 'PATCH' : 'POST',
-        body: JSON.stringify(hook),
-      }),
-    onSuccess: (saved, variables) => {
-      queryClient.setQueryData<SMTPHook[]>(['integrations', 'smtp', 'hooks'], (current) =>
-        [...(current ?? []).filter((hook) => hook.id !== saved.id), saved])
-      if (selectedHookIdRef.current === variables.hookId) {
-        const nextDraft = rebaseSavedDraft(variables.submittedDraft, draftRef.current, createSMTPHookDraft(saved))
-        setSelectedHookId(saved.id)
-        setDraftState(nextDraft)
-        setHasUserEdited(smtpHookDraftFingerprint(nextDraft) !== smtpHookDraftFingerprint(createSMTPHookDraft(saved)))
+    onMutate: () => collectionAccess.captureResult(),
+    mutationFn: ({ hookId, hook }: { hookId: string | null; hook: SMTPHookWriteRequest; submittedDraft: SMTPHookDraft }) => {
+      assertSavedHook(hookId)
+      return apiFetch<SMTPHook>(hookId ? `/integrations/smtp/hooks/${hookId}` : '/integrations/smtp/hooks', {
+        method: hookId ? 'PATCH' : 'POST', body: JSON.stringify(hook),
+      })
+    },
+    onSuccess: (saved, variables, capture) => {
+      if (capture && collectionAccess.currentData(capture(saved))) {
+        if (queryClient.getQueryState(collectionKey)?.status !== 'error') {
+          queryClient.setQueryData<ReturnType<typeof capture<SMTPHook[]>>>(collectionKey, (current) => {
+            const rows = collectionAccess.currentData(current)
+            return rows ? capture([...rows.filter((row) => row.id !== saved.id), saved]) : current
+          })
+        }
+        if (selectedHookIdRef.current === variables.hookId) {
+          const nextBaseline = createSMTPHookDraft(saved)
+          const nextDraft = rebaseSavedDraft(variables.submittedDraft, draftRef.current, nextBaseline)
+          setSelectedHookId(saved.id)
+          setDraftState(nextDraft)
+          setBaselineDraft(nextBaseline)
+          setBaselineAdmission(capture(true))
+        }
       }
-      setTestResult(null)
+      setTestReceipt(null)
       setNotice({ tone: 'success', message: variables.hookId ? 'Email destination updated.' : 'Email destination created.' })
       void queryClient.invalidateQueries({ queryKey: ['integrations', 'smtp'] })
       void queryClient.invalidateQueries({ queryKey: ['integrations'] })
@@ -183,14 +218,22 @@ export function useSMTPIntegrationController() {
 
   const deleteHook = useMutation({
     mutationKey: ['integrations', 'smtp', 'hooks', 'delete'],
-    mutationFn: (hookId: string) => apiFetch<void>(`/integrations/smtp/hooks/${hookId}`, { method: 'DELETE' }),
-    onSuccess: () => {
-      setPendingDelete(null)
+    onMutate: () => collectionAccess.captureResult(),
+    mutationFn: (hookId: string) => {
+      assertSavedHook(hookId)
+      if (!deleteIntent || deleteIntent.value.id !== hookId || !collectionAccess.currentData(deleteIntent.admission)) throw new Error('Review the current destination deletion again.')
+      return apiFetch<void>(`/integrations/smtp/hooks/${hookId}`, { method: 'DELETE' })
+    },
+    onSuccess: (_result, hookId, capture) => {
+      setDeleteIntent(null)
       setDeleteError(null)
-      setSelectedHookId(null)
-      setDraftState(newHookDraft)
-      setHasUserEdited(false)
-      setTestResult(null)
+      if (selectedHookIdRef.current === hookId && capture && collectionAccess.currentData(capture(true))) {
+        setSelectedHookId(null)
+        setDraftState(newHookDraft)
+        setBaselineDraft(newHookDraft)
+        setBaselineAdmission(capture(true))
+      }
+      setTestReceipt(null)
       setNotice({ tone: 'success', message: 'Email destination deleted.' })
       void queryClient.invalidateQueries({ queryKey: ['integrations', 'smtp'] })
       void queryClient.invalidateQueries({ queryKey: ['integrations'] })
@@ -200,16 +243,17 @@ export function useSMTPIntegrationController() {
 
   const testHook = useMutation({
     mutationKey: ['integrations', 'smtp', 'hooks', 'test'],
-    mutationFn: (payload: SMTPHookTestRequest) =>
-      apiFetch<SMTPTestResponse>('/integrations/smtp/hooks/test', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-    onSuccess: (result, variables) => {
-      setTestResult(result)
+    onMutate: () => ({ capture: collectionAccess.captureResult(), hookId: selectedHookIdRef.current }),
+    mutationFn: (payload: SMTPHookTestRequest) => {
+      assertSavedHook(payload.hook_id ?? null)
+      return apiFetch<SMTPTestResponse>('/integrations/smtp/hooks/test', { method: 'POST', body: JSON.stringify(payload) })
+    },
+    onSuccess: (result, variables, context) => {
+      if (!context || context.hookId !== selectedHookIdRef.current || !collectionAccess.currentData(context.capture(true))) return
+      setTestReceipt({ value: result, admission: context.capture(true), hookId: context.hookId })
       setNotice({
         tone: result.success ? 'success' : 'error',
-        message: result.success ? 'Email delivery test succeeded.' : result.error || 'Email delivery test failed.',
+        message: result.success ? 'Email delivery test succeeded.' : 'Email delivery test failed.',
       })
       void queryClient.invalidateQueries({ queryKey: ['integrations', 'smtp', 'hooks'], exact: true })
       if (variables.hook_id) {
@@ -220,33 +264,38 @@ export function useSMTPIntegrationController() {
     },
   })
 
+  const deliveriesKey = ['integrations', 'smtp', 'hooks', selectedHookId, 'deliveries', deliveryPage, collectionAccess.generation] as const
   const deliveriesQuery = useQuery({
-    queryKey: ['integrations', 'smtp', 'hooks', selectedHookId, 'deliveries', deliveryPage],
-    queryFn: () => apiFetch<SMTPDeliveryListResponse>(
-      `/integrations/smtp/hooks/${selectedHookId}/deliveries?page=${deliveryPage}&page_size=10`,
-    ),
-    enabled: Boolean(selectedHookId),
+    queryKey: deliveriesKey,
+    ...deliveryAccess.queryOptions(({ signal }) => apiFetch<SMTPDeliveryListResponse>(
+      `/integrations/smtp/hooks/${selectedHookId}/deliveries?page=${deliveryPage}&page_size=10`, { signal },
+    )),
+    enabled: Boolean(selectedHookId) && !collectionAccess.denied,
     refetchInterval: selectedHookId ? DELIVERY_HISTORY_REFRESH_MS : false,
   })
 
   const testRunsQuery = useQuery({
-    queryKey: ['integrations', 'smtp', 'hooks', selectedHookId, 'test-runs', testRunPage],
-    queryFn: () => apiFetch<SMTPTestRunListResponse>(
-      `/integrations/smtp/hooks/${selectedHookId}/test-runs?page=${testRunPage}&page_size=10`,
-    ),
-    enabled: Boolean(selectedHookId),
+    queryKey: ['integrations', 'smtp', 'hooks', selectedHookId, 'test-runs', testRunPage, collectionAccess.generation],
+    ...testRunAccess.queryOptions(({ signal }) => apiFetch<SMTPTestRunListResponse>(
+      `/integrations/smtp/hooks/${selectedHookId}/test-runs?page=${testRunPage}&page_size=10`, { signal },
+    )),
+    enabled: Boolean(selectedHookId) && !collectionAccess.denied,
     refetchInterval: selectedHookId ? DELIVERY_HISTORY_REFRESH_MS : false,
   })
 
   const replayDelivery = useMutation({
     mutationKey: ['integrations', 'smtp', 'deliveries', 'replay'],
-    mutationFn: ({ hookId, deliveryId }: { hookId: string; deliveryId: string }) =>
-      apiFetch<IntegrationDeliveryReplayResponse>(
-        `/integrations/smtp/hooks/${hookId}/deliveries/${deliveryId}/replay`,
-        { method: 'POST' },
-      ),
+    mutationFn: ({ hookId, deliveryId }: { hookId: string; deliveryId: string }) => {
+      assertSavedHook(hookId)
+      const current = queryClient.getQueryState(deliveriesKey)?.status === 'error' ? undefined
+        : deliveryAccess.currentData<SMTPDeliveryListResponse>(queryClient.getQueryData(deliveriesKey))
+      if (!replayIntent || replayIntent.value.id !== deliveryId || replayIntent.page !== deliveryPage
+        || !deliveryAccess.currentData(replayIntent.admission) || !collectionAccess.currentData(replayIntent.collection)
+        || !current?.deliveries.some((row) => row.id === deliveryId && row.state === 'dead_letter')) throw new Error('Refresh the current delivery and review replay again.')
+      return apiFetch<IntegrationDeliveryReplayResponse>(`/integrations/smtp/hooks/${hookId}/deliveries/${deliveryId}/replay`, { method: 'POST' })
+    },
     onSuccess: (result, variables) => {
-      setPendingReplay(null)
+      setReplayIntent(null)
       setNotice({
         tone: 'success',
         message: result.queued
@@ -258,15 +307,29 @@ export function useSMTPIntegrationController() {
       })
       void queryClient.invalidateQueries({ queryKey: ['integrations', 'smtp', 'analytics'] })
     },
-    onError: () => setPendingReplay(null),
+    onError: () => setReplayIntent(null),
   })
+
+  const replayReadUnavailable = editorReadUnavailable || deliveriesQuery.isError || !deliveriesQuery.data
+  const pendingDelete = admittedRecordValue(deleteIntent,
+    (intent) => collectionAccess.currentData(intent.admission) && intent.value.id === selectedHookId)
+  const pendingReplay = admittedRecordValue(replayIntent,
+    (intent) => deliveryAccess.currentData(intent.admission) && collectionAccess.currentData(intent.collection) && intent.page === deliveryPage && intent.value.hook_id === selectedHookId)
+  const testResult = admittedRecordValue(testReceipt,
+    (receipt) => receipt.hookId === selectedHookId && collectionAccess.currentData(receipt.admission))
+  const setPendingDelete = (value: SMTPHook | null) => setDeleteIntent(value ? { value, admission: collectionAccess.captureResult()(true) } : null)
+  const setPendingReplay = (value: SMTPDelivery | null) => {
+    if (value && replayReadUnavailable) return
+    setReplayIntent(value ? { value, admission: deliveryAccess.captureResult()(true), collection: collectionAccess.captureResult()(true), page: deliveryPage } : null)
+  }
+  const setTestResult = (value: SMTPTestResponse | null) => setTestReceipt(value ? { value, admission: collectionAccess.captureResult()(true), hookId: selectedHookId } : null)
 
   const resetTransientState = () => {
     setNotice(null)
-    setTestResult(null)
+    setTestReceipt(null)
     setSendTestEmail(false)
     setTestRecipient('')
-    setPendingReplay(null)
+    setReplayIntent(null)
     saveHook.reset()
     testHook.reset()
     replayDelivery.reset()
@@ -275,9 +338,9 @@ export function useSMTPIntegrationController() {
   const onSelectHook = (hook: SMTPHook) => {
     if (hook.id === selectedHookId) return
     confirmDiscardUnsavedChanges(() => {
-      setSelectedHookId(hook.id)
-      setDraftState(createSMTPHookDraft(hook))
-      setHasUserEdited(false)
+      const current = currentHooks()?.find((row) => row.id === hook.id)
+      if (!current) return
+      adoptHook(current)
       resetTransientState()
     })
   }
@@ -287,13 +350,14 @@ export function useSMTPIntegrationController() {
     confirmDiscardUnsavedChanges(() => {
       setSelectedHookId(null)
       setDraftState(newHookDraft)
-      setHasUserEdited(false)
+      setBaselineDraft(newHookDraft)
+      setBaselineAdmission(collectionAccess.captureResult()(true))
       resetTransientState()
     })
   }
 
   const onSave = () => {
-    if (!canManageEmailDelivery) return
+    if (!canManageEmailDelivery || editorReadUnavailable) return
     if (firstValidationError) {
       setNotice({ tone: 'error', message: firstValidationError })
       return
@@ -303,7 +367,7 @@ export function useSMTPIntegrationController() {
   }
 
   const onTest = () => {
-    if (!canManageEmailDelivery) return
+    if (!canManageEmailDelivery || editorReadUnavailable) return
     const testError = resolveTestValidationError(draft, sendTestEmail, testRecipient, firstValidationError)
     if (testError) {
       setNotice({ tone: 'error', message: testError })
@@ -381,7 +445,11 @@ export function useSMTPIntegrationController() {
     deleteHook,
     deliveriesQuery,
     deliveryPage,
-    draft,
+    draft: visibleDraft,
+    editorReadUnavailable,
+    editorReadHidden,
+    replayReadUnavailable,
+    reloadSavedHook,
     eventAvailability,
     feeds,
     hooks,

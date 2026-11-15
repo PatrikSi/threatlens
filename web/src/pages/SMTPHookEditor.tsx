@@ -40,9 +40,10 @@ export function SMTPHookList({ controller }: { controller: SMTPIntegrationContro
       {hooksQuery.isError && (
         <p className="mt-3 text-sm text-red-600">
           {resolveApiErrorMessage(hooksQuery.error, 'Failed to load email destinations.')}
+          <button type="button" className="ml-2 rounded border px-3 py-2" onClick={() => void hooksQuery.refetch()}>Reload destinations</button>
         </p>
       )}
-      {!hooksQuery.isLoading && !hooks.length && (
+      {hooksQuery.isSuccess && hooksQuery.data && !hooks.length && (
         <p className="mt-3 rounded-lg border border-dashed border-slate/25 p-3 text-sm text-slate dark:border-cyan-900/40 dark:text-white/70">
           No email destinations are configured. Create one to route notification events by email.
         </p>
@@ -92,7 +93,11 @@ function SMTPHookListItem({
 export function SMTPHookEditor({ controller }: { controller: SMTPIntegrationController }) {
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <fieldset disabled={!controller.canManageEmailDelivery} className="m-0 min-w-0 border-0 p-0">
+      {controller.editorReadUnavailable && <p role="status" className="mb-3 text-sm">
+        Saved destination access must be verified before continuing. Your edited draft is kept.
+        <button type="button" className="ml-2 rounded border px-3 py-2" onClick={controller.reloadSavedHook}>Reload saved destination</button>
+      </p>}
+      {!controller.editorReadHidden && <fieldset disabled={!controller.canManageEmailDelivery || controller.editorReadUnavailable} className="m-0 min-w-0 border-0 p-0">
         <SMTPHookEditorHeading controller={controller} />
         <UnreadableSecretNotice hook={controller.selectedHook} />
         <SMTPEventFields controller={controller} />
@@ -106,7 +111,7 @@ export function SMTPHookEditor({ controller }: { controller: SMTPIntegrationCont
         />
         <SMTPHookActions controller={controller} />
         <SMTPHookStatus controller={controller} />
-      </fieldset>
+      </fieldset>}
     </section>
   )
 }
@@ -116,7 +121,7 @@ function SMTPHookEditorHeading({ controller }: { controller: SMTPIntegrationCont
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h2 className="font-display text-lg">{controller.selectedHook ? 'Edit destination' : 'Create destination'}</h2>
+        <h2 className="font-display text-lg">{controller.selectedHookId ? 'Edit destination' : 'Create destination'}</h2>
         <p className="mt-1 text-sm text-slate dark:text-white/75">{describeEventDescription(currentSendFor)}</p>
       </div>
       <label className="flex items-center gap-2 rounded-full border border-slate/20 px-3 py-1 text-sm dark:border-cyan-900/40">
@@ -367,15 +372,15 @@ function SMTPHookActions({ controller }: { controller: SMTPIntegrationController
           <button
             type="button"
             className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
-            disabled={controller.saveHook.isPending || !controller.canManageEmailDelivery}
+            disabled={controller.editorReadUnavailable || controller.saveHook.isPending || !controller.canManageEmailDelivery}
             onClick={controller.onSave}
           >
-            {controller.saveHook.isPending ? 'Saving...' : selectedHook ? 'Save destination' : 'Create destination'}
+            {controller.saveHook.isPending ? 'Saving...' : controller.selectedHookId ? 'Save destination' : 'Create destination'}
           </button>
           <button
             type="button"
             className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
-            disabled={controller.testHook.isPending || !controller.canManageEmailDelivery}
+            disabled={controller.editorReadUnavailable || controller.testHook.isPending || !controller.canManageEmailDelivery}
             onClick={controller.onTest}
           >
             {controller.testHook.isPending
@@ -388,7 +393,7 @@ function SMTPHookActions({ controller }: { controller: SMTPIntegrationController
             <button
               type="button"
               className="tl-button-danger rounded px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!controller.canManageEmailDelivery}
+              disabled={!controller.canManageEmailDelivery || controller.editorReadUnavailable}
               onClick={() => {
                 if (!controller.canManageEmailDelivery) return
                 controller.confirmDiscardUnsavedChanges(() => {

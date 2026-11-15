@@ -52,9 +52,10 @@ export function SavedWebhooksCard({ controller }: { controller: NotificationWebh
       {webhooksQuery.isError && (
         <p className="mt-3 text-sm text-red-600">
           {resolveApiErrorMessage(webhooksQuery.error, 'Failed to load webhooks.')}
+          <button type="button" className="ml-2 rounded border px-3 py-2" onClick={() => void webhooksQuery.refetch()}>Reload webhooks</button>
         </p>
       )}
-      {!webhooksQuery.isLoading && !webhooks.length && (
+      {webhooksQuery.isSuccess && webhooksQuery.data && !webhooks.length && (
         <p className="mt-3 rounded-lg border border-dashed border-slate/25 p-3 text-sm text-slate dark:border-cyan-900/40 dark:text-white/70">
           No webhooks yet. Create one to call external systems when ThreatLens sees new items, alert matches, feed failures, or digest windows.
         </p>

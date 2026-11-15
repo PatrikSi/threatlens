@@ -622,6 +622,37 @@ and saved-draft controls pass together (log
 The expanded TypeScript snapshot passes. Final whole-project gates are pending
 the remaining IAM/reporting/delivery fixes and dependency artifact checks.
 
+### N19 — notification, SMTP and team destination read boundaries
+
+Notification/SMTP collection, analytics and per-destination delivery/test history
+now use scoped reads and captured writes. The shared personal webhook cache is
+migrated atomically with its team-destination reader. Parent withdrawal requires
+new child reads; a refreshed parent cannot expose old child configuration or
+receiver inventory. Receiver actions check current parent health at actual RPC
+entry, and late credentials cannot restore withdrawn access.
+
+Dirty controller state survives absent saved editor bodies. This avoids exposing
+unchanged private fields copied alongside an edited name, including nested request
+data. Fresh canonical rows restore the local draft while old baselines remain
+paused until explicit reload. Ordinary outages retain readable context. One-time
+and test diagnostics remain scoped; generic completion notices do not copy private
+diagnostic payloads. Static template variables/defaults remain raw by design,
+verified as hardcoded backend constants.
+
+All 48 delivery cases in eight files pass after the final correction, including
+the 19 original failing negatives, the two dirty-field disclosures, private SMTP
+diagnostic and real-cache recovery controls. Log:
+`e6672945ed7e6294f3d2d6d02bb10446038fd7351a85488dbea8691012278cef`.
+All 14 team destination cases pass, including independently reproduced parent/
+child and receiver event-to-RPC failures (log
+`e260355e835904f5275a67bcb52cd58fe0001d69f7d64b451b4d383f1a422f59`).
+Independent final reviews match the exact nine-file delivery and two-file team
+production revisions, with their regression files: proofs
+`411235156a61484469c715575b1001bf88a2f010eefecde68a170d3914fcd070`
+and `db144fd2678c92e33243470274148188223f0ca7da27559b73f0970c3d67c59a`.
+Targeted lint and the 1,016-file source-size gate pass. Final project type/build,
+dependency artifacts and platform checks remain open.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

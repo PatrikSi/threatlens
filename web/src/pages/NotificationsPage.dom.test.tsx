@@ -10,7 +10,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const notificationsPageDomMocks = vi.hoisted(() => ({
   queryClient: {
     invalidateQueries: vi.fn(),
+    getQueryState: vi.fn(() => ({ status: 'success' })),
+    getQueryData: vi.fn(),
   },
+  queryData: new Map<string, unknown>(),
   currentUser: {
     data: {
       id: 'admin-1',
@@ -60,11 +63,11 @@ function notificationMutationResult(mutate: ReturnType<typeof vi.fn>, reset = vi
   }
 }
 
-vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => notificationsPageDomMocks.queryClient,
-  useQuery: ({ queryKey, enabled }: { queryKey: unknown[]; enabled?: boolean }) => {
+function notificationQueryFixture({ queryKey, enabled }: { queryKey: unknown[]; enabled?: boolean }) {
     const [scope, key] = queryKey
     const baseResult = {
+      isSuccess: true,
+      refetch: vi.fn(),
       isLoading: false,
       isError: false,
       error: null,
@@ -181,6 +184,18 @@ vi.mock('@tanstack/react-query', () => ({
       ...baseResult,
       data: undefined,
     }
+}
+
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => notificationsPageDomMocks.queryClient,
+  useQuery: (options: { queryKey: unknown[]; enabled?: boolean; select?: (raw: unknown) => unknown }) => {
+    const result = notificationQueryFixture(options)
+    // Static component fixtures model TanStack's raw cache and selected observer
+    // value separately; actual denial/history behavior uses real clients elsewhere.
+    const raw = options.select ? { generation: 0, value: result.data } : result.data
+    notificationsPageDomMocks.queryData.set(JSON.stringify(options.queryKey), raw)
+    notificationsPageDomMocks.queryClient.getQueryData.mockImplementation((key: unknown) => notificationsPageDomMocks.queryData.get(JSON.stringify(key)))
+    return { ...result, data: options.select ? options.select(raw) : result.data }
   },
   useMutation: (options: { mutationKey?: unknown }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
@@ -248,6 +263,7 @@ afterEach(() => {
   container?.remove()
   container = null
   document.body.innerHTML = ''
+  notificationsPageDomMocks.queryData.clear()
   notificationsPageDomMocks.deleteMutate.mockReset()
   notificationsPageDomMocks.saveMutate.mockReset()
   notificationsPageDomMocks.testMutate.mockReset()
