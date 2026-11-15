@@ -674,18 +674,25 @@ def test_delivery_recovery_does_not_repeat_without_new_consumer_progress(
     ).delivery_ids == ()
 
 
+@pytest.mark.parametrize("year", [2020, 2100], ids=["past", "future"])
 def test_sending_recovery_uses_latest_reservation_for_consumer_progress(
-    db_session, monkeypatch
+    db_session, monkeypatch, year
 ):
     monkeypatch.setattr(
         "app.services.integration_delivery.settings.notification_delivery_sending_stale_after_seconds",
         30,
     )
-    now = datetime(2026, 11, 15, 12, 0, tzinfo=timezone.utc)
+    now = datetime(year, 11, 15, 12, 0, tzinfo=timezone.utc)
     delivery = _persist_generic_delivery(db_session)
     claim = claim_integration_delivery(db_session, delivery_id=delivery.id, now=now)
     db_session.commit()
     assert claim.status == "claimed"
+    # The ORM update uses the database clock; align that timestamp with this
+    # test's explicit timeline before checking consumer progress.
+    delivery.updated_at = now
+    db_session.commit()
+    db_session.refresh(delivery)
+    assert delivery.updated_at == delivery.claimed_at == now
     original_claim = delivery.claimed_at
 
     # Claim progress already occurred. Unknown consumer state cannot authorize
@@ -707,18 +714,25 @@ def test_sending_recovery_uses_latest_reservation_for_consumer_progress(
     ).delivery_ids == ()
 
 
+@pytest.mark.parametrize("year", [2020, 2100], ids=["past", "future"])
 def test_sending_publication_release_preserves_a_newer_recovery_reservation(
-    db_session, monkeypatch
+    db_session, monkeypatch, year
 ):
     monkeypatch.setattr(
         "app.services.integration_delivery.settings.notification_delivery_sending_stale_after_seconds",
         30,
     )
-    now = datetime(2026, 11, 15, 12, 0, tzinfo=timezone.utc)
+    now = datetime(year, 11, 15, 12, 0, tzinfo=timezone.utc)
     delivery = _persist_generic_delivery(db_session)
     claim = claim_integration_delivery(db_session, delivery_id=delivery.id, now=now)
     db_session.commit()
     assert claim.status == "claimed"
+    # Pin the independently persisted database timestamp to the same logical
+    # clock as the claim and canary, for both past and future anchors.
+    delivery.updated_at = now
+    db_session.commit()
+    db_session.refresh(delivery)
+    assert delivery.updated_at == delivery.claimed_at == now
     original_claim = delivery.claimed_at
     first = reserve_recoverable_integration_deliveries(
         db_session,

@@ -1060,10 +1060,47 @@ remain pending. The MCP job retains its 15-minute overall ceiling: aggregate
 per-command deadlines do not guarantee a hosted duration. Actual hosted Actions
 execution remains a separate gate.
 
+### N36 — deterministic recovery-fixture timestamps
+
+The patched-runner full suite passes its first three shards, then the fourth
+reports 946 passed, two failed and two skipped. Both failures are recovery
+fixtures introduced in N04: their logical clock is fixed at this day's noon,
+but the delivery's ORM `updated_at` uses the actual database clock. Once the
+review crosses noon, the synthetic canary is older than that row and production
+correctly refuses the recovery publication. The failed full-shard log is
+`d2ff912c10dc97f6148312842ed370389bfc827896703981793a3120a81e0f44`.
+
+A separate fresh-database reproduction preserves both failures and observes the
+actual rows: claims at 12:00, updates at 12:15, and canaries around 12:00:31.
+Before log: `8d691fde5b4cb213347f2b4227f3119c488cc0b26f7b970e79f23628eaf8f0fc`.
+This is a fixture clock mismatch, rather than evidence of a pytest regression.
+The original unsuccessful observer import attempt is also retained separately.
+
+Only `backend/tests/unit/test_integration_delivery.py` changes. Both tests now
+exercise past (2020) and future (2100) timelines, persist the post-claim update
+timestamp on that same timeline, refresh the actual row and assert both clocks
+agree. All existing stale-canary, publication-reservation, worker-claim and
+current-owner release assertions remain. All four focused cases pass (log
+`94a4007fddf2f5f1d6a99e40aaad084000ef0a6076405c28d424cfd9be6680e9`).
+
+The complete corrected fourth shard passes 950 cases with two skips and CLI 0
+(log `4195709d12c10d0627d3f226739b036d8a631587bbc3bc1dec4d5db93e0ba6da`).
+The remaining shards are running on fresh databases. Final evidence explicitly
+combines the unchanged first three shards with the corrected later runs; the
+failed fourth shard is retained and excluded from coverage. Application,
+migrations, runtime dependencies and the first three shards' test files are
+unchanged.
+
+Ruff passes for the full backend application/tests/scripts. Independent
+whole-file AST comparison confirms only the parametrization and explicit clock
+setup changed; every previous assertion remains. Both source snapshots differ
+only in this test module. Independent proof:
+`bc17870941389e7a707255adb516f3d633a018b06bae0f81d8e4964967fd2b9b`.
+
 ## Next executable steps
 
-Finish the pip/pytest corrections, run the full backend suite on the patched
-runner, and rebuild/requalify the backend image including its bootstrap package.
+Finish the patched-runner and deterministic-fixture requalification, and
+rebuild/requalify the backend image including its bootstrap package.
 Reconcile the final revision with independent reviews and actual gate receipts,
 then remove only owned disposable resources. Browser and ARM CI,
 current capacity campaigns and full production-topology qualification remain
