@@ -159,6 +159,19 @@ the next interval retries without leaving a permanent admission claim. Execution
 evidence therefore becomes stale during a backlog or broker outage, and recovers
 when a fresh probe actually completes.
 
+Integration event and delivery recovery admit a first unreserved wake-up without
+canary evidence. Republishing an existing reservation after a stale lease
+requires strictly newer, fresh notification-queue execution evidence. Missing,
+stale, future-dated or unavailable evidence defers that repeat publication;
+durable work remains visible for diagnosis. Sending-delivery recovery also
+protects its latest reservation from an older publisher's late failure.
+
+A busy queue above the probe-admission threshold can therefore delay automatic
+repair until a fresh probe completes. Check notification consumers and execution
+evidence when work waits. A broker publication error remains retryable, and a
+lost acknowledgement can still be ambiguous: this is an at-least-once workflow,
+not a guarantee of zero duplicate messages or exactly-once external effects.
+
 The Trends view retains one server-recorded sample every five minutes and refreshes
 at that collection cadence; **Refresh** remains available for an immediate read.
 Select 1 hour, 6 hours, 24 hours, 7 days, or 30 days to compare worker capacity and load,

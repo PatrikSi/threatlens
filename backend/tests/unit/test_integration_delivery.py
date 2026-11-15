@@ -27,6 +27,7 @@ from app.services.integration_delivery import (
     list_recoverable_webhook_delivery_ids,
     replay_dead_letter_delivery,
     renew_integration_delivery_lease,
+    release_integration_delivery_publications,
     reserve_recoverable_integration_deliveries,
 )
 from app.services.notification_delivery_processing import (
@@ -627,6 +628,136 @@ def test_recovery_publication_reservation_suppresses_duplicate_sweeps_without_bl
         now=reserved_at + timedelta(seconds=11),
     )
     assert claim.status == "claimed"
+
+
+@pytest.mark.parametrize("state", ["pending", "retry_wait"])
+def test_delivery_recovery_does_not_repeat_without_new_consumer_progress(
+    db_session, monkeypatch, state
+):
+    monkeypatch.setattr(
+        "app.services.integration_delivery.settings.notification_delivery_sending_stale_after_seconds",
+        30,
+    )
+    now = datetime(2026, 11, 15, 12, 0, tzinfo=timezone.utc)
+    delivery = _persist_generic_delivery(db_session)
+    delivery.state = state
+    delivery.not_before = now
+    db_session.flush()
+    first = reserve_recoverable_integration_deliveries(db_session, now=now)
+    db_session.commit()
+    assert first.delivery_ids == (delivery.id,)
+
+    for seconds in (31, 120, 600):
+        repeated = reserve_recoverable_integration_deliveries(
+            db_session, now=now + timedelta(seconds=seconds)
+        )
+        db_session.commit()
+        assert repeated.delivery_ids == ()
+
+    unchanged = reserve_recoverable_integration_deliveries(
+        db_session, now=now + timedelta(seconds=601), canary_at=now
+    )
+    assert unchanged.delivery_ids == ()
+    db_session.commit()
+    repaired = reserve_recoverable_integration_deliveries(
+        db_session,
+        now=now + timedelta(seconds=602),
+        canary_at=now + timedelta(seconds=601),
+    )
+    db_session.commit()
+    assert repaired.delivery_ids == (delivery.id,)
+    assert delivery.attempt_count == 0
+    assert reserve_recoverable_integration_deliveries(
+        db_session,
+        now=now + timedelta(seconds=1200),
+        canary_at=now + timedelta(seconds=601),
+    ).delivery_ids == ()
+
+
+def test_sending_recovery_uses_latest_reservation_for_consumer_progress(
+    db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.services.integration_delivery.settings.notification_delivery_sending_stale_after_seconds",
+        30,
+    )
+    now = datetime(2026, 11, 15, 12, 0, tzinfo=timezone.utc)
+    delivery = _persist_generic_delivery(db_session)
+    claim = claim_integration_delivery(db_session, delivery_id=delivery.id, now=now)
+    db_session.commit()
+    assert claim.status == "claimed"
+    original_claim = delivery.claimed_at
+
+    # Claim progress already occurred. Unknown consumer state cannot authorize
+    # a recovery publication merely because its operation lease elapsed.
+    assert reserve_recoverable_integration_deliveries(
+        db_session, now=now + timedelta(seconds=31)
+    ).delivery_ids == ()
+    db_session.commit()
+    progress = now + timedelta(seconds=32)
+    first = reserve_recoverable_integration_deliveries(
+        db_session, now=now + timedelta(seconds=33), canary_at=progress
+    )
+    db_session.commit()
+    assert first.delivery_ids == (delivery.id,)
+    assert delivery.claimed_at == original_claim
+    assert delivery.attempt_count == 1
+    assert reserve_recoverable_integration_deliveries(
+        db_session, now=now + timedelta(seconds=120), canary_at=progress
+    ).delivery_ids == ()
+
+
+def test_sending_publication_release_preserves_a_newer_recovery_reservation(
+    db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.services.integration_delivery.settings.notification_delivery_sending_stale_after_seconds",
+        30,
+    )
+    now = datetime(2026, 11, 15, 12, 0, tzinfo=timezone.utc)
+    delivery = _persist_generic_delivery(db_session)
+    claim = claim_integration_delivery(db_session, delivery_id=delivery.id, now=now)
+    db_session.commit()
+    assert claim.status == "claimed"
+    original_claim = delivery.claimed_at
+    first = reserve_recoverable_integration_deliveries(
+        db_session,
+        now=now + timedelta(seconds=32),
+        canary_at=now + timedelta(seconds=31),
+    )
+    db_session.commit()
+    assert first.delivery_ids == (delivery.id,)
+    progress = now + timedelta(seconds=63)
+    second = reserve_recoverable_integration_deliveries(
+        db_session, now=now + timedelta(seconds=64), canary_at=progress
+    )
+    db_session.commit()
+    assert second.delivery_ids == (delivery.id,)
+
+    # A delayed failure from the first publisher cannot release the second
+    # publisher's reservation and authorize a third uncertain wake-up.
+    release_integration_delivery_publications(
+        db_session, delivery_ids=[delivery.id], reserved_at=first.reserved_at
+    )
+    db_session.commit()
+    assert delivery.updated_at == second.reserved_at
+    assert delivery.claimed_at == original_claim
+    assert reserve_recoverable_integration_deliveries(
+        db_session, now=now + timedelta(seconds=96), canary_at=progress
+    ).delivery_ids == ()
+    db_session.commit()
+
+    # The current owner can still release its own failed publication so the
+    # existing broker-failure retry path remains available.
+    release_integration_delivery_publications(
+        db_session, delivery_ids=[delivery.id], reserved_at=second.reserved_at
+    )
+    db_session.commit()
+    assert reserve_recoverable_integration_deliveries(
+        db_session, now=now + timedelta(seconds=96), canary_at=progress
+    ).delivery_ids == (delivery.id,)
+    assert delivery.claimed_at == original_claim
+    assert delivery.attempt_count == 1
 
 
 def test_active_operation_lease_still_counts_toward_instance_concurrency(

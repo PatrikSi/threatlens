@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 
 from app.core.config import get_settings
+from app.core.worker_queues import QUEUE_NOTIFICATIONS
 from app.models.integration import IntegrationDelivery, IntegrationInstance
 from app.services.integration_delivery import (
     IntegrationDeliveryClaimTracker,
@@ -25,6 +27,7 @@ from app.services.integration_events import (
 )
 from app.services.integration_maintenance import run_integration_delivery_housekeeping
 from app.services.integration_registry import get_integration_connector
+from app.services.queue_execution_canaries import read_queue_execution_canaries
 from app.tasks.celery_app import celery_app
 from app.tasks.feed_task_notifications import enqueue_notification_delivery_batches
 from app.tasks.task_session import db_session
@@ -32,6 +35,20 @@ from app.tasks.task_session import db_session
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def _notification_consumer_progress() -> datetime | None:
+    # Read bounded Redis evidence before opening a database transaction. Stale
+    # and future snapshots retain diagnostic timestamps, but only fresh
+    # execution evidence can authorize another uncertain publication.
+    canary = read_queue_execution_canaries(
+        settings=settings, queues=[QUEUE_NOTIFICATIONS]
+    ).get(QUEUE_NOTIFICATIONS)
+    return (
+        canary.heartbeat_at
+        if canary is not None and canary.reason == "fresh"
+        else None
+    )
 
 
 def enqueue_integration_event_routing(event_ids: list[uuid.UUID]) -> bool:
@@ -198,8 +215,11 @@ def process_integration_deliveries(delivery_ids: list[str]):
     reject_on_worker_lost=True,
 )
 def dispatch_pending_integration_deliveries():
+    canary_at = _notification_consumer_progress()
     with db_session() as db:
-        reservation = reserve_recoverable_integration_deliveries(db)
+        reservation = reserve_recoverable_integration_deliveries(
+            db, canary_at=canary_at
+        )
         db.commit()
     queued_ids, failed_ids = _enqueue_recovery_delivery_processing(
         list(reservation.delivery_ids)
@@ -336,8 +356,9 @@ def route_integration_event(event_id: str):
     reject_on_worker_lost=True,
 )
 def dispatch_pending_integration_events():
+    canary_at = _notification_consumer_progress()
     with db_session() as db:
-        reservation = reserve_recoverable_integration_events(db)
+        reservation = reserve_recoverable_integration_events(db, canary_at=canary_at)
         db.commit()
 
     queued = 0

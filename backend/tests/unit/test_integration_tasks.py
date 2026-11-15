@@ -577,6 +577,9 @@ def test_failed_recovery_enqueue_releases_publication_reservation(
     db_session, monkeypatch
 ):
     first, second = _persist_deliveries(db_session)
+    monkeypatch.setattr(
+        "app.tasks.integration_tasks.read_queue_execution_canaries", lambda **_kwargs: {}
+    )
 
     @contextmanager
     def _db_session():
@@ -605,6 +608,9 @@ def test_failed_recovery_enqueue_releases_publication_reservation(
 def test_failed_event_enqueue_releases_publication_reservation(
     db_session, monkeypatch
 ):
+    monkeypatch.setattr(
+        "app.tasks.integration_tasks.read_queue_execution_canaries", lambda **_kwargs: {}
+    )
     events = tuple(
         IntegrationEvent(
             event_type="rss_item_new",

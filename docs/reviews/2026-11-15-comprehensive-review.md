@@ -120,6 +120,39 @@ resilience reviewer found no additional defect in the changed parser boundary.
 CSP, iframe sandbox and resource opt-in are unchanged; this is a defense and
 robustness correction, not a demonstrated XSS exploit or complete browser audit.
 
+### N04 — Notification recovery progress and reservation fencing (P2)
+
+Maintenance could republish retained integration event/delivery IDs after each
+stale lease while their separate notification consumer was stopped. Reservations
+now require strictly newer, fresh notification execution evidence for repeat
+publication; new unreserved work remains admitted. Sending-delivery recovery
+checks both its original worker claim and latest publication reservation.
+
+Independent UI review caught two further edges before this fix was committed:
+the adapter initially accepted timestamps from stale/future canary records, and
+the existing sending-release comparison allowed an old failure to clear a newer
+reservation. New regressions reproduce all four invalid-evidence cases and the
+real PostgreSQL old-release race. The adapter now admits only `reason == fresh`,
+and sending publication release requires exact reservation ownership. Worker
+claim/attempt accounting, authorization, circuits and diagnostic scans are
+unchanged.
+
+Before evidence includes eight failing pure wiring cases, five failing real
+PostgreSQL progress cases, then the four additional canary failures and one
+PostgreSQL reservation failure. The corrected four-file suite passes all 92
+cases with no skips/errors; Ruff passes for all eight changed files. The UI
+reviewer independently rechecked both corrections and the unchanged surrounding
+claim/release definitions. PostgreSQL runs use an owned, isolated PostgreSQL 16
+container with 384 MiB memory/no swap, one CPU and loopback-only access; no
+production database is used. These are ordinary integration tests, not a real
+Redis outage, load or distributed-failure campaign.
+
+Probe admission can defer repair under a sustained backlog. Current-owner
+publication failures remain retryable; ambiguous broker acceptance can still
+produce duplicates. Neither exactly-once publication nor a fully bounded broker
+under every failure mode is claimed. The
+[operations guide](../pages/operations.md) describes these limits.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

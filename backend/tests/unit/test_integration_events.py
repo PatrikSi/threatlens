@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import select
 
 from app.models.feed import Feed
@@ -1266,6 +1267,49 @@ def test_event_recovery_reservation_suppresses_duplicate_publication_sweeps(
         db_session,
         now=now + timedelta(seconds=31),
     )
+
+
+@pytest.mark.parametrize("state", ["pending", "failed"])
+def test_event_recovery_does_not_repeat_without_new_consumer_progress(
+    db_session, monkeypatch, state
+):
+    monkeypatch.setattr(
+        "app.services.integration_events.settings.integration_event_routing_stale_after_seconds",
+        30,
+    )
+    now = datetime(2026, 11, 15, 12, 0, tzinfo=timezone.utc)
+    event = _persist_event(db_session, state=state, available_at=now)
+    first = reserve_recoverable_integration_events(db_session, now=now)
+    db_session.commit()
+    assert first.event_ids == (event.id,)
+
+    # Elapsed time alone does not prove that the original broker message was
+    # lost. A stopped consumer must not accumulate another copy every lease.
+    for seconds in (31, 120, 600):
+        repeated = reserve_recoverable_integration_events(
+            db_session, now=now + timedelta(seconds=seconds)
+        )
+        db_session.commit()
+        assert repeated.event_ids == ()
+
+    unchanged = reserve_recoverable_integration_events(
+        db_session, now=now + timedelta(seconds=601), canary_at=now
+    )
+    assert unchanged.event_ids == ()
+    db_session.commit()
+    repaired = reserve_recoverable_integration_events(
+        db_session,
+        now=now + timedelta(seconds=602),
+        canary_at=now + timedelta(seconds=601),
+    )
+    db_session.commit()
+    assert repaired.event_ids == (event.id,)
+    assert event.routing_attempt_count == 0
+    assert reserve_recoverable_integration_events(
+        db_session,
+        now=now + timedelta(seconds=1200),
+        canary_at=now + timedelta(seconds=601),
+    ).event_ids == ()
 
 
 def test_route_event_rejects_non_scalar_uuid_payload_with_context_error(db_session):

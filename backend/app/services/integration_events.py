@@ -515,14 +515,24 @@ def reserve_recoverable_integration_events(
     *,
     limit: int | None = None,
     now: datetime | None = None,
+    canary_at: datetime | None = None,
 ) -> IntegrationEventRecoveryReservation:
-    """Reserve routing publication so concurrent sweeps do not amplify queue work."""
+    """Reserve first wake-ups or repair after newer notification execution."""
+    from app.services.integration_recovery_publication import (
+        recovery_publication_progress,
+    )
+
     current_time = now or datetime.now(timezone.utc)
     batch_size = max(1, int(limit or settings.integration_event_routing_batch_size))
     events = list(
         db.scalars(
             select(IntegrationEvent)
-            .where(_recoverable_event_predicate(current_time))
+            .where(
+                _recoverable_event_predicate(current_time),
+                recovery_publication_progress(
+                    IntegrationEvent.claimed_at, canary_at=canary_at
+                ),
+            )
             .order_by(
                 IntegrationEvent.available_at.asc(),
                 IntegrationEvent.created_at.asc(),

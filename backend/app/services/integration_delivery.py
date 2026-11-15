@@ -629,14 +629,40 @@ def reserve_recoverable_integration_deliveries(
     *,
     limit: int | None = None,
     now: datetime | None = None,
+    canary_at: datetime | None = None,
 ) -> IntegrationDeliveryRecoveryReservation:
-    """Reserve recovery publication so repeated sweeps do not amplify queue work."""
+    """Reserve first wake-ups or repair after newer notification execution."""
+    from app.services.integration_recovery_publication import (
+        recovery_publication_progress,
+    )
+
     current_time = now or datetime.now(timezone.utc)
     batch_size = max(1, int(limit or settings.integration_delivery_recovery_batch_size))
+    claim_progress = recovery_publication_progress(
+        IntegrationDelivery.claimed_at, canary_at=canary_at
+    )
+    publication_progress = or_(
+        and_(
+            IntegrationDelivery.state.in_([DELIVERY_PENDING, DELIVERY_RETRY_WAIT]),
+            claim_progress,
+        ),
+        and_(
+            IntegrationDelivery.state == DELIVERY_SENDING,
+            claim_progress,
+            # Recovery updates this timestamp without replacing the actual
+            # attempt's claim. The same old canary cannot authorize another
+            # recovery after that publication lease expires.
+            recovery_publication_progress(
+                IntegrationDelivery.updated_at, canary_at=canary_at
+            ),
+        ),
+    )
     deliveries = list(
         db.scalars(
             select(IntegrationDelivery)
-            .where(_recoverable_delivery_predicate(current_time))
+            .where(
+                _recoverable_delivery_predicate(current_time), publication_progress
+            )
             .order_by(
                 func.coalesce(
                     IntegrationDelivery.not_before, IntegrationDelivery.created_at
@@ -684,7 +710,8 @@ def release_integration_delivery_publications(
         elif (
             delivery.state == DELIVERY_SENDING
             and updated_at is not None
-            and updated_at >= reserved_at
+            # A delayed publisher cannot release a newer recovery reservation.
+            and updated_at == reserved_at
             and (claimed_at is None or claimed_at < reserved_at)
         ):
             delivery.updated_at = (
