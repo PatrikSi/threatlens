@@ -580,6 +580,27 @@ The pending N13 independent feed review is now complete against commit
 Its alternate-reader confirmation lead passed the actual control and was
 withdrawn; no speculative production change was made.
 
+### N17 — AI reprocess target admission
+
+Article candidates now have their own scoped namespace, preserving compatibility
+with the legacy raw Dashboard item-cache writer. Selected source/article metadata
+is bound to its read generation. Ordinary outages retain context and pause target
+submission; denial retires the selection without silently broadening its payload.
+A deliberate scope reset can return to an independently authorized lookback job.
+Initial lookback queueing still requires no article-picker read. Actual selected
+target RPC entry rechecks canonical cache health and selected identities.
+
+Three files change: AI settings, its existing presentation fixture and a real-cache
+target regression file. Six negative before controls fail and the independent
+initial-lookback control passes. The final three-file run passes all 49 cases,
+including explicit reset, source recovery and original delayed-scope completion
+controls. Log SHA-256:
+`f98ec723092619a98f6f605bf076e4471a4c2dec5e7dc2d5931ecab252ed546f`.
+Targeted lint passes without threshold changes. Independent review verifies all
+three final hashes (proof
+`04f9f29638ed5475da8d1ba146afbdc76f21f562a7fb3858aa320fcfc8564395`).
+Final whole-project checks remain pending.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

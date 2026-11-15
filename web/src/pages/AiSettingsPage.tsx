@@ -131,6 +131,22 @@ function isConnectionTestBlockingRun(run: AITaskRunResponse) {
   return CONNECTION_TEST_BLOCKING_TASK_TYPES.has(run.task_type)
 }
 
+function reprocessSourceReadState(ids: readonly string[], feeds: readonly Feed[] | undefined, currentGeneration: boolean, readFailed: boolean) {
+  const retired = ids.length > 0 && (!currentGeneration || Boolean(feeds && ids.some((id) => !feeds.some((feed) => feed.id === id))))
+  const blockingReason = retired
+    ? 'Selected sources changed or are no longer readable. Reset the reprocess scope before queueing.'
+    : ids.length > 0 && readFailed ? 'Refresh the selected source context before queueing.' : null
+  return { retired, blockingReason }
+}
+
+function reprocessArticleReadState(selectedCount: number, currentGeneration: boolean, denied: boolean, resetAfterLoss: boolean, readFailed: boolean) {
+  const retired = selectedCount > 0 && !currentGeneration
+  const blockingReason = retired || denied && !resetAfterLoss
+    ? 'Article access changed. Reset the reprocess scope and review its targets before queueing.'
+    : selectedCount > 0 && readFailed ? 'Refresh the selected article context before queueing.' : null
+  return { retired, blockingReason }
+}
+
 export function AiSettingsPage() {
   const queryClient = useQueryClient()
   const location = useLocation()
@@ -151,8 +167,11 @@ export function AiSettingsPage() {
   const [reprocessStartTime, setReprocessStartTime] = useState('')
   const [reprocessEndTime, setReprocessEndTime] = useState('')
   const [reprocessFeedIds, setReprocessFeedIds] = useState<string[]>([])
+  const [selectedFeedGeneration, setSelectedFeedGeneration] = useState(0)
   const [reprocessItemSearch, setReprocessItemSearch] = useState('')
   const [selectedReprocessItems, setSelectedReprocessItems] = useState<ItemListEntry[]>([])
+  const [selectedItemGeneration, setSelectedItemGeneration] = useState(0)
+  const [resetItemGeneration, setResetItemGeneration] = useState(0)
   const [queuedReprocessScopeFingerprint, setQueuedReprocessScopeFingerprint] = useState<string | null>(null)
   const [pendingReprocessScopeClear, setPendingReprocessScopeClear] = useState(false)
   const [cancelingRunId, setCancelingRunId] = useState<string | null>(null)
@@ -316,6 +335,23 @@ export function AiSettingsPage() {
     ...feedsAccess.queryOptions(({ signal }) => apiFetch<Feed[]>('/feeds', { signal }), AI_REFERENCE_STALE_MS),
     enabled: activityQueriesEnabled,
   })
+  const { retired: retiredFeedSelection, blockingReason: feedScopeBlockedReason } = reprocessSourceReadState(
+    reprocessFeedIds, feedsQuery.data,
+    Boolean(feedsAccess.currentData({ generation: selectedFeedGeneration, value: true })), feedsQuery.isError,
+  )
+  function currentFeedRead() {
+    const key = ['feeds', 'ai-reprocess']
+    return queryClient.getQueryState(key)?.status === 'error' ? undefined
+      : feedsAccess.currentData<Feed[]>(queryClient.getQueryData(key))
+  }
+  const selectReprocessFeeds: Dispatch<SetStateAction<string[]>> = (value) => {
+    const feeds = currentFeedRead()
+    if (!feeds || retiredFeedSelection) return
+    const next = typeof value === 'function' ? value(reprocessFeedIds) : value
+    if (next.some((id) => !feeds.some((feed) => feed.id === id))) return
+    setSelectedFeedGeneration(feedsAccess.captureResult()(true).generation)
+    setReprocessFeedIds(next)
+  }
 
   const candidateItemsReady = isCandidateItemSearchReady(
     deferredItemSearch,
@@ -348,12 +384,21 @@ export function AiSettingsPage() {
     return `/items?${params.toString()}`
   }, [deferredItemSearch, reprocessEndTime, reprocessFeedIds, reprocessStartTime])
 
+  const candidateAccess = useQueryAccessScope(['ai', 'reprocess-items'])
+  const candidateKey = ['ai', 'reprocess-items', deferredItemSearch, reprocessFeedIds, reprocessStartTime, reprocessEndTime]
   const candidateItemsQuery = useQuery({
-    queryKey: ['items', 'ai-reprocess-picker', deferredItemSearch, reprocessFeedIds, reprocessStartTime, reprocessEndTime],
-    queryFn: ({ signal }) => apiFetch<ItemListResponse>(candidateItemsPath, { signal }),
+    queryKey: candidateKey,
+    ...candidateAccess.queryOptions(({ signal }) => apiFetch<ItemListResponse>(candidateItemsPath, { signal }), AI_QUERY_STALE_MS),
     enabled: Boolean(activityQueriesEnabled && candidateItemsReady),
-    staleTime: AI_QUERY_STALE_MS,
   })
+  const { retired: retiredItemSelection, blockingReason: candidateScopeBlockedReason } = reprocessArticleReadState(
+    selectedReprocessItems.length, Boolean(candidateAccess.currentData({ generation: selectedItemGeneration, value: true })),
+    candidateAccess.denied, resetItemGeneration === candidateAccess.generation, candidateItemsQuery.isError,
+  )
+  function currentCandidateRead() {
+    return queryClient.getQueryState(candidateKey)?.status === 'error' ? undefined
+      : candidateAccess.currentData<ItemListResponse>(queryClient.getQueryData(candidateKey))
+  }
 
   const promptHistoryQuery = useQuery({
     queryKey: ['ai', 'ops', 'prompt-history'],
@@ -529,11 +574,19 @@ export function AiSettingsPage() {
 
   const reprocessMutation = useMutation({
     mutationKey: ['ai', 'reprocess'],
-    mutationFn: (payload: AIReprocessQueueRequest) =>
-      apiFetch<AIReprocessResponse>('/ai/reprocess', {
+    mutationFn: (payload: AIReprocessQueueRequest) => {
+      if (payload.feed_ids.length && (!feedsAccess.currentData({ generation: selectedFeedGeneration, value: true })
+        || !payload.feed_ids.every((id) => currentFeedRead()?.some((feed) => feed.id === id)))) {
+        throw new Error('Refresh the selected source context before queueing.')
+      }
+      if (payload.item_ids?.length && (!currentCandidateRead() || !candidateAccess.currentData({ generation: selectedItemGeneration, value: true }))) {
+        throw new Error('Refresh the selected article context before queueing.')
+      }
+      return apiFetch<AIReprocessResponse>('/ai/reprocess', {
         method: 'POST',
         body: JSON.stringify(payload),
-      }),
+      })
+    },
     onMutate: () => reprocessScopeFingerprint,
     onSuccess: (result, _payload, submittedScope) => {
       if (submittedScope === reprocessScopeFingerprint) clearReprocessScope()
@@ -710,6 +763,7 @@ export function AiSettingsPage() {
 
   function requestClearReprocessScope() {
     if (!reprocessScopeDirty) {
+      setResetItemGeneration(candidateAccess.captureResult()(true).generation)
       clearReprocessScope()
       return
     }
@@ -718,6 +772,7 @@ export function AiSettingsPage() {
 
   function confirmClearReprocessScope() {
     setPendingReprocessScopeClear(false)
+    setResetItemGeneration(candidateAccess.captureResult()(true).generation)
     clearReprocessScope()
   }
 
@@ -762,8 +817,8 @@ export function AiSettingsPage() {
   }
 
   function queueReprocess() {
-    if (queueWorkBlockedReason || itemProviderBlockedReason) {
-      setNotice({ tone: 'error', message: queueWorkBlockedReason ?? itemProviderBlockedReason! })
+    if (queueWorkBlockedReason || itemProviderBlockedReason || candidateScopeBlockedReason || feedScopeBlockedReason) {
+      setNotice({ tone: 'error', message: queueWorkBlockedReason ?? itemProviderBlockedReason ?? candidateScopeBlockedReason ?? feedScopeBlockedReason! })
       return
     }
     if (!reprocessQueueState.payload) {
@@ -828,14 +883,17 @@ export function AiSettingsPage() {
       reprocessEndTime,
       setReprocessEndTime,
       feeds: feedsQuery.data ?? [],
-      selectedFeedIds: reprocessFeedIds,
-      setSelectedFeedIds: setReprocessFeedIds,
+      selectedFeedIds: retiredFeedSelection ? [] : reprocessFeedIds,
+      setSelectedFeedIds: selectReprocessFeeds,
       itemSearch: reprocessItemSearch,
       setItemSearch: setReprocessItemSearch,
       candidateItems,
-      selectedItems: selectedReprocessItems,
+      selectedItems: retiredItemSelection ? [] : selectedReprocessItems,
       onAddItem: (item) => {
-        setSelectedReprocessItems((current) => current.some((entry) => entry.id === item.id) ? current : [...current, item])
+        const saved = !retiredItemSelection && currentCandidateRead()?.items.find((entry) => entry.id === item.id)
+        if (!saved) return
+        setSelectedItemGeneration(candidateAccess.captureResult()(true).generation)
+        setSelectedReprocessItems((current) => current.some((entry) => entry.id === saved.id) ? current : [...current, saved])
       },
       onRemoveItem: (itemId) => {
         setSelectedReprocessItems((current) => current.filter((item) => item.id !== itemId))
@@ -843,13 +901,13 @@ export function AiSettingsPage() {
       onClearScope: requestClearReprocessScope,
       reprocessPending: reprocessMutation.isPending,
       reprocessValidation: reprocessQueueState.validation,
-      reprocessQueueDisabled: !reprocessQueueState.payload || Boolean(queueWorkBlockedReason),
+      reprocessQueueDisabled: !reprocessQueueState.payload || Boolean(queueWorkBlockedReason) || Boolean(candidateScopeBlockedReason) || Boolean(feedScopeBlockedReason),
       queueWorkBlockedReason,
       onQueueReprocess: queueReprocess,
       itemSearchLoading: candidateItemsQuery.isLoading,
-      itemSearchError: candidateItemsQuery.isError
+      itemSearchError: feedScopeBlockedReason ?? candidateScopeBlockedReason ?? (candidateItemsQuery.isError
         ? resolveApiErrorMessage(candidateItemsQuery.error, 'Candidate items could not be loaded')
-        : '',
+        : ''),
       itemSearchReady: candidateItemsReady,
       filters: runFilters,
       setFilters: setRunFilters,

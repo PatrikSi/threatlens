@@ -34,6 +34,7 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
   queryClient: {
     invalidateQueries: vi.fn(),
     prefetchQuery: vi.fn(() => Promise.resolve()),
+    getQueryState: undefined as ((key: readonly unknown[]) => { status: 'success' }) | undefined,
   },
   settingsData: {
     id: 'settings-1',
@@ -330,7 +331,7 @@ vi.mock('@tanstack/react-query', () => ({
       }
     }
 
-    if (String(queryKey[0]) === 'items') {
+    if (String(queryKey[0]) === 'ai' && queryKey[1] === 'reprocess-items') {
       return {
         ...baseResult,
         data: aiSettingsPageDomMocks.emptyItemsData,
@@ -559,6 +560,7 @@ function clearActiveAiWork() {
 afterEach(() => {
   aiSettingsPageDomMocks.savePending = false;
   aiSettingsPageDomMocks.includeNamedProvider = false
+  aiSettingsPageDomMocks.queryClient.getQueryState = undefined
   aiSettingsPageDomMocks.settingsData.report_reserved_output_tokens = 1200
   aiSettingsPageDomMocks.settingsData.report_context_window_tokens = 8192
   act(() => {
@@ -628,6 +630,7 @@ afterEach(() => {
 describe('AiSettingsPage DOM workflows', () => {
   it('keeps saved report limits visible beside a named provider with a large completion default', () => {
     aiSettingsPageDomMocks.includeNamedProvider = true
+    aiSettingsPageDomMocks.queryClient.getQueryState = () => ({ status: 'success' })
     const view = renderPage()
     act(() => getButton('Configuration')?.click())
     act(() => view.querySelector<HTMLButtonElement>('button[aria-label="Edit provider Large report model"]')!.click())
