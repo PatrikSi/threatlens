@@ -111,7 +111,7 @@ describe('saved AI settings with a real query cache', () => {
     expect(input('Model').value).toBe('model-after-save')
     expect(input('Default completion tokens').value).toBe('16000')
     expect(input('Initial report completion tokens').value).toBe('8000')
-    expect(client.getQueryData<AISettings>(['ai', 'settings'])?.model).toBe('model-after-save')
+    expect(client.getQueryData<{ generation: number; value: AISettings }>(['ai', 'settings'])?.value.model).toBe('model-after-save')
     expect(host.querySelector('#saved-report-budgets-title')?.parentElement?.textContent).toContain('8,000 tokens')
     act(() => change('Company name', 'Later unsaved edit'))
     await act(async () => {
@@ -128,7 +128,7 @@ describe('saved AI settings with a real query cache', () => {
       expect(writes[1]).toMatchObject({ model: 'model-after-save', max_completion_tokens: 16000, company_name: 'Later unsaved edit', temperature: null, reasoning_effort: 'low', model_max_output_tokens: 16384 })
     } else {
       expect(host.textContent).toContain('Settings refresh unavailable')
-      expect(client.getQueryData<AISettings>(['ai', 'settings'])?.max_completion_tokens).toBe(16000)
+      expect(client.getQueryData<{ generation: number; value: AISettings }>(['ai', 'settings'])?.value.max_completion_tokens).toBe(16000)
     }
   })
 })

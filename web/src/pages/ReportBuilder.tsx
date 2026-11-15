@@ -35,7 +35,9 @@ export function ReportBuilder({ controller }: { controller: ReportingController 
         </div>
         {controller.builderDraft.dirty && <p role="status" className="mt-2 text-xs text-slate dark:text-slate-300">Unsaved report draft</p>}
         {(controller.builderDraft.templateRevisionChanged || controller.builderDraft.templateBaselineRetired) && <div role="status" className="mt-2 text-sm text-amber-800 dark:text-amber-200">
-          This template has a newer revision. Your draft is preserved.
+          {controller.builderDraft.templateBaselineRetired
+            ? 'Template access changed. Your draft is preserved. Reload the verified template before saving.'
+            : 'This template has a newer revision. Your draft is preserved.'}
           <button type="button" className="ml-2 underline" onClick={controller.builderDraft.reloadTemplate}>Load latest template</button>
         </div>}
         {controller.builderDraft.templateUnavailable && <p role="status" className="mt-2 text-sm text-amber-800 dark:text-amber-200">The selected template is no longer available. Your draft is preserved; select another template to continue.</p>}

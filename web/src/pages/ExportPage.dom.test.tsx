@@ -261,6 +261,10 @@ describe('ExportPage', () => {
     // The shared export denial also retires option metadata. A fresh metadata
     // read can restore filter controls, but cannot restore the old preview.
     await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['exports', 'capabilities'] }) })
+    await vi.waitFor(async () => {
+      await act(async () => { await Promise.resolve() })
+      expect(view.querySelector('#export-search')).toBeInstanceOf(HTMLInputElement)
+    })
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     act(() => setInputValue(view.querySelector<HTMLInputElement>('#export-search')!, 'new-filters'))
     await act(async () => { await vi.advanceTimersByTimeAsync(450) })

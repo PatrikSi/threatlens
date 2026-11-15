@@ -144,8 +144,9 @@ async function mountContract(kind: 'tagging' | 'feed'): Promise<EditorLifecycleD
     },
     hasAcceptedCache: () => {
       const inventory = kind === 'tagging'
-        ? client.getQueryData<TaggingSettingsBundleResponse>(['tagging', 'settings'])?.rules
-        : client.getQueryData<Feed[]>(['feeds'])
+        ? client.getQueryData<{ generation: number; value: TaggingSettingsBundleResponse }>(['tagging', 'settings'])?.value.rules
+        : client.getQueryData<{ generation: number; value: Feed[] }>(['feeds'])?.value
+      expect(inventory).toHaveLength(2)
       return Boolean(inventory?.some((entry) => entry.name === 'Submitted'))
     },
   }

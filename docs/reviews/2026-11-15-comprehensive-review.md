@@ -809,6 +809,33 @@ source review is `0397c0d4c17df274729cdea643b4b290dd72cc5f55d7d7b1a01e9d4d6c591c
 No performance campaign, browser heap/OOM threshold or deployment sizing result
 is inferred from source review, synthetic historical budgets or Node collection.
 
+### N27 — complete-suite fixture corrections and precise recovery copy
+
+The first full frontend run collected 1,717 cases in 209 files: 1,714 passed and
+three failed. All failures were obsolete raw-cache assertions after scoped cache
+adoption. AI save tests now inspect the envelope value while preserving visible
+model/budget, actual request and later-edit assertions. The shared editor contract
+unwraps both feeds and tagging; an explicit two-row prerequisite prevents its old
+tagging lookup from silently treating a valid envelope as absent. All 12 editor
+contract cases pass, with independent source/runtime-evidence review.
+
+The second full run collected 1,718 cases in 210 files: 1,717 passed and one export
+fixture failed. Its native setter ran before the restored capabilities observer
+rendered the filter input. The fixture now waits for that actual input before
+using fake timers, preserving the changed-filter request and withheld-preview
+assertions. These failed full runs remain failed evidence.
+
+Reporting now distinguishes an access-generation change from a genuinely newer
+template revision; reload behavior is unchanged. All 85 related export/reporting
+cases pass after both corrections (log
+`6efbe6cf1715ea85436780d886bed293c921a73412e1d6fde99918488a6cb3ad`).
+Independent final copy/export-readiness proof is
+`8f7156c952b235cd4b2ac28f0fa1b197f561fb7379d7f5693998975b3d2bc831`.
+The existing operations recovery lead is withdrawn by a passing real-cache
+positive control: all four health reads must finish before disclosure/actions
+recover. That control is retained. Full types/lint/test/audit/build/bundle checks
+are running again on an immutable source snapshot; their result remains pending.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,
