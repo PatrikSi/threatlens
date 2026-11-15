@@ -2,7 +2,7 @@ import { type Dispatch, type SetStateAction } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { resolveApiErrorMessage } from '../api/errors'
-import { AIDailyBrief, ItemDetail, ItemListResponse } from '../types/api'
+import { AIDailyBrief, Feed, ItemDetail, ItemListResponse } from '../types/api'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
 import { safeLocalStorage } from '../utils/safeStorage'
 import {
@@ -136,7 +136,12 @@ export type DashboardItemsQueryKeyParams = {
 }
 
 export function buildDashboardItemsQueryKey(params: DashboardItemsQueryKeyParams) {
-  return ['items', params] as const
+  return ['dashboard', 'items', params] as const
+}
+
+export function getDashboardFeedStatusSignature(feeds: Feed[] | undefined) {
+  return feeds?.map((feed) => `${feed.id}:${feed.last_success_at ?? ''}:${feed.error_count}:${feed.last_error ?? ''}`)
+    .join('|') ?? null
 }
 
 export function resolveItemActionError(error: unknown, fallback: string) {

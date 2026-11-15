@@ -1,4 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { apiFetch } from '../api/client'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { DialogSurface } from '../components/ConfirmDialog'
 import { ArticleExtractionPanel } from './ArticleExtractionPanel'
 import { ArticleTeamAssessment } from './ArticleTeamAssessment'
@@ -177,12 +180,29 @@ function DashboardRssItemDetail({
   windowLayout: DashboardWindow
   item: ItemListEntry
 }) {
-  const { detailQueriesByWindowId, handleToggleItem, isWideLayout } = controller
+  const { handleToggleItem, isWideLayout, registerItemReadAdmission, syncItemNote } = controller
   // A breakpoint change must not remount local evidence/review editors or their
   // nested dialogs. Choose the presentation when opening and keep it until close.
   const [modalPresentation] = useState(() => !isWideLayout)
-  const detailQuery = detailQueriesByWindowId[windowLayout.id]
-  const detail = detailQuery?.data ?? null
+  const client = useQueryClient()
+  const access = useQueryAccessScope(['dashboard', 'item', item.id])
+  const queryKey = ['dashboard', 'item', item.id] as const
+  const read = access.queryOptions(({ signal }) => apiFetch<ItemDetail>(`/items/${item.id}`, { signal }))
+  const detailQuery = useQuery({ queryKey, ...read })
+  const detail = detailQuery.data ?? null
+  function available() {
+    const state = client.getQueryState<Awaited<ReturnType<typeof read.queryFn>>>(queryKey)
+    return state?.status === 'success' && state.fetchStatus === 'idle' && access.currentData(state.data)?.id === item.id
+  }
+  useEffect(() => registerItemReadAdmission(item.id, {
+    available,
+    capture: () => {
+      const admission = access.captureResult()(true)
+      return () => access.currentData(admission) === true && available()
+    },
+  }))
+  useEffect(() => { if (detail) syncItemNote(detail) }, [detail, syncItemNote])
+  const actionsAvailable = controller.canManage && available()
 
   const content = (
     <>
@@ -193,7 +213,7 @@ function DashboardRssItemDetail({
         </p>
       )}
       {detail && detail.id === item.id && (
-        <DashboardRssItemDetailContent controller={controller} detail={detail} />
+        <DashboardRssItemDetailContent controller={controller} detail={detail} actionsAvailable={actionsAvailable} readAvailable={available} />
       )}
     </>
   )
@@ -215,20 +235,24 @@ function DashboardRssItemDetail({
 function DashboardRssItemDetailContent({
   controller,
   detail,
+  actionsAvailable,
+  readAvailable,
 }: {
   controller: DashboardPageController
   detail: ItemDetail
+  actionsAvailable: boolean
+  readAvailable: () => boolean
 }) {
   return (
     <>
-      <DashboardRssItemActions controller={controller} detail={detail} />
+      <DashboardRssItemActions controller={controller} detail={detail} actionsAvailable={actionsAvailable} />
       <DashboardRssItemSummary detail={detail} />
       <DashboardRssItemAiInsight controller={controller} detail={detail} />
-      <ArticleExtractionPanel detail={detail} />
+      <ArticleExtractionPanel detail={detail} readAvailable={readAvailable} />
       <ArticleIndicatorsPanel itemId={detail.id} />
       <ArticleTeamAssessment itemId={detail.id} />
-      <DashboardRssItemArticle controller={controller} detail={detail} />
-      <DashboardRssItemNotes controller={controller} detail={detail} />
+      <DashboardRssItemArticle controller={controller} detail={detail} actionsAvailable={actionsAvailable} />
+      <DashboardRssItemNotes controller={controller} detail={detail} actionsAvailable={actionsAvailable} />
     </>
   )
 }
@@ -236,11 +260,13 @@ function DashboardRssItemDetailContent({
 function DashboardRssItemActions({
   controller,
   detail,
+  actionsAvailable,
 }: {
   controller: DashboardPageController
   detail: ItemDetail
+  actionsAvailable: boolean
 }) {
-  const { canManage, isItemActionPending, itemActionFeedbackByItemId, updateRead, updateStar } = controller
+  const { isItemActionPending, itemActionFeedbackByItemId, updateRead, updateStar } = controller
   const detailHref = sanitizeHref(detail.article?.final_url || detail.url || null)
 
   return (
@@ -262,7 +288,7 @@ function DashboardRssItemActions({
                                       )}
                                       <button
                                         className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
-                                        disabled={!canManage || isItemActionPending('read', detail.id)}
+                                        disabled={!actionsAvailable || isItemActionPending('read', detail.id)}
                                         onClick={() =>
                                           updateRead.mutate({
                                             itemId: detail.id,
@@ -278,7 +304,7 @@ function DashboardRssItemActions({
                                       </button>
                                       <button
                                         className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
-                                        disabled={!canManage || isItemActionPending('star', detail.id)}
+                                        disabled={!actionsAvailable || isItemActionPending('star', detail.id)}
                                         onClick={() =>
                                           updateStar.mutate({
                                             itemId: detail.id,
@@ -292,7 +318,13 @@ function DashboardRssItemActions({
                                             ? 'Unstar'
                                             : 'Star'}
                                       </button>
-                                      {!canManage && <span className="text-xs text-amber-600 dark:text-amber-300">Your current access is read-only for intelligence items.</span>}
+                                      {!actionsAvailable && (
+                                        <span className="text-xs text-amber-600 dark:text-amber-300">
+                                          {controller.canManage
+                                            ? 'Article actions are paused until current details can be verified.'
+                                            : 'Your current access is read-only for intelligence items.'}
+                                        </span>
+                                      )}
                                     </div>
                                     {itemActionFeedbackByItemId[detail.id] && (
                                       <p
@@ -391,9 +423,11 @@ function DashboardRssItemAiInsight({
 function DashboardRssItemArticle({
   controller,
   detail,
+  actionsAvailable,
 }: {
   controller: DashboardPageController
   detail: ItemDetail
+  actionsAvailable: boolean
 }) {
   const {
     articleRetryFeedbackByItemId, canManage, isItemActionPending, retryArticleFetch,
@@ -426,7 +460,7 @@ function DashboardRssItemArticle({
                                           <button
                                             className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40 disabled:opacity-50"
                                             disabled={
-                                              !canManage ||
+                                              !actionsAvailable ||
                                               isItemActionPending('retry', detail.id)
                                             }
                                             onClick={() => retryArticleFetch.mutate({ itemId: detail.id })}
@@ -462,9 +496,11 @@ function DashboardRssItemArticle({
 function DashboardRssItemNotes({
   controller,
   detail,
+  actionsAvailable,
 }: {
   controller: DashboardPageController
   detail: ItemDetail
+  actionsAvailable: boolean
 }) {
   const {
     canManage, isItemActionPending, noteDraftsByItemId, setNoteDraftsByItemId, updateNote,
@@ -494,7 +530,7 @@ function DashboardRssItemNotes({
                                               note: (noteDraftsByItemId[detail.id] ?? detail.state.note ?? '') || null,
                                             })
                                           }
-                                          disabled={!canManage || isItemActionPending('note', detail.id)}
+                                          disabled={!actionsAvailable || isItemActionPending('note', detail.id)}
                                         >
                                           {isItemActionPending('note', detail.id) ? 'Saving...' : 'Save Notes'}
                                         </button>

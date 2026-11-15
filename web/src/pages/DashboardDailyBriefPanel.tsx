@@ -25,11 +25,11 @@ export function DashboardDailyBriefPanel({
                 <div className={`flex min-h-0 flex-1 flex-col p-2 sm:p-3 ${windowMeta.panelClassName}`}>
                   {dailyBriefHistoryQuery.isLoading && <p className="text-sm text-slate dark:text-white/75">Loading daily brief...</p>}
                   {dailyBriefHistoryQuery.isError && (
-                    <p className="text-sm text-red-600">
+                    <p role="alert" className="text-sm text-red-600">
                       {resolveApiErrorMessage(dailyBriefHistoryQuery.error, 'The daily brief could not be loaded')}
                     </p>
                   )}
-                  {!dailyBriefHistoryQuery.isLoading && !(dailyBriefHistoryQuery.data?.length ?? 0) && (
+                  {dailyBriefHistoryQuery.data && !dailyBriefHistoryQuery.isError && !dailyBriefHistoryQuery.data.length && (
                     <p className="text-sm text-slate dark:text-white/75">
                       No AI daily brief is available yet. An admin can generate one from the AI page after the endpoint is configured.
                     </p>

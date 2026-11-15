@@ -27,7 +27,8 @@ const dashboardPageRenderMocks = vi.hoisted(() => ({
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => dashboardPageRenderMocks.queryClient,
   useQuery: ({ queryKey }: { queryKey: unknown }) => {
-    const key = Array.isArray(queryKey) ? queryKey[0] : queryKey
+    const parts = Array.isArray(queryKey) ? queryKey : [queryKey]
+    const key = parts[0] === 'dashboard' ? parts[1] : parts[0]
     const baseResult = {
       isLoading: false,
       isFetching: false,
@@ -35,7 +36,7 @@ vi.mock('@tanstack/react-query', () => ({
       error: null,
     }
 
-    if (key === 'feeds' || key === 'views' || key === 'tags' || key === 'alerts' || key === 'ai') {
+    if (key === 'feeds' || key === 'views' || key === 'tags' || key === 'alert-interests' || key === 'daily-briefs') {
       return { ...baseResult, data: [] }
     }
 
@@ -43,7 +44,8 @@ vi.mock('@tanstack/react-query', () => ({
   },
   useQueries: ({ queries }: { queries: Array<{ queryKey: unknown }> }) =>
     queries.map((query) => {
-      const key = Array.isArray(query.queryKey) ? query.queryKey[0] : query.queryKey
+      const parts = Array.isArray(query.queryKey) ? query.queryKey : [query.queryKey]
+      const key = parts[0] === 'dashboard' ? parts[1] : parts[0]
       if (key === 'items') {
         return {
           data: { items: [], total: 0, page: 1, page_size: 25 },

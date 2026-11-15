@@ -436,6 +436,26 @@ within this change's scope (proof SHA-256
 This is a confirmed production migration fix; complete sharded suite and combined
 coverage validation remain in progress. The first 943-case shard passes.
 
+### N11 — dashboard evidence, previews and automatic read actions
+
+Dashboard reads now use independent cache namespaces with shared feed, view and
+tag authority where appropriate. Denied article details retire an open original
+preview; recovery cannot reopen the old intent. Extraction refresh/continuation
+also refresh the current Dashboard detail key, and continuation pauses during a
+detail outage. Automatic mark-read retains its original admitted source while
+the inspector mounts; remembered loss of the exact article prevents a cached
+row from restarting the action. Other readable rows remain usable.
+
+The increment changes the Dashboard controllers/renderers, shared extraction
+components, the existing scope helper's read-only lookup and seven regression
+files (21 files total). All 97 cases in the final 11-file related run pass;
+log SHA-256 is `2b4014971b12775f0b58445747ad263597192fc805cb0926c4c4cb13bfed98da`.
+The final 14 production files have independent source review with all hashes
+matching (proof `9310093d5d1e5490670c3122a15c11c54c3d02d6bd2a021ca46c80046534afc6`).
+An additional delete-intent lead passed its before control and was withdrawn;
+no speculative fix is included. Final project type, lint, build and broader
+suite gates remain outstanding. No browser validation is claimed.
+
 Finish independent source reviews and the current registry/advisory inventory,
 record confirmed findings with reproductions, implement disjoint fixes with
 regression checks, and commit coherent tested increments. Reconcile final-source

@@ -33,6 +33,11 @@ function createScope() {
 // a different publication team has its own explicit scope.
 const scopes = new WeakMap<QueryClient, Map<string, ReturnType<typeof createScope>>>()
 
+/** Inspect a known resource withdrawal without creating or authorizing a scope. */
+export function isQueryAccessDenied(client: QueryClient, prefix: readonly (string | boolean)[]) {
+  return scopes.get(client)?.get(JSON.stringify(prefix))?.snapshot().denied ?? false
+}
+
 function resourceScope(client: QueryClient, key: string) {
   let resources = scopes.get(client)
   if (!resources) {

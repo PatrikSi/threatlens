@@ -93,6 +93,7 @@ export function DashboardDialogs({ controller }: { controller: DashboardPageCont
               type="button"
               className="rounded border border-slate/20 px-3 py-1.5 text-xs dark:border-cyan-900/40"
               onClick={exportAllViews}
+              disabled={!controller.viewsActionsAvailable}
             >
               Export JSON
             </button>
@@ -153,7 +154,7 @@ export function DashboardDialogs({ controller }: { controller: DashboardPageCont
                   <button
                     type="button"
                     className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
-                    disabled={controller.layoutEnforced}
+                    disabled={controller.layoutEnforced || !controller.viewsActionsAvailable}
                     title={controller.layoutEnforced ? 'The organization enforces the dashboard arrangement.' : undefined}
                     onClick={() => requestSavedViewLoad(view.id)}
                     aria-label={`Load saved view ${view.name}`}
@@ -167,7 +168,7 @@ export function DashboardDialogs({ controller }: { controller: DashboardPageCont
                       setViewDeleteError('')
                       setPendingViewDelete(view)
                     }}
-                    disabled={deleteView.isPending || Boolean(pendingViewDelete)}
+                    disabled={!controller.viewsActionsAvailable || deleteView.isPending || Boolean(pendingViewDelete)}
                     aria-label={`Delete saved view ${view.name}`}
                   >
                     Delete
@@ -178,11 +179,11 @@ export function DashboardDialogs({ controller }: { controller: DashboardPageCont
 
             {viewsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading saved views...</p>}
             {viewsQuery.isError && (
-              <p className="text-sm text-red-600">
+              <p role="alert" className="text-sm text-red-600">
                 {resolveApiErrorMessage(viewsQuery.error, 'Saved dashboard views could not be loaded')}
               </p>
             )}
-            {!viewsQuery.isLoading && !viewsQuery.data?.length && (
+            {viewsQuery.data && !viewsQuery.isError && !viewsQuery.data.length && (
               <p className="text-sm text-slate dark:text-slate-300">No saved views available.</p>
             )}
           </div>
@@ -200,6 +201,7 @@ export function DashboardDialogs({ controller }: { controller: DashboardPageCont
         confirmLabel="Load saved view"
         onCancel={() => setPendingSavedViewLoad(null)}
         onConfirm={onConfirmPendingSavedViewLoad}
+        confirmDisabled={!controller.viewsActionsAvailable}
       >
         {pendingSavedViewLoad && (
           <div className="space-y-2">
@@ -223,7 +225,7 @@ export function DashboardDialogs({ controller }: { controller: DashboardPageCont
           setViewDeleteError('')
         }}
         onConfirm={onConfirmDeleteView}
-        confirmDisabled={deleteView.isPending}
+        confirmDisabled={deleteView.isPending || !controller.viewsActionsAvailable}
         isConfirming={deleteView.isPending}
       >
         {pendingViewDelete && (

@@ -173,7 +173,7 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
             className="h-8 w-full rounded border border-slate/20 bg-white px-2 text-xs xl:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
             value={controller.layoutEnforced ? '' : activeSavedViewId ?? ''}
             aria-label="Load saved dashboard view"
-            disabled={controller.layoutEnforced}
+            disabled={controller.layoutEnforced || !controller.viewsActionsAvailable}
             onChange={(event) => {
               const change = resolveSavedViewSelectionChange({
                 currentActiveSavedViewId: activeSavedViewId,
@@ -207,6 +207,13 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
           <button
             type="button"
             className="h-8 w-full rounded border border-slate/20 px-3 text-xs sm:w-auto dark:border-cyan-900/40"
+            onClick={() => void controller.refreshDashboard()}
+          >
+            Refresh dashboard
+          </button>
+          <button
+            type="button"
+            className="h-8 w-full rounded border border-slate/20 px-3 text-xs sm:w-auto dark:border-cyan-900/40"
             onClick={() => setShowManageViewsModal(true)}
           >
             Views
@@ -221,6 +228,7 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
                 setEditSessionSnapshot({
                   activeSavedViewId,
                   savedViewBaseline: controller.savedViewBaseline,
+                  savedViewReadGeneration: controller.savedViewReadGeneration,
                   savedViewName,
                   state: captureCurrentDashboardViewState(),
                 })
@@ -388,7 +396,12 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
                 disabled={viewSavePending}
                 onClick={() => {
                   if (editSessionSnapshot) {
-                    applyDashboardSavedViewState(editSessionSnapshot.state, editSessionSnapshot.activeSavedViewId, editSessionSnapshot.savedViewBaseline)
+                    applyDashboardSavedViewState(
+                      editSessionSnapshot.state,
+                      editSessionSnapshot.activeSavedViewId,
+                      editSessionSnapshot.savedViewBaseline,
+                      editSessionSnapshot.savedViewReadGeneration,
+                    )
                     setSavedViewName(editSessionSnapshot.savedViewName)
                   }
                   setIsEditMode(false)

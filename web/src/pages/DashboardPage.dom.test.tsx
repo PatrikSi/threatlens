@@ -34,6 +34,8 @@ const dashboardPageDomMocks = vi.hoisted(() => ({
   },
   queryClient: {
     invalidateQueries: vi.fn(),
+    getQueryState: vi.fn(),
+    getQueriesData: vi.fn(),
     setQueriesData: vi.fn(),
     setQueryData: vi.fn(),
   },
@@ -92,6 +94,7 @@ const dashboardPageDomMocks = vi.hoisted(() => ({
   itemsTotal: null as number | null,
   alertMatchesTotal: null as number | null,
   queryKeys: [] as unknown[][],
+  queryStates: new Map<string, { queryKey: unknown[]; data: unknown }>(),
   queryOptions: [] as Array<{ queryKey: unknown[]; enabled: boolean | undefined }>,
   unsavedChangesWarning: vi.fn(),
   workspaceDefaultsAvailable: true,
@@ -180,28 +183,36 @@ function createAlertWindow(id: string, title: string): DashboardWindow {
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => dashboardPageDomMocks.queryClient,
   useQuery: ({ queryKey }: { queryKey: unknown }) => {
-    const key = Array.isArray(queryKey) ? queryKey[0] : queryKey
+    const parts = Array.isArray(queryKey) ? queryKey : [queryKey]
+    const key = parts[0] === 'dashboard' ? parts[1] : parts[0]
     const baseResult = {
       isLoading: false,
       isFetching: false,
       isError: false,
       error: null,
+      isSuccess: true,
+    }
+    const result = (data: unknown) => {
+      dashboardPageDomMocks.queryStates.set(JSON.stringify(parts), { queryKey: parts, data: { generation: 0, value: data } })
+      return { ...baseResult, data }
     }
 
     if (key === 'feeds') {
-      return { ...baseResult, data: [] }
+      return result([])
     }
 
     if (key === 'views') {
-      return { ...baseResult, data: dashboardPageDomMocks.views }
+      return result(dashboardPageDomMocks.views)
     }
 
-    if (Array.isArray(queryKey) && queryKey.join(':') === 'ai:daily-briefs') {
-      return { ...baseResult, data: dashboardPageDomMocks.dailyBriefs }
+    if (key === 'daily-briefs') {
+      return result(dashboardPageDomMocks.dailyBriefs)
     }
 
-    if (key === 'tags' || key === 'alerts' || key === 'ai') {
-      return { ...baseResult, data: [] }
+    if (key === 'item') return result(dashboardPageDomMocks.itemDetailById[String(parts[2])])
+
+    if (key === 'tags' || key === 'alert-interests' || key === 'alerts' || key === 'ai') {
+      return result([])
     }
 
     return { ...baseResult, data: null }
@@ -211,16 +222,17 @@ vi.mock('@tanstack/react-query', () => ({
       const queryKey = Array.isArray(query.queryKey) ? query.queryKey : []
       dashboardPageDomMocks.queryKeys.push(queryKey)
       dashboardPageDomMocks.queryOptions.push({ queryKey, enabled: query.enabled })
-      const key = queryKey[0]
+      const key = queryKey[0] === 'dashboard' ? queryKey[1] : queryKey[0]
+      const resourceKey = queryKey[0] === 'dashboard' ? queryKey.slice(1) : queryKey
       if (key === 'items' || key === 'alert-matches') {
-        const rssQueryParams = key === 'items' && typeof queryKey[1] === 'object'
-          ? queryKey[1] as { page?: number; page_size?: number }
+        const rssQueryParams = key === 'items' && typeof resourceKey[1] === 'object'
+          ? resourceKey[1] as { page?: number; page_size?: number }
           : null
-        const page = key === 'items' ? rssQueryParams?.page ?? 1 : typeof queryKey[7] === 'number' ? queryKey[7] : 1
+        const page = key === 'items' ? rssQueryParams?.page ?? 1 : typeof resourceKey[7] === 'number' ? resourceKey[7] : 1
         const pageSize = key === 'items'
           ? rssQueryParams?.page_size ?? 25
-          : typeof queryKey[8] === 'number' ? queryKey[8] : 25
-        return {
+          : typeof resourceKey[8] === 'number' ? resourceKey[8] : 25
+        const result = {
           data:
             key === 'items'
               ? {
@@ -241,6 +253,8 @@ vi.mock('@tanstack/react-query', () => ({
           isError: false,
           error: null,
         }
+        dashboardPageDomMocks.queryStates.set(JSON.stringify(queryKey), { queryKey, data: { generation: 0, value: result.data } })
+        return result
       }
 
       if (key === 'item') {
@@ -265,8 +279,8 @@ vi.mock('@tanstack/react-query', () => ({
     }),
   useMutation: (options: {
     mutationKey?: unknown
-    onMutate?: (variables: { itemId: string; note: string | null }) => void
-    onSuccess?: (data: unknown, variables: unknown) => void
+    onMutate?: (variables: unknown) => unknown
+    onSuccess?: (data: unknown, variables: unknown, onMutateResult: unknown) => unknown
     onError?: (error: unknown, variables: unknown) => void
   }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
@@ -278,7 +292,8 @@ vi.mock('@tanstack/react-query', () => ({
             options.onError?.(new Error('Saved view deletion failed.'), view)
             return
           }
-          options.onSuccess?.(undefined, view)
+          const context = options.onMutate?.(view)
+          options.onSuccess?.(undefined, view, context)
         }),
         mutateAsync: vi.fn(),
         isPending: false,
@@ -324,9 +339,9 @@ vi.mock('@tanstack/react-query', () => ({
     if (mutationKey === 'items:note') {
       return {
         mutate: vi.fn((payload: { itemId: string; note: string | null }) => {
-          options.onMutate?.(payload)
+          const context = options.onMutate?.(payload)
           dashboardPageDomMocks.noteMutate(payload)
-          const complete = () => options.onSuccess?.(undefined, payload)
+          const complete = () => { void options.onSuccess?.(undefined, payload, context) }
           if (dashboardPageDomMocks.deferNoteSuccess) {
             dashboardPageDomMocks.pendingNoteSuccess = complete
             return
@@ -406,7 +421,7 @@ function getSelect(label: string) {
 }
 
 function latestQueryEnabled(key: string) {
-  const matches = dashboardPageDomMocks.queryOptions.filter((option) => option.queryKey[0] === key)
+  const matches = dashboardPageDomMocks.queryOptions.filter((option) => option.queryKey[0] === 'dashboard' && option.queryKey[1] === key)
   return matches[matches.length - 1]?.enabled
 }
 
@@ -475,6 +490,16 @@ beforeEach(() => {
   dashboardPageDomMocks.alertMatchesTotal = null
   dashboardPageDomMocks.queryKeys = []
   dashboardPageDomMocks.queryOptions = []
+  dashboardPageDomMocks.queryStates.clear()
+  dashboardPageDomMocks.queryClient.getQueryState.mockImplementation((key: unknown[]) => {
+    const entry = dashboardPageDomMocks.queryStates.get(JSON.stringify(key))
+    return entry ? { status: 'success', fetchStatus: 'idle', data: entry.data } : undefined
+  })
+  dashboardPageDomMocks.queryClient.getQueriesData.mockImplementation(({ queryKey }: { queryKey: unknown[] }) =>
+    [...dashboardPageDomMocks.queryStates.values()]
+      .filter((entry) => queryKey.every((part, index) => part === entry.queryKey[index]))
+      .map((entry) => [entry.queryKey, entry.data]),
+  )
   dashboardPageDomMocks.workspaceDefaultsAvailable = true
   dashboardPageDomMocks.workspacePresentation = {}
   dashboardPageDomMocks.workspaceDefaultsDegraded = false
@@ -1015,8 +1040,8 @@ describe('DashboardPage DOM workflows', () => {
 
     renderPage()
 
-    const itemsQueryKey = dashboardPageDomMocks.queryKeys.find((queryKey) => queryKey[0] === 'items')
-    expect(itemsQueryKey?.[1]).toEqual(expect.objectContaining({ page_size: 10 }))
+    const itemsQueryKey = dashboardPageDomMocks.queryKeys.find((queryKey) => queryKey[0] === 'dashboard' && queryKey[1] === 'items')
+    expect(itemsQueryKey?.[2]).toEqual(expect.objectContaining({ page_size: 10 }))
     expect(getSelect('RSS Panel 1 results per page')?.value).toBe('25')
     expect(pageText()).toContain('10 per page')
   })

@@ -1,5 +1,7 @@
+import { useEffect, useState, type ComponentProps } from 'react'
 import { ArticlePreviewDrawer } from './DashboardPageComponents'
 import { useArticlePreviewPreferences } from '../hooks/useArticlePreviewPreferences'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import {
   ARTICLE_PREVIEW_MIN_WIDTH,
   countActiveWindowFilters,
@@ -75,7 +77,7 @@ export function DashboardWorkspace({ controller }: { controller: DashboardPageCo
       </div>
 
       {articlePreview && (
-        <ArticlePreviewDrawer
+        <DashboardArticlePreview
           key={`${previewPreference.userId}:${articlePreview.itemId}`}
           preview={articlePreview}
           defaultExternalResources={previewPreference.defaultExternalResources}
@@ -90,6 +92,15 @@ export function DashboardWorkspace({ controller }: { controller: DashboardPageCo
       )}
     </>
   )
+}
+
+function DashboardArticlePreview(props: ComponentProps<typeof ArticlePreviewDrawer>) {
+  const access = useQueryAccessScope(['dashboard', 'item', props.preview.itemId])
+  const [admission] = useState(() => access.denied ? null : access.captureResult()(true))
+  const allowed = access.currentData(admission ?? undefined) === true
+  const close = props.onClose
+  useEffect(() => { if (!allowed) close() }, [allowed, close])
+  return allowed ? <ArticlePreviewDrawer {...props} /> : null
 }
 
 type DashboardWindow = DashboardPageController['renderedWindows'][number]

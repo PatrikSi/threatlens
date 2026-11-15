@@ -110,6 +110,11 @@ export function DashboardAlertPanel({
                         )
                       })}
                     </div>
+                    {alertInterestsQuery.isError && (
+                      <p role="alert" className="mt-1 text-xs text-red-600">
+                        {resolveApiErrorMessage(alertInterestsQuery.error, 'Alert interest filters could not be loaded')}
+                      </p>
+                    )}
 
                     <div
                       className="mt-2 flex max-h-24 min-w-0 flex-wrap items-center gap-2 overflow-y-auto pb-1"
@@ -301,11 +306,11 @@ export function DashboardAlertPanel({
                         <p className="text-xs text-slate dark:text-white/60">Refreshing matches...</p>
                       )}
                       {alertQuery?.isError && (
-                        <p className="text-sm text-red-600">
+                        <p role="alert" className="text-sm text-red-600">
                           {resolveApiErrorMessage(alertQuery.error, 'Alert matches could not be loaded')}
                         </p>
                       )}
-                      {!alertQuery?.isLoading && !alertWindowItems.length && (
+                      {alertQuery?.data && !alertQuery.isError && !alertWindowItems.length && (
                         <p className="text-sm text-slate dark:text-slate-300">No items matched current alert filters.</p>
                       )}
                     </div>

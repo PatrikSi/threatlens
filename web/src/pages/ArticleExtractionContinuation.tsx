@@ -6,18 +6,22 @@ import { createSecureRequestId } from '../utils/secureRandomId'
 import type { ExtractionCoverage } from '../types/articleIntelligence'
 import { TEAM_BUTTON } from './teamPresentation'
 
-export function ArticleExtractionContinuation({ itemId, coverage, disabled }: {
-  itemId: string; coverage: ExtractionCoverage; disabled: boolean
+export function ArticleExtractionContinuation({ itemId, coverage, disabled, readAvailable }: {
+  itemId: string; coverage: ExtractionCoverage; disabled: boolean; readAvailable?: () => boolean
 }) {
   const client = useQueryClient()
   const requestIdentity = useRef<{ revision: string; id: string } | null>(null)
   const continuation = useMutation({
     mutationFn: async (revision: string) => {
+      if (disabled || readAvailable?.() === false) throw new Error('Refresh article evidence before authorizing more processing.')
       if (requestIdentity.current?.revision !== revision) requestIdentity.current = { revision, id: createSecureRequestId() }
       return apiFetch(`/ai/articles/${itemId}/continue`, { method: 'POST',
         body: JSON.stringify({ progress_revision: revision, request_id: requestIdentity.current.id }) })
     },
-    onSuccess: () => { void client.invalidateQueries({ queryKey: ['item', itemId] }) },
+    onSuccess: () => { void Promise.allSettled([
+      client.invalidateQueries({ queryKey: ['item', itemId] }),
+      client.invalidateQueries({ queryKey: ['dashboard', 'item', itemId] }),
+    ]) },
   })
   const synthesisOnly = coverage.uncovered_chars === 0 && ['failed', 'pending'].includes(coverage.synthesis_status ?? '')
   if (!coverage.progress_revision || (coverage.uncovered_chars === 0 && !synthesisOnly)) return null

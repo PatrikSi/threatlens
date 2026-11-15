@@ -18,6 +18,7 @@ import { captureSessionLease } from '../api/sessionLifecycle'
 import { ApiError, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { type ArticlePreviewState } from './DashboardPageComponents'
 import {
@@ -26,6 +27,7 @@ import {
   formatSavedViewImportFailure,
   formatSavedViewImportResult,
   getRelativeTimeAnchorMs,
+  getDashboardFeedStatusSignature,
   getWindowContainerDimensions,
   isRelativeTimeRange,
   resolveDashboardViewSaveError,
@@ -33,6 +35,7 @@ import {
   resolveWindowTimeFilter,
 } from './dashboardPageUtils'
 import { MOBILE_DASHBOARD_PAGE_SIZE } from './dashboardPanelPresentation'
+import { sanitizeHref } from './dashboardContent'
 import {
   buildSavedViewPreview,
   canUpdateDashboardSavedView,
@@ -56,13 +59,13 @@ import {
   AlertInterest,
   AlertMatchListResponse,
   Feed,
-  ItemDetail,
   ItemListResponse,
   SavedView,
   Tag,
 } from '../types/api'
 import { useArticlePreview } from './useArticlePreview'
 import { useDashboardItemActions } from './useDashboardItemActions'
+import { useDashboardItemReadAccess } from './useDashboardItemReadAccess'
 import { useDashboardWindowActions } from './useDashboardWindowActions'
 import { useDashboardWindowFilters } from './useDashboardWindowFilters'
 import { useDashboardWorkspacePersistence } from './useDashboardWorkspacePersistence'
@@ -74,6 +77,7 @@ type SavedViewBaseline = Pick<SavedView, 'revision' | 'can_edit' | 'team_id'>
 
 type DashboardEditSessionSnapshot = {
   savedViewBaseline: SavedViewBaseline | null
+  savedViewReadGeneration: number
   activeSavedViewId: string | null
   savedViewName: string
   state: DashboardSavedViewState
@@ -85,6 +89,14 @@ const RSS_WINDOW_REFETCH_INTERVAL_MS = 60_000
 
 export function useDashboardPageController() {
   const queryClient = useQueryClient()
+  const itemsAccess = useQueryAccessScope(['dashboard', 'items'])
+  const feedsAccess = useQueryAccessScope(['feeds'])
+  const viewsAccess = useQueryAccessScope(['views'])
+  const tagsAccess = useQueryAccessScope(['tags'])
+  const alertInterestsAccess = useQueryAccessScope(['dashboard', 'alert-interests'])
+  const alertMatchesAccess = useQueryAccessScope(['dashboard', 'alert-matches'])
+  const dailyBriefsAccess = useQueryAccessScope(['dashboard', 'daily-briefs'])
+  const captureViewResult = viewsAccess.captureResult()
   const meQuery = useCurrentUser()
   const workspace = useWorkspace()
   const workspaceDefaultsReady = workspace.effective?.role === workspace.userContext.role
@@ -100,8 +112,15 @@ export function useDashboardPageController() {
   const [savedViewName, setSavedViewName] = useState('')
   const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null)
   const [savedViewBaseline, setSavedViewBaseline] = useState<SavedViewBaseline | null>(null)
-  const [pendingViewDelete, setPendingViewDelete] = useState<DashboardSavedViewPreview | null>(null)
-  const [pendingSavedViewLoad, setPendingSavedViewLoad] = useState<{ id: string; name: string } | null>(null)
+  const [savedViewReadGeneration, setSavedViewReadGeneration] = useState(viewsAccess.generation)
+  const [pendingViewDeleteRead, setPendingViewDeleteRead] = useState<ReturnType<typeof captureViewResult<DashboardSavedViewPreview>> | null>(null)
+  const [pendingSavedViewLoadRead, setPendingSavedViewLoadRead] = useState<ReturnType<typeof captureViewResult<{ id: string; name: string }>> | null>(null)
+  const pendingViewDelete = viewsAccess.currentData(pendingViewDeleteRead ?? undefined) ?? null
+  const pendingSavedViewLoad = viewsAccess.currentData(pendingSavedViewLoadRead ?? undefined) ?? null
+  const setPendingViewDelete = (view: DashboardSavedViewPreview | null) =>
+    setPendingViewDeleteRead(view ? viewsAccess.captureResult()(view) : null)
+  const setPendingSavedViewLoad = (view: { id: string; name: string } | null) =>
+    setPendingSavedViewLoadRead(view ? viewsAccess.captureResult()(view) : null)
   const [showManageViewsModal, setShowManageViewsModal] = useState(false)
   const [isImportingViews, setIsImportingViews] = useState(false)
   const [importViewsError, setImportViewsError] = useState('')
@@ -141,6 +160,10 @@ export function useDashboardPageController() {
     setArticlePreviewWidth,
     startArticlePreviewResize,
   } = useArticlePreview()
+  const articlePreviewAdmissionRef = useRef(itemsAccess.captureResult()(true))
+  useEffect(() => {
+    if (articlePreview && itemsAccess.currentData(articlePreviewAdmissionRef.current) !== true) closeArticlePreview()
+  })
   const [isPhoneLayout, setIsPhoneLayout] = useState<boolean>(typeof window !== 'undefined' ? window.innerWidth < 640 : false)
   const [rssPhoneLayout, setRssPhoneLayout] = useState(isPhoneLayout)
   const hasExpandedArticle = Object.keys(expandedItemIdsByWindowId).length > 0
@@ -165,8 +188,11 @@ export function useDashboardPageController() {
   const pendingAddWindowFocusIndexRef = useRef<number | null>(null)
   const importViewsInputRef = useRef<HTMLInputElement | null>(null)
   const savedNoteValuesByItemIdRef = useRef<Record<string, string>>({})
+  const { captureReadAdmission, findListItem, registerItemReadAdmission, syncItemNote } = useDashboardItemReadAccess(
+    savedNoteValuesByItemIdRef, setNoteDraftsByItemId,
+  )
 
-  const canManage = hasRequiredPermissions(
+  const canManage = !meQuery.isError && !meQuery.isLoading && hasRequiredPermissions(
     meQuery.data?.access?.permissions ?? [],
     ['write:items'],
   )
@@ -184,6 +210,7 @@ export function useDashboardPageController() {
     updateStar,
   } = useDashboardItemActions({
     canManage,
+    captureReadAdmission,
     queryClient,
     savedNoteValuesByItemIdRef,
     setArticleRetryFeedbackByItemId,
@@ -305,51 +332,52 @@ export function useDashboardPageController() {
   }, [hasRelativeTimeScope])
 
   const feedsQuery = useQuery({
-    queryKey: ['feeds'],
-    queryFn: () => apiFetch<Feed[]>('/feeds'),
+    queryKey: ['dashboard', 'feeds'],
+    ...feedsAccess.queryOptions(({ signal }) => apiFetch<Feed[]>('/feeds', { signal }), 300_000),
     enabled: rssPanelsEnabled,
-    staleTime: 300_000,
     refetchInterval: (query) => {
-      const feeds = query.state.data as Feed[] | undefined
+      const feeds = feedsAccess.currentData(query.state.data)
       const hasPendingFirstFetch = feeds?.some((feed) => feed.enabled && !feed.last_success_at && !feed.has_unreadable_url) ?? false
       return hasPendingFirstFetch ? FEED_BOOTSTRAP_REFETCH_INTERVAL_MS : false
     },
   })
 
-  const feedStatusSignature = useMemo(() => {
-    if (!feedsQuery.data) {
-      return null
-    }
-    return feedsQuery.data
-      .map((feed) => `${feed.id}:${feed.last_success_at ?? ''}:${feed.error_count}:${feed.last_error ?? ''}`)
-      .join('|')
-  }, [feedsQuery.data])
+  const feedStatusSignature = useMemo(() => getDashboardFeedStatusSignature(feedsQuery.data), [feedsQuery.data])
 
   useEffect(() => {
     if (feedStatusSignature === null) {
       return
     }
     void queryClient.invalidateQueries({ queryKey: ['items'] })
+    void queryClient.invalidateQueries({ queryKey: ['dashboard', 'items'] })
   }, [feedStatusSignature, queryClient])
 
   const viewsQuery = useQuery({
-    queryKey: ['views'],
-    queryFn: () => apiFetch<SavedView[]>('/views'),
-    staleTime: 300_000,
+    queryKey: ['dashboard', 'views'],
+    ...viewsAccess.queryOptions(({ signal }) => apiFetch<SavedView[]>('/views', { signal }), 300_000),
   })
 
+  const viewsActionsAvailable = Boolean(viewsQuery.data) && !viewsQuery.isError && !viewsQuery.isFetching
+  const readableSavedView = (viewId: string) => {
+    const state = queryClient.getQueryState<Awaited<ReturnType<typeof viewsAccess.read<SavedView[]>>>>(['dashboard', 'views'])
+    if (state?.status !== 'success' || state.fetchStatus !== 'idle') return null
+    return viewsAccess.currentData(state.data)?.find((view) => view.id === viewId) ?? null
+  }
+  const refreshViews = () => Promise.allSettled([
+    queryClient.invalidateQueries({ queryKey: ['views'] }),
+    queryClient.invalidateQueries({ queryKey: ['dashboard', 'views'] }),
+  ])
+
   const tagsQuery = useQuery({
-    queryKey: ['tags'],
-    queryFn: () => apiFetch<Tag[]>('/tags'),
+    queryKey: ['dashboard', 'tags'],
+    ...tagsAccess.queryOptions(({ signal }) => apiFetch<Tag[]>('/tags', { signal }), 300_000),
     enabled: rssPanelsEnabled,
-    staleTime: 300_000,
   })
 
   const alertInterestsQuery = useQuery({
-    queryKey: ['alerts', 'enabled'],
-    queryFn: () => apiFetch<AlertInterest[]>('/alerts?include_disabled=false'),
+    queryKey: ['dashboard', 'alert-interests'],
+    ...alertInterestsAccess.queryOptions(({ signal }) => apiFetch<AlertInterest[]>('/alerts?include_disabled=false', { signal }), 300_000),
     enabled: alertPanelsEnabled,
-    staleTime: 300_000,
   })
 
   const saveView = useMutation({
@@ -364,17 +392,23 @@ export function useDashboardPageController() {
       }),
     onMutate: () => {
       setViewSaveError('')
+      return viewsAccess.captureResult()(true)
     },
-    onSuccess: (view) => {
+    onSuccess: async (view, _variables, admission) => {
+      if (viewsAccess.currentData(admission) !== true) {
+        await refreshViews()
+        return
+      }
       setSavedViewName('')
       setActiveSavedViewId(view.id)
       setSavedViewBaseline(view)
+      setSavedViewReadGeneration(admission.generation)
       setEditSessionSnapshot(null)
       setIsEditMode(false)
       setShowAddWindowMenu(false)
       setOpenWindowMenuId(null)
       setShowSaveAsNew(false)
-      queryClient.invalidateQueries({ queryKey: ['views'] })
+      await refreshViews()
     },
     onError: (error) => {
       setViewSaveError(resolveDashboardViewSaveError(error))
@@ -383,11 +417,21 @@ export function useDashboardPageController() {
 
   const deleteView = useMutation({
     mutationKey: ['dashboard-saved-views', 'delete'],
-    mutationFn: (view: DashboardSavedViewPreview) =>
-      apiFetch(`/views/${view.id}${view.revision === undefined ? '' : `?expected_revision=${view.revision}`}`, {
+    mutationFn: (view: DashboardSavedViewPreview) => {
+      const current = readableSavedView(view.id)
+      if (!current || current.can_delete === false || current.revision !== view.revision) {
+        throw new Error('Refresh and select this saved view before deleting it.')
+      }
+      return apiFetch(`/views/${view.id}${view.revision === undefined ? '' : `?expected_revision=${view.revision}`}`, {
         method: 'DELETE',
-      }),
-    onSuccess: (_data, deletedView) => {
+      })
+    },
+    onMutate: () => viewsAccess.captureResult()(true),
+    onSuccess: async (_data, deletedView, admission) => {
+      if (viewsAccess.currentData(admission) !== true) {
+        await refreshViews()
+        return
+      }
       const deletedViewId = deletedView.id
       setActiveSavedViewId((current) => (current === deletedViewId ? null : current))
       setEditSessionSnapshot((current) => {
@@ -400,10 +444,10 @@ export function useDashboardPageController() {
           savedViewBaseline: null,
         }
       })
-      setPendingSavedViewLoad((current) => (current?.id === deletedViewId ? null : current))
-      setPendingViewDelete((current) => (current?.id === deletedViewId ? null : current))
+      setPendingSavedViewLoadRead((current) => (current?.value.id === deletedViewId ? null : current))
+      setPendingViewDeleteRead((current) => (current?.value.id === deletedViewId ? null : current))
       setViewDeleteError('')
-      queryClient.invalidateQueries({ queryKey: ['views'] })
+      await refreshViews()
     },
     onError: (error) => {
       setViewDeleteError(resolveItemActionError(error, 'Unable to delete the saved view.'))
@@ -411,7 +455,7 @@ export function useDashboardPageController() {
   })
 
   const onConfirmDeleteView = () => {
-    if (!pendingViewDelete || pendingViewDelete.can_delete === false) {
+    if (!pendingViewDelete || pendingViewDelete.can_delete === false || !viewsActionsAvailable) {
       return
     }
 
@@ -421,27 +465,39 @@ export function useDashboardPageController() {
 
   const updateExistingView = useMutation({
     mutationKey: ['dashboard-saved-views', 'update'],
-    mutationFn: (payload: { viewId: string; expectedRevision?: number; name?: string; query?: DashboardSavedViewState }) =>
-      apiFetch<SavedView>(`/views/${payload.viewId}`, {
+    mutationFn: (payload: { viewId: string; expectedRevision?: number; name?: string; query?: DashboardSavedViewState }) => {
+      const current = readableSavedView(payload.viewId)
+      if (!current || current.can_edit === false
+        || savedViewReadGeneration !== viewsAccess.generation) {
+        throw new Error('Reload this saved view before updating it.')
+      }
+      return apiFetch<SavedView>(`/views/${payload.viewId}`, {
         method: 'PATCH',
         body: JSON.stringify({
           ...(payload.expectedRevision !== undefined ? { expected_revision: payload.expectedRevision } : {}),
           ...(payload.name !== undefined ? { name: payload.name } : {}),
           ...(payload.query !== undefined ? { query_json: payload.query } : {}),
         }),
-      }),
+      })
+    },
     onMutate: () => {
       setViewSaveError('')
+      return viewsAccess.captureResult()(true)
     },
-    onSuccess: (view) => {
+    onSuccess: async (view, _variables, admission) => {
+      if (viewsAccess.currentData(admission) !== true) {
+        await refreshViews()
+        return
+      }
       setActiveSavedViewId(view.id)
       setSavedViewBaseline(view)
+      setSavedViewReadGeneration(admission.generation)
       setEditSessionSnapshot(null)
       setIsEditMode(false)
       setShowAddWindowMenu(false)
       setOpenWindowMenuId(null)
       setShowSaveAsNew(false)
-      queryClient.invalidateQueries({ queryKey: ['views'] })
+      await refreshViews()
     },
     onError: (error) => {
       setViewSaveError(resolveDashboardViewSaveError(error))
@@ -449,7 +505,11 @@ export function useDashboardPageController() {
   })
 
   const handleOpenArticlePreview = (preview: ArticlePreviewState, isRead: boolean) => {
-    openArticlePreview(preview)
+    const item = findListItem(preview.itemId)
+    const url = item && sanitizeHref(item.canonical_url || item.url)
+    if (!item || !url) return
+    articlePreviewAdmissionRef.current = itemsAccess.captureResult()(true)
+    openArticlePreview({ ...preview, title: item.title, sourceLabel: item.feed_name, url })
     markItemReadIfNeeded(preview.itemId, isRead)
   }
   const viewSavePending = saveView.isPending || updateExistingView.isPending
@@ -468,7 +528,12 @@ export function useDashboardPageController() {
     )
   }
 
-  const applyDashboardSavedViewState = (state: DashboardSavedViewState, nextActiveSavedViewId: string | null, baseline: SavedViewBaseline | null = null) => {
+  const applyDashboardSavedViewState = (
+    state: DashboardSavedViewState,
+    nextActiveSavedViewId: string | null,
+    baseline: SavedViewBaseline | null = null,
+    readGeneration = viewsAccess.generation,
+  ) => {
     if (layoutEnforced) return
     const nextDashboardTimeRange =
       state.rss_filters.time_range !== 'all' ||
@@ -494,6 +559,7 @@ export function useDashboardPageController() {
     setWindows(state.windows)
     setActiveSavedViewId(nextActiveSavedViewId)
     setSavedViewBaseline(baseline)
+    setSavedViewReadGeneration(readGeneration)
   }
 
   const rssWindowQueries = useQueries({
@@ -533,10 +599,10 @@ export function useDashboardPageController() {
         }),
         enabled: isWideLayout || windowLayout.id === resolvedMobileWindowId,
         retry: 1,
-        staleTime: 60_000,
         refetchInterval: rssFilters.page === 1 ? RSS_WINDOW_REFETCH_INTERVAL_MS : false,
-        placeholderData: (previousData: ItemListResponse | undefined) => previousData,
-        queryFn: () => {
+        placeholderData: (previous: Awaited<ReturnType<typeof itemsAccess.read<ItemListResponse>>> | undefined) =>
+          itemsAccess.currentData(previous) === undefined ? undefined : previous,
+        ...itemsAccess.queryOptions(({ signal }) => {
           const params = new URLSearchParams()
           params.set('page', String(rssFilters.page))
           params.set('page_size', String(effectivePageSize))
@@ -554,8 +620,8 @@ export function useDashboardPageController() {
           if (rssFilters.star_status === 'unstarred') params.set('is_starred', 'false')
           if (effectiveAiRelevance !== 'all') params.set('ai_relevance', effectiveAiRelevance)
 
-          return apiFetch<ItemListResponse>(`/items?${params.toString()}`)
-        },
+          return apiFetch<ItemListResponse>(`/items?${params.toString()}`, { signal })
+        }, 60_000),
       }
     }),
   })
@@ -578,6 +644,7 @@ export function useDashboardPageController() {
 
       return {
         queryKey: [
+          'dashboard',
           'alert-matches',
           selectedAlertIdsParam,
           selectedAlertCategoriesParam,
@@ -589,9 +656,9 @@ export function useDashboardPageController() {
           effectivePageSize,
         ],
         enabled: isWideLayout || windowLayout.id === resolvedMobileWindowId,
-        staleTime: 60_000,
-        placeholderData: (previousData: AlertMatchListResponse | undefined) => previousData,
-        queryFn: () => {
+        placeholderData: (previous: Awaited<ReturnType<typeof alertMatchesAccess.read<AlertMatchListResponse>>> | undefined) =>
+          alertMatchesAccess.currentData(previous) === undefined ? undefined : previous,
+        ...alertMatchesAccess.queryOptions(({ signal }) => {
           const params = new URLSearchParams()
           params.set('page', String(alertFilters.page))
           params.set('page_size', String(effectivePageSize))
@@ -603,8 +670,8 @@ export function useDashboardPageController() {
           if (timeWindow.sinceIso) params.set('since', timeWindow.sinceIso)
           if (timeWindow.untilIso) params.set('until', timeWindow.untilIso)
 
-          return apiFetch<AlertMatchListResponse>(`/alerts/matches?${params.toString()}`)
-        },
+          return apiFetch<AlertMatchListResponse>(`/alerts/matches?${params.toString()}`, { signal })
+        }, 60_000),
       }
     }),
   })
@@ -711,66 +778,20 @@ export function useDashboardPageController() {
     })
   }, [rssQueriesByWindowId, rssWindows])
 
-  const detailQueries = useQueries({
-    queries: rssWindows.map((windowLayout) => {
-      const expandedItemId = expandedItemIdsByWindowId[windowLayout.id] ?? ''
-      return {
-        queryKey: ['item', expandedItemId],
-        enabled: Boolean(expandedItemId) && (isWideLayout || windowLayout.id === resolvedMobileWindowId),
-        queryFn: () => apiFetch<ItemDetail>(`/items/${expandedItemId}`),
-      }
-    }),
-  })
-
-  const detailQueriesByWindowId = useMemo(
-    () =>
-      Object.fromEntries(rssWindows.map((windowLayout, index) => [windowLayout.id, detailQueries[index] ?? null])) as Record<
-        string,
-        (typeof detailQueries)[number] | null
-      >,
-    [detailQueries, rssWindows],
-  )
-
-  useEffect(() => {
-    setNoteDraftsByItemId((current) => {
-      let changed = false
-      const next = { ...current }
-
-      for (const windowLayout of rssWindows) {
-        const detail = detailQueriesByWindowId[windowLayout.id]?.data
-        if (!detail) {
-          continue
-        }
-
-        const savedNote = detail.state.note ?? ''
-        const previousSavedNote = savedNoteValuesByItemIdRef.current[detail.id]
-        if (previousSavedNote !== savedNote) {
-          savedNoteValuesByItemIdRef.current[detail.id] = savedNote
-        }
-        if ((next[detail.id] === undefined || next[detail.id] === previousSavedNote) && next[detail.id] !== savedNote) {
-          next[detail.id] = savedNote
-          changed = true
-        }
-      }
-
-      return changed ? next : current
-    })
-  }, [detailQueriesByWindowId, rssWindows])
-
   const dailyBriefHistoryQuery = useQuery({
-    queryKey: ['ai', 'daily-briefs'],
+    queryKey: ['dashboard', 'daily-briefs'],
     enabled: aiDailyBriefEnabled && dailyBriefPanelsEnabled,
     retry: false,
-    queryFn: async () => {
+    ...dailyBriefsAccess.queryOptions(async ({ signal }) => {
       try {
-        return await apiFetch<AIDailyBrief[]>('/ai/daily-briefs')
+        return await apiFetch<AIDailyBrief[]>('/ai/daily-briefs', { signal })
       } catch (error) {
         if (error instanceof ApiError && error.status === 404) {
           return []
         }
         throw error
       }
-    },
+    }),
   })
 
   const availableAlertCategories = useMemo(() => {
@@ -928,7 +949,10 @@ export function useDashboardPageController() {
     })
   }
 
-  const canUpdateActiveView = canUpdateDashboardSavedView(activeSavedViewId, savedViewBaseline, viewsQuery.data)
+  const verifiedSavedViewBaseline = !viewsAccess.denied && savedViewReadGeneration === viewsAccess.generation
+    ? savedViewBaseline : null
+  const canUpdateActiveView = viewsActionsAvailable
+    && canUpdateDashboardSavedView(activeSavedViewId, verifiedSavedViewBaseline, viewsQuery.data)
 
   const updateActiveView = () => {
     if (!activeSavedViewId || !canUpdateActiveView || layoutEnforced) return
@@ -940,7 +964,7 @@ export function useDashboardPageController() {
     })
   }
 
-  const findSavedViewById = (viewId: string) => viewsQuery.data?.find((view) => view.id === viewId) ?? null
+  const findSavedViewById = (viewId: string) => readableSavedView(viewId)
 
   const clearActiveSavedViewSelection = () => {
     setActiveSavedViewId(null)
@@ -993,10 +1017,14 @@ export function useDashboardPageController() {
   }
 
   const exportAllViews = () => {
+    if (!viewsActionsAvailable) return
+    const state = queryClient.getQueryState<Awaited<ReturnType<typeof viewsAccess.read<SavedView[]>>>>(['dashboard', 'views'])
+    const savedViews = viewsAccess.currentData(state?.data)
+    if (state?.status !== 'success' || state.fetchStatus !== 'idle' || !savedViews) return
     const payload = {
       version: 1,
       exported_at: new Date().toISOString(),
-      views: (viewsQuery.data ?? []).map((view) => ({
+      views: savedViews.map((view) => ({
         name: view.name,
         query_json: view.query_json,
       })),
@@ -1053,7 +1081,7 @@ export function useDashboardPageController() {
           if (lease.signal.aborted) return
           if (importedNames.length) {
             setImportViewsResult(formatSavedViewImportResult(importedNames, true))
-            await queryClient.invalidateQueries({ queryKey: ['views'] })
+            await refreshViews()
           }
           setImportViewsError(formatSavedViewImportFailure(entry.name, error))
           return
@@ -1061,7 +1089,7 @@ export function useDashboardPageController() {
       }
 
       setImportViewsResult(formatSavedViewImportResult(importedNames))
-      await queryClient.invalidateQueries({ queryKey: ['views'] })
+      await refreshViews()
     } catch (error) {
       if (lease.signal.aborted) return
       setImportViewsError(resolveApiErrorMessage(error, 'Saved dashboard views could not be imported'))
@@ -1123,17 +1151,18 @@ export function useDashboardPageController() {
     [containerDimensions.height, containerDimensions.width, viewsQuery.data],
   )
   return {
-    layoutEnforced, savedViewBaseline, canUpdateActiveView,
+    layoutEnforced, savedViewBaseline: verifiedSavedViewBaseline, savedViewReadGeneration, canUpdateActiveView,
     activeSavedViewId, addWindow, addWindowActionRefs, addWindowMenuId, addWindowMenuRef,
     addWindowTriggerRef,
     adjustArticlePreviewWidth, aiDailyBriefEnabled, aiRelevanceEnabled, aiSummaryEnabled, alertInterestsQuery,
-    alertQueriesByWindowId, alertWindowCount, applyDashboardSavedViewState, applyGlobalSearch, articlePreview,
+    alertQueriesByWindowId, alertWindowCount, applyDashboardSavedViewState, applyGlobalSearch,
+    articlePreview: itemsAccess.currentData(articlePreviewAdmissionRef.current) === true ? articlePreview : null,
     articlePreviewWidth, articleRetryFeedbackByItemId, availableAlertCategories, bringWindowToFront,
     canAddWindow: windows.length < MAX_DASHBOARD_WINDOWS, canManage, captureCurrentDashboardViewState,
     clearActiveSavedViewSelection, closeAddWindowMenu, closeArticlePreview,
     closeRenameWindow, confirmDiscardUnsavedDashboardChanges, containerDimensions, dashboardReady, dailyBriefHistoryQuery, dailyBriefWindowCount,
     dashboardCustomSinceDate, dashboardCustomUntilDate, dashboardRollingDays, dashboardTimeFilter, dashboardTimeRange,
-    deleteView, detailQueriesByWindowId, editSessionSnapshot, expandedItemIdsByWindowId, exportAllViews,
+    deleteView, editSessionSnapshot, expandedItemIdsByWindowId, exportAllViews,
     feedsQuery, globalSearchState, handleAddWindowMenuKeyDown, handleAddWindowTriggerKeyDown, handleOpenArticlePreview,
     handleToggleItem, hasProtectedEditSession, hasUnsavedDashboardChanges, importViewsError, importViewsFile,
     importViewsInputRef, importViewsResult, isArticlePreviewResizing, isEditMode, isImportingViews,
@@ -1142,18 +1171,19 @@ export function useDashboardPageController() {
     mobileWindowControlsOpenById, noteDraftsByItemId, notesWindowCount, onConfirmDeleteView, onConfirmPendingSavedViewLoad,
     openAddWindowMenu, openImportViewsPicker, openRenameWindow, pendingSavedViewLoad, pendingViewDelete,
     removeWindow, renameWindowDraft, renameWindowInputRef, renamingWindowId, renderedWindows,
-    requestSavedViewLoad, resolvedMobileWindowId, retryArticleFetch, rootRef, rssLastOpenedAt,
+    refreshDashboard: () => queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+    registerItemReadAdmission, requestSavedViewLoad, resolvedMobileWindowId, retryArticleFetch, rootRef, rssLastOpenedAt,
     rssQueriesByWindowId, rssWindowCount, saveCurrentView, saveRenamedWindow, saveView,
     savedViewName, savedViewPreviews, setEditSessionSnapshot, setIsEditMode,
     setMobileActiveWindowId, setMobileDashboardViewsOpen, setNoteDraftsByItemId, setOpenWindowMenuId, setPendingSavedViewLoad,
     setPendingViewDelete, setRenameWindowDraft, setSavedViewName, setShowManageViewsModal, setShowSaveAsNew,
     setViewDeleteError, setViewSaveError, setWindowSnap, showAddWindowMenu, showManageViewsModal,
     showSaveAsNew, startArticlePreviewResize, startWindowDrag, startWindowResize, handleWindowGeometryKey, tagsQuery,
-    toggleMobileWindowControls, toggleWindowControls, updateActiveView, updateDashboardCustomSinceDate, updateDashboardCustomUntilDate,
+    syncItemNote, toggleMobileWindowControls, toggleWindowControls, updateActiveView, updateDashboardCustomSinceDate, updateDashboardCustomUntilDate,
     updateDashboardRollingDaysValue, updateDashboardTimeRange, updateExistingView, updateNote, updateRead,
     updateStar, updateWindowAlertFilters, updateWindowCustomTimeDate, updateWindowDailyBriefSelection, updateWindowRollingDays,
     updateWindowRssFilters, updateWindowScratchNote, updateWindowTimeRange, viewDeleteError, viewSaveError,
-    viewSavePending, viewsQuery, windowSeenAt, windows,
+    viewSavePending, viewsActionsAvailable, viewsQuery, windowSeenAt, windows,
     workspaceDefaultsDegraded: !workspaceDefaultsReady && workspace.isDegraded,
   }
 }

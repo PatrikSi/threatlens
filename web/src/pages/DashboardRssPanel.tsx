@@ -112,6 +112,11 @@ export function DashboardRssPanel({
                           )
                         })}
                       </div>
+                      {feedsQuery.isError && (
+                        <p role="alert" className="mt-0.5 text-xs text-red-600">
+                          {resolveApiErrorMessage(feedsQuery.error, 'Feed filters could not be loaded')}
+                        </p>
+                      )}
 
                       <div className={`mt-1 ${FILTER_SCROLLER_CLASS}`} role="group" aria-label={`${windowLayout.title} tag filters`}>
                         <button
@@ -150,7 +155,7 @@ export function DashboardRssPanel({
                           })}
                       </div>
                       {tagsQuery.isError && (
-                        <p className="mt-0.5 text-xs text-red-600">
+                        <p role="alert" className="mt-0.5 text-xs text-red-600">
                           {resolveApiErrorMessage(tagsQuery.error, 'Tags could not be loaded')}
                         </p>
                       )}
@@ -332,11 +337,11 @@ export function DashboardRssPanel({
                         <p className="text-xs text-slate dark:text-white/60">Refreshing items...</p>
                       )}
                       {rssQuery?.isError && (
-                        <p className="text-sm text-red-600">
+                        <p role="alert" className="text-sm text-red-600">
                           {resolveApiErrorMessage(rssQuery.error, 'RSS items could not be loaded')}
                         </p>
                       )}
-                      {!rssQuery?.isLoading && !rssWindowItems.length && (
+                      {rssQuery?.data && !rssQuery.isError && !rssWindowItems.length && (
                         <p className="text-sm text-slate dark:text-slate-300">No items match current filters.</p>
                       )}
                     </div>

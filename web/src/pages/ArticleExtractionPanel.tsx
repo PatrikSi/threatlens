@@ -9,7 +9,7 @@ import { ArticleEvidenceView } from './ArticleEvidenceView'
 import { ArticleExtractionCoverage } from './ArticleExtractionCoverage'
 import { TEAM_BUTTON } from './teamPresentation'
 
-export function ArticleExtractionPanel({ detail }: { detail: ItemDetail }) {
+export function ArticleExtractionPanel({ detail, readAvailable }: { detail: ItemDetail; readAvailable?: () => boolean }) {
   const user = useCurrentUser()
   const client = useQueryClient()
   const identity = accessibleQueryData(user)
@@ -32,9 +32,12 @@ export function ArticleExtractionPanel({ detail }: { detail: ItemDetail }) {
       </div>}
       {pending && <p role="status">Article enrichment is {status}. Refresh the article to check for updated evidence.</p>}
       {status === 'error' && <p role="alert">The latest article enrichment attempt failed: {detail.ai_insight?.error || 'No new result was published.'}</p>}
-      {canReprocess && coverage && <ArticleExtractionContinuation key={detail.id} itemId={detail.id} coverage={coverage} disabled={user.isError || pending} />}
+      {canReprocess && coverage && <ArticleExtractionContinuation key={detail.id} itemId={detail.id} coverage={coverage} disabled={user.isError || pending || readAvailable?.() === false} readAvailable={readAvailable} />}
       <div className="flex flex-wrap gap-3">
-        <button className={TEAM_BUTTON} disabled={user.isError} onClick={() => void client.invalidateQueries({ queryKey: ['item', detail.id] })}>Refresh article evidence</button>
+        <button className={TEAM_BUTTON} disabled={user.isError} onClick={() => void Promise.allSettled([
+          client.invalidateQueries({ queryKey: ['item', detail.id] }),
+          client.invalidateQueries({ queryKey: ['dashboard', 'item', detail.id] }),
+        ])}>Refresh article evidence</button>
         {canReprocess && <Link className="font-semibold text-cyan underline" to="/settings/ai">Open AI settings</Link>}
       </div>
     </div>
