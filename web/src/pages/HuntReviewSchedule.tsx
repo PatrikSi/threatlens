@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../api/client";
 import { resolveApiErrorMessage } from "../api/errors";
 import { captureSessionLease } from "../api/sessionLifecycle";
+import { useQueryAccessScope } from "../hooks/useQueryAccessScope";
 import { useUnsavedChangesWarning } from "../hooks/useUnsavedChangesWarning";
 import { TEAM_BUTTON } from "./teamPresentation";
 import type { HuntEntry } from "./teamHuntTypes";
@@ -28,13 +29,20 @@ export function HuntReviewSchedule({
   disabled,
   onDirtyChange,
   paused = false,
+  hidden = false,
+  canSubmit,
+  children,
 }: {
   entry: HuntEntry;
   disabled: boolean;
   paused?: boolean;
+  hidden?: boolean;
+  canSubmit?: () => boolean;
+  children?: (schedule: ReactNode) => ReactNode;
   onDirtyChange?: (entry: HuntEntry, dirty: boolean) => void;
 }) {
   const client = useQueryClient();
+  const access = useQueryAccessScope(["team-hunts", entry.team_id]);
   const current = entry.review_schedule ?? empty;
   const [baseline, setBaseline] = useState(current);
   const [assessmentVersion, setAssessmentVersion] = useState(
@@ -58,6 +66,8 @@ export function HuntReviewSchedule({
       submittedPriority: Schedule["priority"];
       submittedDeadline: string;
     }) => {
+      if (hidden || disabled || paused || !entry.can_schedule || access.denied || canSubmit && !canSubmit()) throw new Error("Refresh this hunt before changing its schedule. Your draft is preserved.");
+      const capture = access.captureResult();
       const lease = captureSessionLease();
       const result = await apiFetch<Schedule>(
         `/teams/${entry.team_id}/hunts/${entry.assessment_id}/${entry.hunt.id}/${acknowledge ? "reminder-acknowledgement" : "schedule"}`,
@@ -78,9 +88,12 @@ export function HuntReviewSchedule({
         },
       );
       lease.assertCurrent();
-      return { result, acknowledge, assessment };
+      return capture({ result, acknowledge, assessment });
     },
-    onSuccess: ({ result, acknowledge, assessment }) => {
+    onSuccess: (response) => {
+      const current = access.currentData(response);
+      if (!current) return;
+      const { result, acknowledge, assessment } = current;
       if (!acknowledge) {
         setBaseline(result);
         setAssessmentVersion(assessment);
@@ -110,7 +123,7 @@ export function HuntReviewSchedule({
   }, [entry, dirty, save.isPending, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(entry, false), [entry, onDirtyChange]);
   const submit = (acknowledge: boolean) => {
-    if (pending.current || disabled || paused || !entry.can_schedule) return;
+    if (pending.current || hidden || disabled || paused || !entry.can_schedule || access.denied || canSubmit && !canSubmit()) return;
     pending.current = true;
     save.mutate({
       acknowledge,
@@ -120,7 +133,8 @@ export function HuntReviewSchedule({
       submittedDeadline: deadline,
     });
   };
-  return (
+  if (hidden) return <>{confirmDiscard.discardDialog}</>;
+  const schedule = (
     <div className="space-y-2 text-sm">
       {confirmDiscard.discardDialog}
       <p>
@@ -213,4 +227,5 @@ export function HuntReviewSchedule({
       )}
     </div>
   );
+  return <>{children ? children(schedule) : schedule}</>;
 }

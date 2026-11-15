@@ -1,10 +1,11 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, apiFetch } from "../api/client";
+import { apiFetch } from "../api/client";
 import { resolveApiErrorMessage } from "../api/errors";
 import { captureSessionLease } from "../api/sessionLifecycle";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { createSecureRequestId } from "../utils/secureRandomId";
+import { useQueryAccessScope } from "../hooks/useQueryAccessScope";
 import { TEAM_BUTTON } from "./teamPresentation";
 
 export type HuntFilters = {
@@ -28,19 +29,31 @@ export function TeamHuntSavedViews({
   unavailable: boolean;
 }) {
   const client = useQueryClient();
+  const access = useQueryAccessScope(["team-hunt-views", teamId]);
   const [name, setName] = useState("");
-  const [selected, setSelected] = useState<View | null>(null);
+  const [selection, setSelection] = useState<{ view: View; admission: { generation: number; value: boolean } } | null>(null);
+  const [nameEdited, setNameEdited] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const requestId = useRef<string | null>(null);
   const pending = useRef(false);
   const query = useQuery({
     queryKey: ["team-hunt-views", teamId],
     enabled: !unavailable,
-    queryFn: ({ signal }) =>
-      apiFetch<Page>(`/teams/${teamId}/hunts/views`, { signal }),
+    ...access.queryOptions(({ signal }) =>
+      apiFetch<Page>(`/teams/${teamId}/hunts/views`, { signal })),
   });
+  const selected = selection && access.currentData(selection.admission) && query.data?.items.some((view) => view.id === selection.view.id) ? selection.view : null;
+  useEffect(() => {
+    if (!access.denied) return;
+    setDeleting(false);
+    if (!nameEdited) setName("");
+  }, [access.denied, nameEdited]);
   const mutation = useMutation({
     mutationFn: async (remove: boolean) => {
+      const state = client.getQueryState(["team-hunt-views", teamId]);
+      const page = state?.status === "error" ? undefined : access.currentData<Page>(client.getQueryData(["team-hunt-views", teamId]));
+      if (unavailable || !page?.can_manage || access.denied || remove && (!selected || !page.items.some((view) => view.id === selected.id))) throw new Error("Refresh the saved hunt views before changing them. Your name draft is preserved.");
+      const capture = access.captureResult();
       const lease = captureSessionLease();
       if (!requestId.current) requestId.current = createSecureRequestId();
       const id = selected?.id ?? requestId.current;
@@ -60,11 +73,15 @@ export function TeamHuntSavedViews({
         },
       );
       lease.assertCurrent();
-      return value;
+      return capture({ saved: value });
     },
-    onSuccess: (saved) => {
+    onSuccess: (result) => {
+      const value = access.currentData(result);
+      if (!value) return;
+      const saved = value.saved;
       requestId.current = null;
-      setSelected(saved ?? null);
+      setSelection(saved ? { view: saved, admission: access.captureResult()(true) } : null);
+      setNameEdited(false);
       setName(saved?.name ?? "");
       setDeleting(false);
       void client.invalidateQueries({ queryKey: ["team-hunt-views", teamId] });
@@ -72,13 +89,11 @@ export function TeamHuntSavedViews({
     onSettled: () => { pending.current = false; },
   });
   const submit = (remove: boolean) => {
-    if (pending.current || unavailable || query.isError) return;
+    if (pending.current || unavailable || query.isError || access.denied) return;
     pending.current = true;
     mutation.mutate(remove);
   };
-  const lost =
-    query.error instanceof ApiError &&
-    [401, 403, 404].includes(query.error.status);
+  const lost = access.denied;
   return (
     <section className="space-y-2" aria-label="Saved team hunt filters">
       {query.isError && (
@@ -112,10 +127,11 @@ export function TeamHuntSavedViews({
               value={selected?.id ?? ""}
               onChange={(event) => {
                 const view =
-                  query.data.items.find(
+                  query.data?.items.find(
                     (entry) => entry.id === event.target.value,
                   ) ?? null;
-                setSelected(view);
+                setSelection(view ? { view, admission: access.captureResult()(true) } : null);
+                setNameEdited(false);
                 setName(view?.name ?? "");
                 requestId.current = null;
                 if (view) onApply(view.filters);
@@ -137,7 +153,7 @@ export function TeamHuntSavedViews({
                   className="ml-2 rounded border p-2 dark:bg-[#072019]"
                   maxLength={80}
                   value={name}
-                  onChange={(event) => setName(event.target.value)}
+                  onChange={(event) => { setNameEdited(true); setName(event.target.value); }}
                 />
               </label>
               <button
@@ -160,11 +176,12 @@ export function TeamHuntSavedViews({
         </fieldset>
       )}
       <ConfirmDialog
-        open={deleting}
+        open={deleting && Boolean(selected) && !access.denied}
         title="Delete saved team hunt view?"
         description="This removes the shared filter preset. Hunts and reviews are retained."
         confirmLabel="Delete view"
         isConfirming={mutation.isPending}
+        confirmDisabled={unavailable || query.isError || access.denied}
         onCancel={() => setDeleting(false)}
         onConfirm={() => submit(true)}
       />

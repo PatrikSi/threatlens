@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useQueryAccessScope } from "../hooks/useQueryAccessScope";
 import { apiFetch } from "../api/client";
 import { resolveApiErrorMessage } from "../api/errors";
 import { TEAM_BUTTON } from "./teamPresentation";
@@ -19,13 +20,14 @@ type Utilization = {
   teams_truncated: boolean;
   oldest_wait_seconds: number | null;
 };
-export function AiQuotaUtilization({ groupId }: { groupId: string }) {
+export function AiQuotaUtilization({ groupId, readGeneration = 0 }: { groupId: string; readGeneration?: number }) {
+  const access = useQueryAccessScope(["ai", "quota-utilization", groupId]);
   const query = useQuery({
-    queryKey: ["ai", "quota-utilization", groupId],
-    queryFn: ({ signal }) =>
+    queryKey: ["ai", "quota-utilization", groupId, readGeneration],
+    ...access.queryOptions(({ signal }) =>
       apiFetch<Utilization>(`/ai/quota-groups/${groupId}/utilization`, {
         signal,
-      }),
+      })),
     refetchInterval: 15_000,
   });
   return (

@@ -3,17 +3,19 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { resolveApiErrorMessage } from '../api/errors'
 import type { TeamMemberPage } from '../types/teams'
 
 export function TeamMembersPanel({ teamId }: { teamId: string }) {
   const [page, setPage] = useState(1)
+  const access = useQueryAccessScope(['teams', teamId, 'members'])
   const members = useQuery({
     queryKey: ['teams', teamId, 'members', page],
-    queryFn: () =>
+    ...access.queryOptions(() =>
       apiFetch<TeamMemberPage>(
         `/teams/${teamId}/members?page=${page}&page_size=50`,
-      ),
+      )),
     refetchInterval: 30_000,
   })
   return (
@@ -24,7 +26,7 @@ export function TeamMembersPanel({ teamId }: { teamId: string }) {
         inactive accounts do not retain membership. Feature permissions still
         apply.
       </p>
-      {members.isError ? (
+      {members.isError || access.denied ? (
         <div role="alert">
           <p>
             {resolveApiErrorMessage(

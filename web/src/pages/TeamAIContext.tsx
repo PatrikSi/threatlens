@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ApiError, apiFetch } from '../api/client'
+import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import type { TeamAIContext as Context } from '../types/teams'
 import { TEAM_BUTTON } from './teamPresentation'
@@ -88,15 +89,16 @@ export function TeamAIContext({
   teamId: string
   writable: boolean
 }) {
+  const access = useQueryAccessScope(['teams', 'ai-context', teamId])
+  const retained = useRef<Context | undefined>(undefined)
   const query = useQuery({
     queryKey: ['teams', 'ai-context', teamId],
-    queryFn: ({ signal }) =>
-      apiFetch<Context>(`/teams/${teamId}/ai-context`, { signal }),
+    ...access.queryOptions(({ signal }) =>
+      apiFetch<Context>(`/teams/${teamId}/ai-context`, { signal })),
     refetchInterval: 30_000,
   })
-  const accessLost =
-    query.error instanceof ApiError &&
-    [401, 403, 404].includes(query.error.status)
+  if (query.data) retained.current = query.data
+  const context = query.data ?? (retained.current?.team_id === teamId ? retained.current : undefined)
   return (
     <section aria-label="Team AI context" className="space-y-3">
       <h2 className="text-lg font-semibold">Team AI context</h2>
@@ -106,7 +108,7 @@ export function TeamAIContext({
         provider when a team assessment is requested; do not include
         credentials.
       </p>
-      {query.isError && (
+      {(query.isError || access.denied) && (
         <div role="alert">
           {resolveApiErrorMessage(
             query.error,
@@ -117,11 +119,12 @@ export function TeamAIContext({
           </button>
         </div>
       )}
-      {!accessLost && query.data ? (
+      {context ? (
         <TeamAIContextEditor
           key={teamId}
-          context={query.data}
-          writable={writable && !query.isError}
+          context={context}
+          hidden={!query.data}
+          writable={writable && !query.isError && !access.denied}
         />
       ) : (
         !query.isError && <p role="status">Loading team AI context…</p>
@@ -133,15 +136,29 @@ export function TeamAIContext({
 export function TeamAIContextEditor({
   context,
   writable,
+  hidden = false,
 }: {
   context: Context
   writable: boolean
+  hidden?: boolean
 }) {
   const client = useQueryClient()
+  const access = useQueryAccessScope(['teams', 'ai-context', context.team_id])
   const [baseline, setBaseline] = useState(context)
+  const [baselineGeneration, setBaselineGeneration] = useState(access.generation)
   const [draft, setDraft] = useState(() => createDraft(context))
   const [notice, setNotice] = useState('')
   const dirty = JSON.stringify(draft) !== JSON.stringify(createDraft(baseline))
+  const cleanRecovery = !dirty && baselineGeneration !== access.generation
+  useEffect(() => {
+    if (hidden || !cleanRecovery) return
+    const current = access.currentData<Context>(client.getQueryData(['teams', 'ai-context', context.team_id]))
+    if (!current) return
+    setBaseline(current)
+    setDraft(createDraft(current))
+    setBaselineGeneration(access.captureResult()(true).generation)
+    setNotice('')
+  }, [access, cleanRecovery, client, context.team_id, hidden])
   const discard = useUnsavedChangesWarning(
     dirty,
     'Discard unsaved team AI context?',
@@ -155,8 +172,12 @@ export function TeamAIContextEditor({
     })
     .find(Boolean)
   const save = useMutation({
-    mutationFn: () =>
-      apiFetch<Context>(`/teams/${context.team_id}/ai-context`, {
+    mutationFn: () => {
+      if (!writable || hidden || !context.can_manage || access.denied || client.getQueryState(['teams', 'ai-context', context.team_id])?.status === 'error') {
+        throw new Error('Refresh the current AI context before changing it. Your draft is preserved.')
+      }
+      const capture = access.captureResult()
+      return apiFetch<Context>(`/teams/${context.team_id}/ai-context`, {
         method: 'PATCH',
         body: JSON.stringify({
           expected_version: baseline.version,
@@ -165,17 +186,22 @@ export function TeamAIContextEditor({
           ),
           relevance_criteria: draft.relevance_criteria.trim(),
         }),
-      }),
-    onSuccess: async (saved) => {
+      }).then(capture)
+    },
+    onSuccess: async (result) => {
+      const saved = access.currentData(result)
+      if (!saved) return
       await client.cancelQueries({
         queryKey: ['teams', 'ai-context', context.team_id],
       })
+      if (!access.currentData(result)) return
       setBaseline(saved)
+      setBaselineGeneration(result.generation)
       setDraft(createDraft(saved))
       setNotice(
         'Team AI context saved. Existing assessments retain their original context revision until regenerated.',
       )
-      client.setQueryData(['teams', 'ai-context', context.team_id], saved)
+      if (client.getQueryState(['teams', 'ai-context', context.team_id])?.status !== 'error') client.setQueryData(['teams', 'ai-context', context.team_id], result)
       void client.invalidateQueries({ queryKey: ['team-assessments'] })
     },
     onError: () => {
@@ -184,14 +210,20 @@ export function TeamAIContextEditor({
       })
     },
   })
-  const canEdit = writable && context.can_manage
+  const canEdit = writable && context.can_manage && !access.denied && !hidden
   const reload = () =>
     discard(() => {
-      setBaseline(context)
-      setDraft(createDraft(context))
+      const admission = access.captureResult()(true)
+      const current = access.currentData<Context>(client.getQueryData(['teams', 'ai-context', context.team_id]))
+        ?? (admission.generation === 0 ? context : undefined)
+      if (!current || !access.currentData(admission)) return
+      setBaseline(current)
+      setDraft(createDraft(current))
+      setBaselineGeneration(admission.generation)
       setNotice('')
       save.reset()
     })
+  if (hidden || cleanRecovery) return <>{discard.discardDialog}</>
   return (
     <div className="space-y-3">
       {discard.discardDialog}

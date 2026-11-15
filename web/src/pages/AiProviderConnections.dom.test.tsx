@@ -90,18 +90,113 @@ afterEach(() => {
 })
 
 describe('AI provider lifecycle with a real query cache', () => {
+  it('keeps denied provider connection rows hidden through a later outage', async () => {
+    let status = 200
+    vi.mocked(apiFetch).mockImplementation((path) => path.startsWith('/ai/providers?') && status !== 200
+      ? Promise.reject(new ApiError('Provider list unavailable', status, path)) : Promise.resolve(respondToRead(path)))
+    mount(true)
+    await settle()
+    expect(host.textContent).toContain(provider.name)
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => { await client.invalidateQueries({ queryKey: ['ai', 'providers'] }) })
+      await settle()
+      expect(host.querySelector('table caption')?.textContent).not.toBe('Saved AI provider connections')
+      expect(host.textContent).not.toContain(provider.name)
+    }
+  })
+
+  it('keeps denied selected provider configuration private while its independently readable list remains available', async () => {
+    let status = 200
+    vi.mocked(apiFetch).mockImplementation((path) => path === `/ai/providers/${provider.id}` && status !== 200
+      ? Promise.reject(new ApiError('Selected provider unavailable', status, path)) : Promise.resolve(respondToRead(path)))
+    mount(true)
+    await settle()
+    act(() => current.select(provider))
+    await settle()
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Provider model"]')?.value).toBe(provider.model)
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => { await client.invalidateQueries({ queryKey: ['ai', 'providers', 'detail', provider.id] }) })
+      await settle()
+      expect(host.querySelector('section[aria-labelledby="ai-provider-editor-title"]')).toBeNull()
+      expect(host.textContent).toContain(provider.name)
+    }
+  })
+
+  it('retains an ordinary provider refresh outage draft while pausing direct saved-connection tests', async () => {
+    let failed = false
+    vi.mocked(apiFetch).mockImplementation((path, options) => options?.method === 'POST'
+      ? Promise.resolve({ success: true, model: provider.model })
+      : path === `/ai/providers/${provider.id}` && failed ? Promise.reject(new ApiError('Provider temporarily unavailable', 503, path))
+        : Promise.resolve(respondToRead(path)))
+    mount(true)
+    await settle()
+    act(() => current.select(provider))
+    await settle()
+    failed = true
+    await act(async () => { await client.invalidateQueries({ queryKey: ['ai', 'providers', 'detail', provider.id] }) })
+    await settle()
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Provider model"]')?.value).toBe(provider.model)
+    const test = [...host.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === 'Test this saved provider')!
+    expect(test.disabled).toBe(true)
+    act(() => current.test())
+    await settle()
+    expect(vi.mocked(apiFetch).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
+  })
+
+  it('keeps denied shared account quota rows hidden through a later outage', async () => {
+    let status = 200
+    const quota = { id: provider.id, version: 1, name: 'Private shared account quota', provider_keys: ['legacy'], max_concurrent_requests: 2, hourly_token_budget: 10000, max_concurrent_per_team: 1 }
+    vi.mocked(apiFetch).mockImplementation((path) => path === '/ai/quota-groups?limit=100'
+      ? status === 200 ? Promise.resolve({ items: [quota], total: 1, limit: 100, offset: 0 })
+        : Promise.reject(new ApiError('Account quotas unavailable', status, path)) : Promise.resolve(respondToRead(path)))
+    mount(true)
+    await settle()
+    expect(host.textContent).toContain(quota.name)
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => { await client.invalidateQueries({ queryKey: ['ai', 'quota-groups'] }) })
+      await settle()
+      expect(host.textContent).not.toContain(quota.name)
+      expect(host.textContent).toContain(provider.name)
+    }
+  })
+
+  it('keeps denied feature routing hidden through a later outage', async () => {
+    let status = 200
+    savedRouting = { ...initialRouting, default_provider_id: provider.id }
+    vi.mocked(apiFetch).mockImplementation((path) => path === '/ai/provider-routing' && status !== 200
+      ? Promise.reject(new ApiError('Assignments unavailable', status, path)) : Promise.resolve(respondToRead(path)))
+    mount(true)
+    await settle()
+    expect(current.visibleRouting?.default_provider_id).toBe(provider.id)
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => { await client.invalidateQueries({ queryKey: ['ai', 'provider-routing'], exact: true }) })
+      await settle()
+      expect(current.visibleRouting).toBeUndefined()
+      expect(host.textContent).toContain(provider.name)
+    }
+  })
+
   it('preserves quota draft version across refreshes and rejects duplicate pending saves', async () => {
     const baseline = { id: provider.id, version: 4, name: 'Shared upstream account', provider_keys: ['legacy'],
       max_concurrent_requests: 2, hourly_token_budget: 10000, max_concurrent_per_team: 1 }
     let complete!: (error: Error) => void
+    let latestQuota = baseline
     vi.mocked(apiFetch).mockImplementation((path, init) => init?.method === 'PUT'
       ? new Promise((_resolve, reject) => { complete = reject })
-      : Promise.resolve(respondToRead(path)))
+      : Promise.resolve(path === '/ai/quota-groups?limit=100'
+        ? { items: [latestQuota], total: 1, limit: 100, offset: 0 } : respondToRead(path)))
     mount(true)
     await settle()
     act(() => current.quotas.select(baseline))
     act(() => current.quotas.update('name', 'Edited account quota'))
-    act(() => client.setQueryData(['ai', 'quota-groups'], { items: [{ ...baseline, version: 5 }], total: 1, limit: 100, offset: 0 }))
+    latestQuota = { ...baseline, version: 5 }
+    await act(async () => { await client.invalidateQueries({ queryKey: ['ai', 'quota-groups'], exact: true }) })
+    await settle()
+    expect(current.quotas.query.data?.items[0].version).toBe(5)
     expect(current.dirty).toBe(true)
     act(() => {
       current.quotas.save()
@@ -365,12 +460,13 @@ describe('AI provider lifecycle with a real query cache', () => {
     )
     mount(true)
     await settle()
-    act(() => {
-      current.select(provider)
-      current.setDeleteTarget(provider)
-    })
+    act(() => current.select(provider))
+    await settle()
+    expect(current.selectedProvider.data?.id).toBe(provider.id)
+    act(() => current.setDeleteTarget(provider))
     act(() => current.remove())
     await settle()
+    expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(1)
     expect(current.deleteTarget?.id).toBe(provider.id)
     expect(current.editor?.baseline?.id).toBe(provider.id)
     expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Reassign it first')
@@ -447,8 +543,10 @@ describe('AI provider lifecycle with a real query cache', () => {
     expect(current.editor?.baseline?.version).toBe(2)
     expect(current.selectedProvider.data?.version).toBe(1)
     expect(host.textContent).not.toContain('This provider changed on the server')
-    act(() => client.setQueryData(['ai', 'providers', 'detail', provider.id], { ...provider, version: 3 }))
+    savedProvider = { ...provider, version: 3 }
+    await act(async () => { await client.invalidateQueries({ queryKey: ['ai', 'providers', 'detail', provider.id], exact: true }) })
     await settle()
+    expect(current.selectedProvider.data?.version).toBe(3)
     expect(host.textContent).toContain('This provider changed on the server')
     expect(current.editor?.baseline?.version).toBe(2)
   })

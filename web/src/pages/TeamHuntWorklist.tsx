@@ -1,7 +1,7 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
-import { ApiError, apiFetch } from "../api/client";
+import { apiFetch } from "../api/client";
 import { resolveApiErrorMessage } from "../api/errors";
 import { captureSessionLease } from "../api/sessionLifecycle";
 import { DialogSurface } from "../components/ConfirmDialog";
@@ -9,6 +9,7 @@ import type { HuntEntry } from "./teamHuntTypes";
 import { HuntReviewSchedule } from "./HuntReviewSchedule";
 import { TeamHuntSavedViews, type HuntFilters } from "./TeamHuntSavedViews";
 import { AssessmentWorkspace } from "./ArticleTeamAssessment";
+import { useQueryAccessScope } from "../hooks/useQueryAccessScope";
 import { TEAM_BUTTON } from "./teamPresentation";
 
 interface HuntPage {
@@ -31,24 +32,27 @@ export function TeamHuntWorklist({
   unavailable: boolean;
 }) {
   const [params, setParams] = useSearchParams();
+  const access = useQueryAccessScope(["team-hunts", teamId]);
+  const readable = useRef<{ generation: number; entries: HuntEntry[] }>({ generation: access.generation, entries: [] });
   const location = useLocation();
   // Polling may remove a row while it is being edited. Keep that editor mounted
   // until the analyst saves/discards it; explicit URL transitions are guarded.
-  const [retained, setRetained] = useState<{ scope: string; entries: Record<string, HuntEntry> }>({ scope: location.key, entries: {} });
+  const [retained, setRetained] = useState<{ scope: string; entries: Record<string, { entry: HuntEntry; generation: number }> }>({ scope: location.key, entries: {} });
   const retainDraft = useCallback((entry: HuntEntry, dirty: boolean) => {
     const key = `${entry.assessment_id}:${entry.hunt.id}`;
     setRetained((current) => {
       const entries = current.scope === location.key ? current.entries : {};
       if (!dirty && !entries[key]) return current;
-      if (dirty && entries[key] === entry) return current;
+      if (dirty && entries[key]?.entry === entry) return current;
+      if (dirty && !readable.current.entries.some((current) => current.assessment_id === entry.assessment_id && current.hunt.id === entry.hunt.id)) return current;
       const next = { ...entries };
-      if (dirty) next[key] = entry;
+      if (dirty) next[key] = { entry, generation: readable.current.generation };
       else delete next[key];
       return { scope: location.key, entries: next };
     });
   }, [location.key]);
   const client = useQueryClient();
-  const [review, setReview] = useState<HuntEntry | null>(null);
+  const [reviewIntent, setReview] = useState<{ entry: HuntEntry; admission: { generation: number; value: boolean } } | null>(null);
   const [notice, setNotice] = useState<{ error: boolean; text: string } | null>(
     null,
   );
@@ -75,8 +79,7 @@ export function TeamHuntWorklist({
     : "";
   const overdue = params.get("hunt_overdue") === "true";
   const cursor = params.get("hunt_cursor") ?? "";
-  const query = useQuery({
-    queryKey: [
+  const queryKey = [
       "team-hunts",
       teamId,
       status,
@@ -85,23 +88,49 @@ export function TeamHuntWorklist({
       order,
       priority,
       overdue,
-    ],
+    ];
+  const query = useQuery({
+    queryKey,
     enabled: !unavailable,
-    queryFn: ({ signal }) =>
+    ...access.queryOptions(({ signal }) =>
       apiFetch<HuntPage>(
         `/teams/${teamId}/hunts?${new URLSearchParams({ limit: "25", ownership, order, ...(priority ? { priority } : {}), ...(overdue ? { overdue: "true" } : {}), ...(status ? { status } : {}), ...(cursor ? { cursor } : {}) })}`,
         { signal },
-      ),
+      )),
     refetchInterval: 30_000,
   });
-  const lostAccess =
-    query.error instanceof ApiError &&
-    [401, 403, 404].includes(query.error.status);
-  const blocked = unavailable || query.isError;
+  useEffect(() => {
+    if (!query.data) return;
+    const freshEntries = query.data.items;
+    setRetained((current) => {
+      if (current.scope !== location.key) return current;
+      let changed = false;
+      const entries = { ...current.entries };
+      for (const [key, row] of Object.entries(entries)) {
+        const fresh = freshEntries.find((entry) => entry.assessment_id === row.entry.assessment_id && entry.hunt.id === row.entry.hunt.id);
+        if (fresh && (fresh !== row.entry || row.generation !== access.generation)) {
+          entries[key] = { entry: fresh, generation: access.generation };
+          changed = true;
+        }
+      }
+      return changed ? { ...current, entries } : current;
+    });
+  }, [access.generation, location.key, query.data]);
+  const lostAccess = access.denied;
+  const blocked = unavailable || query.isError || access.denied;
   const visibleEntries = query.data?.items ?? [];
-  const retainedEntries = Object.values(retained.scope === location.key ? retained.entries : {}).filter(
-    (entry) => !visibleEntries.some((visible) => visible.assessment_id === entry.assessment_id && visible.hunt.id === entry.hunt.id),
+  readable.current = { generation: access.generation, entries: visibleEntries };
+  const retainedRows = Object.values(retained.scope === location.key ? retained.entries : {}).filter(
+    ({ entry }) => !visibleEntries.some((visible) => visible.assessment_id === entry.assessment_id && visible.hunt.id === entry.hunt.id),
   );
+  const retainedEntries = retainedRows.map(({ entry }) => entry);
+  const visibleRetainedEntries = retainedRows.filter((row) => row.generation === access.generation && !lostAccess).map(({ entry }) => entry);
+  const review = reviewIntent && access.currentData(reviewIntent.admission) && visibleEntries.find((entry) => entry.assessment_id === reviewIntent.entry.assessment_id && entry.hunt.id === reviewIntent.entry.hunt.id) || null;
+  const currentEntry = (entry: HuntEntry) => {
+    const state = client.getQueryState(queryKey);
+    const current = state?.status === 'error' ? undefined : access.currentData<HuntPage>(client.getQueryData(queryKey));
+    return current?.items.find((row) => row.assessment_id === entry.assessment_id && row.hunt.id === entry.hunt.id && row.assessment_version === entry.assessment_version && row.claim.version === entry.claim.version);
+  };
   function updateFilter(key: string, value: string) {
     setReview(null);
     setParams((current) => {
@@ -132,6 +161,8 @@ export function TeamHuntWorklist({
   }
   const action = useMutation({
     mutationFn: async (command: Command) => {
+      if (blocked || !writable || !currentEntry(command.entry)) throw new Error("Refresh the current hunt before changing it.");
+      const capture = access.captureResult();
       const lease = captureSessionLease();
       await apiFetch(
         `/teams/${teamId}/hunts/${command.entry.assessment_id}/${command.entry.hunt.id}/claim`,
@@ -145,8 +176,10 @@ export function TeamHuntWorklist({
         },
       );
       lease.assertCurrent();
+      return capture(true);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (!access.currentData(result)) return;
       setNotice({ error: false, text: "Hunt queue updated." });
       void client.invalidateQueries({ queryKey: ["team-hunts", teamId] });
       void client.invalidateQueries({ queryKey: ["team-assessments"] });
@@ -166,7 +199,7 @@ export function TeamHuntWorklist({
     },
   });
   const run = (command: Command) => {
-    if (pending.current || blocked || !writable) return;
+    if (pending.current || blocked || !writable || !currentEntry(command.entry)) return;
     pending.current = true;
     setNotice(null);
     action.mutate(command);
@@ -297,13 +330,42 @@ export function TeamHuntWorklist({
             page. Evidence permissions may leave a page empty; continue when
             more pages are available.
           </p>
-          {retainedEntries.length > 0 && <p role="status" className="text-sm">
+          {visibleRetainedEntries.length > 0 && <p role="status" className="text-sm">
             A hunt with an unsaved schedule left this page after a refresh. Its draft remains below; reload it to discard the draft. Actions for that hunt are paused until it returns to the queue.
           </p>}
+          <nav className="flex gap-3" aria-label="Hunt queue pages">
+            <button
+              type="button"
+              className={TEAM_BUTTON}
+              disabled={!cursor || action.isPending}
+              onClick={() => updateFilter("hunt_cursor", "")}
+            >
+              First page
+            </button>
+            <button
+              type="button"
+              className={TEAM_BUTTON}
+              disabled={!query.data.next_cursor || action.isPending}
+              onClick={() =>
+                updateFilter("hunt_cursor", query.data!.next_cursor!)
+              }
+            >
+              Next page
+            </button>
+          </nav>
+        </>
+      )}
           <div className="space-y-3" key={location.key}>
             {[...visibleEntries, ...retainedEntries].map((entry) => (
-              <article
+              <HuntReviewSchedule
                 key={`${entry.assessment_id}:${entry.hunt.id}`}
+                entry={entry}
+                hidden={!query.data || lostAccess || retainedEntries.includes(entry) && !visibleRetainedEntries.includes(entry)}
+                disabled={blocked || !writable || action.isPending}
+                paused={retainedEntries.includes(entry)}
+                canSubmit={() => Boolean(currentEntry(entry))}
+                onDirtyChange={retainDraft}
+              >{(schedule) => <article
                 className="space-y-2 rounded border border-slate/25 p-3"
                 aria-label={entry.hunt.title}
               >
@@ -335,12 +397,7 @@ export function TeamHuntWorklist({
                     assessment from the article before acting.
                   </p>
                 )}
-                <HuntReviewSchedule
-                  entry={entry}
-                  disabled={blocked || !writable || action.isPending}
-                  paused={retainedEntries.includes(entry)}
-                  onDirtyChange={retainDraft}
-                />
+                {schedule}
                 {entry.investigation && (
                   <p className="text-sm">
                     <Link
@@ -360,7 +417,7 @@ export function TeamHuntWorklist({
                     type="button"
                     className={TEAM_BUTTON}
                     disabled={blocked || action.isPending || retainedEntries.includes(entry)}
-                    onClick={() => setReview(entry)}
+                    onClick={() => { if (currentEntry(entry)) setReview({ entry, admission: access.captureResult()(true) }); }}
                   >
                     Review hunt evidence
                   </button>
@@ -385,31 +442,10 @@ export function TeamHuntWorklist({
                     </button>
                   )}
                 </div>
-              </article>
+              </article>}</HuntReviewSchedule>
             ))}
           </div>
-          <nav className="flex gap-3" aria-label="Hunt queue pages">
-            <button
-              type="button"
-              className={TEAM_BUTTON}
-              disabled={!cursor || action.isPending}
-              onClick={() => updateFilter("hunt_cursor", "")}
-            >
-              First page
-            </button>
-            <button
-              type="button"
-              className={TEAM_BUTTON}
-              disabled={!query.data.next_cursor || action.isPending}
-              onClick={() =>
-                updateFilter("hunt_cursor", query.data!.next_cursor!)
-              }
-            >
-              Next page
-            </button>
-          </nav>
-        </>
-      )}
+
       {review && !lostAccess && (
         <DialogSurface
           open

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useQueryAccessScope } from "../hooks/useQueryAccessScope";
 import { apiFetch } from "../api/client";
 import { resolveApiErrorMessage } from "../api/errors";
 
@@ -11,10 +12,11 @@ export function TeamAIProviderPicker({
 }: {
   onAdd: (key: string) => void;
 }) {
+  const access = useQueryAccessScope(["ai", "team-provider-choices"]);
   const query = useQuery({
     queryKey: ["ai", "team-provider-choices"],
-    queryFn: ({ signal }) =>
-      apiFetch<ProviderPage>("/ai/providers?limit=100", { signal }),
+    ...access.queryOptions(({ signal }) =>
+      apiFetch<ProviderPage>("/ai/providers?limit=100", { signal })),
   });
   return (
     <div className="space-y-1">

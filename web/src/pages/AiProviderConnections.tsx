@@ -4,6 +4,7 @@ import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ROUTING_FIELDS, type ProviderDraft } from './aiProviderDraft'
 import { Field, FieldError, Panel } from './aiSettingsSupport'
+import type { AIProvider } from '../types/ai'
 import type { AiProviderConnectionsController } from './useAiProviderConnections'
 import { AiProviderEndpointHelp } from './AiProviderEndpointHelp'
 import { AiCompletionTokenHelp } from './AiCompletionTokenHelp'
@@ -116,6 +117,7 @@ export function AiProviderConnections({ controller: c }: { controller: AiProvide
         description={`Delete “${c.deleteTarget?.name ?? ''}” and its stored credential? Existing AI history is retained. Assigned providers must be reassigned first.`}
         confirmLabel="Delete provider"
         isConfirming={c.busy}
+        confirmDisabled={c.editorReadUnavailable || c.routing.isError || !c.routing.data}
         onCancel={() => c.setDeleteTarget(null)}
         onConfirm={c.remove}
       >
@@ -271,6 +273,10 @@ function ProviderList({
   )
 }
 
+function newerProviderAvailable(selected: AIProvider | null | undefined, latest: AIProvider | undefined) {
+  return Boolean(selected && latest && latest.version > selected.version)
+}
+
 function ProviderEditor({
   c,
   editorTitle,
@@ -281,7 +287,7 @@ function ProviderEditor({
   const selected = c.editor?.baseline
   const isAssigned = selected && ROUTING_FIELDS.some(({ key }) => c.routing.data?.[key] === selected.id)
   const newestSelected = c.selectedProvider.data ?? c.providers.data?.items.find(({ id }) => id === selected?.id)
-  const providerChanged = selected && newestSelected && newestSelected.version > selected.version
+  const providerChanged = newerProviderAvailable(selected, newestSelected)
   return (
     <>
       {c.editor && (
@@ -380,7 +386,7 @@ function ProviderEditor({
               type="button"
               className={buttonClass}
               disabled={
-                Boolean(Object.keys(c.validation).length) || c.providers.isError || Boolean(selected && !c.editorDirty)
+                Boolean(Object.keys(c.validation).length) || c.providers.isError || c.editorReadUnavailable || Boolean(selected && !c.editorDirty)
               }
               onClick={c.save}
             >
@@ -399,7 +405,7 @@ function ProviderEditor({
                 <button
                   type="button"
                   className={buttonClass}
-                  disabled={c.editorDirty || !selected.enabled || Boolean(selected.credential_error)}
+                  disabled={c.editorReadUnavailable || c.editorDirty || !selected.enabled || Boolean(selected.credential_error)}
                   onClick={c.test}
                 >
                   Test this saved provider
@@ -407,7 +413,7 @@ function ProviderEditor({
                 <button
                   type="button"
                   className={buttonClass}
-                  disabled={Boolean(isAssigned) || c.editorDirty || !c.routing.data || c.routing.isError}
+                  disabled={c.editorReadUnavailable || Boolean(isAssigned) || c.editorDirty || !c.routing.data || c.routing.isError}
                   onClick={() => c.setDeleteTarget(selected)}
                 >
                   Delete provider

@@ -11,12 +11,14 @@ export function TeamListPanel({
   page,
   adminMode,
   changePage,
+  accessDenied = false,
 }: {
-  list: UseQueryResult<TeamPage, Error>
+  list: UseQueryResult<TeamPage | undefined, Error>
   selected: string
   page: number
   adminMode: boolean
   changePage: (page: number) => void
+  accessDenied?: boolean
 }) {
   const accessLost = (error: unknown) =>
     error instanceof ApiError && [401, 403, 404].includes(error.status)
@@ -28,7 +30,7 @@ export function TeamListPanel({
       <h2 className="text-lg font-semibold">
         {adminMode ? 'All configured teams' : 'My teams'}
       </h2>
-      {list.isError && (
+      {(list.isError || accessDenied) && (
         <p role="alert">
           {resolveApiErrorMessage(list.error, 'Unable to load teams.')}{' '}
           <button className={TEAM_BUTTON} onClick={() => void list.refetch()}>

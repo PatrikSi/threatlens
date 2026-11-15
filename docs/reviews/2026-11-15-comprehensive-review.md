@@ -684,14 +684,36 @@ with independent final two-file proof
 Current project types pass; the global lint report has no dashboard findings.
 
 The tracked backend at `ed571a8b` was rebuilt, including the migration correction,
-as native amd64 image `e7b290c9890b423b40db9f67d147c9ed9f18733cfa2d6a60fd5cb19a9a98125e`.
+as native amd64 image `e13c8bbc56c67b9bc098fe0e1a32bffe6e224d19267ff89c48b16b37905f497c`.
 Its runtime API/worker/Beat import build checks pass. All 234 extracted dependency/
 legal artifacts match the repository exactly. The final-image scan reports zero
 fixable HIGH/CRITICAL vulnerabilities (log
 `b4e5fad3772263463b3dad6cdabb74b8f95b59fbb36519073931e69ad57f1890`).
-An initial scan targeted the wrong default Docker daemon and failed image lookup;
-it was not a vulnerability result. The successful scan explicitly used the owned
-local daemon. This is native image evidence, without ARM or deployment claims.
+An initial scan used the exported config digest in place of the loaded image
+manifest digest and failed image lookup; it was not a vulnerability result.
+The successful scan explicitly used the owned local daemon and its verified
+image manifest digest. This is native image evidence, without ARM or deployment claims.
+
+### N22 — team and AI configuration recovery
+
+Team settings/context/governance, membership choices, hunt worklists/saved views,
+provider/routing selection and quota configuration now retain independent scoped
+read history. Actual RPCs verify current canonical reads and intent generations.
+Dirty drafts retain their original optimistic baseline and explicit reload;
+clean drafts adopt a newly verified matching row after access recovery. A missing
+saved quota group stays unavailable. Provider deletion intent cannot revive after
+a denial and recovery of either its provider or routing read.
+
+All 72 cases in 12 files pass after the final correction (log
+`d6b2f3515679a3097e8eec327362be6c3aec573c7d1d01819a9453037413d003`).
+This includes eight additional recovery controls and the accepted-save baseline
+coherence control. The legacy failed-delete fixture now renders the selected
+provider before invoking its delete gesture, preserving its original failure/
+selection assertions and adding an exact one-request check. The earlier 71/1
+run is retained as fixture evidence. Independent final 15-source review proof:
+`7b1b2b590da3eb63ce9d3a079a964dffd039f614dd6b6edb06936e7a6d92cfb3`.
+Current whole-project types, lint and source-size checks pass. Final full frontend,
+reporting retention and artifact/release checks remain open.
 
 ## Next executable steps
 

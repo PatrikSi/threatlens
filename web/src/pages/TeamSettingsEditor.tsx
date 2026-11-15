@@ -1,9 +1,10 @@
 import { TEAM_BUTTON } from './teamPresentation'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { CopyableIdentifier } from '../components/CopyableIdentifier'
 import type { Team } from '../types/teams'
@@ -16,38 +17,85 @@ export interface TeamGroupChoice {
 const inputClass =
   'mt-1 w-full rounded border border-slate/30 bg-white p-2 dark:bg-[#072019]'
 
+type TeamSettingsProps = {
+  team: Team
+  groups: TeamGroupChoice[]
+  administer: boolean
+  onSaved: (team: Team) => void
+  unavailable?: boolean
+  groupsUnavailable?: boolean
+  hidden?: boolean
+  readAdminMode?: boolean
+}
+
+function teamSettingsDraftChanged(baseline: Team, draft: {
+  name: string; description: string; memberGroup: string; managerGroup: string; active: boolean
+}) {
+  return draft.name !== baseline.name || draft.description !== baseline.description ||
+    draft.memberGroup !== baseline.membership_group_id ||
+    draft.managerGroup !== (baseline.manager_group_id ?? '') || draft.active !== baseline.active
+}
+
+// Keep the same actor's local editor mounted while its server read is hidden.
+// The parent keys this boundary by selected resource and administration mode.
+export function RetainedTeamSettings({ team, ...props }: Omit<TeamSettingsProps, 'team'> & { team: Team | undefined }) {
+  const retained = useRef<Team | undefined>(undefined)
+  const opened = useRef(false)
+  if (team) retained.current = team
+  const current = team ?? retained.current
+  if (current?.can_manage || props.administer) opened.current = true
+  if (!current || !opened.current) return null
+  return <TeamSettingsEditor {...props} team={current} />
+}
+
 export function TeamSettingsEditor({
   team,
   groups,
   administer,
   onSaved,
-}: {
-  team: Team
-  groups: TeamGroupChoice[]
-  administer: boolean
-  onSaved: (team: Team) => void
-}) {
+  unavailable = false,
+  groupsUnavailable = false,
+  hidden = false,
+  readAdminMode = false,
+}: TeamSettingsProps) {
   const queryClient = useQueryClient()
+  const access = useQueryAccessScope(['teams', 'detail', team.id, readAdminMode])
   const [baseline, setBaseline] = useState(team)
+  const [baselineGeneration, setBaselineGeneration] = useState(access.generation)
   const [name, setName] = useState(team.name)
   const [description, setDescription] = useState(team.description)
   const [memberGroup, setMemberGroup] = useState(team.membership_group_id)
   const [managerGroup, setManagerGroup] = useState(team.manager_group_id ?? '')
   const [active, setActive] = useState(team.active)
   const [notice, setNotice] = useState('')
-  const dirty =
-    name !== baseline.name ||
-    description !== baseline.description ||
-    memberGroup !== baseline.membership_group_id ||
-    managerGroup !== (baseline.manager_group_id ?? '') ||
-    active !== baseline.active
+  const dirty = teamSettingsDraftChanged(baseline, { name, description, memberGroup, managerGroup, active })
+  const cleanRecovery = !dirty && baselineGeneration !== access.generation
+  useEffect(() => {
+    if (hidden || !cleanRecovery) return
+    const current = access.currentData<Team>(queryClient.getQueryData(['teams', 'detail', team.id, readAdminMode]))
+    if (!current) return
+    setBaseline(current)
+    setName(current.name)
+    setDescription(current.description)
+    setMemberGroup(current.membership_group_id)
+    setManagerGroup(current.manager_group_id ?? '')
+    setActive(current.active)
+    setBaselineGeneration(access.captureResult()(true).generation)
+    setNotice('')
+  }, [access, cleanRecovery, hidden, queryClient, readAdminMode, team.id])
   const discard = useUnsavedChangesWarning(
     dirty,
     'Discard unsaved team changes?',
   )
   const save = useMutation({
-    mutationFn: (kind: 'metadata' | 'bindings') =>
-      apiFetch<Team>(
+    mutationFn: (kind: 'metadata' | 'bindings') => {
+      const readState = queryClient.getQueryState(['teams', 'detail', team.id, readAdminMode])
+      if (unavailable || hidden || access.denied || readState?.status === 'error'
+        || (kind === 'metadata' ? !team.can_manage : !administer || groupsUnavailable || queryClient.getQueryState(['teams', 'group-choices'])?.status === 'error')) {
+        throw new Error('Refresh the current team before changing it. Your draft is preserved.')
+      }
+      const capture = access.captureResult()
+      return apiFetch<Team>(
         `/teams/${team.id}${kind === 'bindings' ? '/bindings' : ''}`,
         {
           method: kind === 'bindings' ? 'PUT' : 'PATCH',
@@ -62,9 +110,13 @@ export function TeamSettingsEditor({
               : { expected_revision: baseline.revision, name, description },
           ),
         },
-      ),
-    onSuccess: (saved, kind) => {
+      ).then(capture)
+    },
+    onSuccess: (result, kind) => {
+      const saved = access.currentData(result)
+      if (!saved) return
       setBaseline(saved)
+      setBaselineGeneration(result.generation)
       if (kind === 'metadata') {
         setName(saved.name)
         setDescription(saved.description)
@@ -82,14 +134,20 @@ export function TeamSettingsEditor({
   })
   const reload = () =>
     discard(() => {
-      setBaseline(team)
-      setName(team.name)
-      setDescription(team.description)
-      setMemberGroup(team.membership_group_id)
-      setManagerGroup(team.manager_group_id ?? '')
-      setActive(team.active)
+      const admission = access.captureResult()(true)
+      const current = access.currentData<Team>(queryClient.getQueryData(['teams', 'detail', team.id, readAdminMode]))
+        ?? (admission.generation === 0 ? team : undefined)
+      if (!current || !access.currentData(admission)) return
+      setBaseline(current)
+      setName(current.name)
+      setDescription(current.description)
+      setMemberGroup(current.membership_group_id)
+      setManagerGroup(current.manager_group_id ?? '')
+      setActive(current.active)
+      setBaselineGeneration(admission.generation)
       save.reset()
     })
+  if (hidden || cleanRecovery) return <>{discard.discardDialog}</>
   return (
     <section className="space-y-3" aria-label="Team settings">
       {discard.discardDialog}
@@ -134,7 +192,7 @@ export function TeamSettingsEditor({
         <button
           className={TEAM_BUTTON}
           disabled={
-            !team.can_manage ||
+            unavailable || access.denied || !team.can_manage ||
             !name.trim() ||
             (name === baseline.name && description === baseline.description)
           }
@@ -217,9 +275,9 @@ export function TeamSettingsEditor({
             <button
               className={TEAM_BUTTON}
               disabled={
-                memberGroup === baseline.membership_group_id &&
+                unavailable || groupsUnavailable || access.denied || (memberGroup === baseline.membership_group_id &&
                 managerGroup === (baseline.manager_group_id ?? '') &&
-                active === baseline.active
+                active === baseline.active)
               }
               onClick={() => save.mutate('bindings')}
             >

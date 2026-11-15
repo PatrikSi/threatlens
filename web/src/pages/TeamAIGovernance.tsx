@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, apiFetch } from "../api/client";
+import { apiFetch } from "../api/client";
 import { resolveApiErrorMessage } from "../api/errors";
 import { captureSessionLease } from "../api/sessionLifecycle";
+import { useQueryAccessScope } from "../hooks/useQueryAccessScope";
 import { useUnsavedChangesWarning } from "../hooks/useUnsavedChangesWarning";
 import { TEAM_BUTTON } from "./teamPresentation";
 import { TeamAIProviderPicker } from "./TeamAIProviderPicker";
@@ -38,15 +39,16 @@ export function TeamAIGovernance({
   const path = admin
     ? `/ai/team-governance/${teamId}`
     : `/teams/${teamId}/ai-governance`;
+  const access = useQueryAccessScope(["teams", "ai-governance", teamId, admin]);
+  const retained = useRef<Policy | undefined>(undefined);
   const query = useQuery({
     queryKey: ["teams", "ai-governance", teamId, admin],
     enabled: !unavailable,
-    queryFn: ({ signal }) => apiFetch<Policy>(path, { signal }),
+    ...access.queryOptions(({ signal }) => apiFetch<Policy>(path, { signal })),
     refetchInterval: 30_000,
   });
-  const lost =
-    query.error instanceof ApiError &&
-    [401, 403, 404].includes(query.error.status);
+  if (query.data) retained.current = query.data;
+  const policy = query.data ?? (retained.current?.team_id === teamId ? retained.current : undefined);
   return (
     <section className="space-y-3" aria-label="Team AI destinations">
       <h3 className="font-display text-xl">Team AI destinations</h3>
@@ -57,7 +59,7 @@ export function TeamAIGovernance({
         request.
       </p>
       {query.isLoading && <p role="status">Loading destination policy…</p>}
-      {query.isError && (
+      {(query.isError || access.denied) && (
         <p role="alert">
           {resolveApiErrorMessage(
             query.error,
@@ -68,13 +70,14 @@ export function TeamAIGovernance({
           </button>
         </p>
       )}
-      {!lost && query.data && (
+      {policy && (
         <PolicyEditor
           key={`${teamId}:${admin}`}
-          policy={query.data}
+          policy={policy}
+          hidden={!query.data}
           path={path}
           admin={admin}
-          disabled={unavailable || query.isError}
+          disabled={unavailable || query.isError || access.denied}
         />
       )}
     </section>
@@ -86,14 +89,18 @@ function PolicyEditor({
   path,
   admin,
   disabled,
+  hidden,
 }: {
   policy: Policy;
   path: string;
   admin: boolean;
   disabled: boolean;
+  hidden: boolean;
 }) {
   const client = useQueryClient();
+  const access = useQueryAccessScope(["teams", "ai-governance", policy.team_id, admin]);
   const [baseline, setBaseline] = useState(policy);
+  const [baselineGeneration, setBaselineGeneration] = useState(access.generation);
   const [draft, setDraft] = useState(() => draftFor(policy));
   const [notice, setNotice] = useState("");
   const approved = [...new Set(draft.approved.split('\n').map((key) => key.trim()).filter(Boolean))];
@@ -102,6 +109,16 @@ function PolicyEditor({
     : draft.selected && !approved.includes(draft.selected) ? 'The assessment destination must be approved. Choose another destination or inherit the installation route.'
       : Object.values(draft.labels).some((keys) => keys.some((key) => !approved.includes(key))) ? 'Remove unapproved providers from handling restrictions before saving.' : null);
   const dirty = JSON.stringify(draft) !== JSON.stringify(draftFor(baseline));
+  const cleanRecovery = !dirty && baselineGeneration !== access.generation;
+  useEffect(() => {
+    if (hidden || !cleanRecovery) return;
+    const current = access.currentData<Policy>(client.getQueryData(["teams", "ai-governance", policy.team_id, admin]));
+    if (!current) return;
+    setBaseline(current);
+    setDraft(draftFor(current));
+    setBaselineGeneration(access.captureResult()(true).generation);
+    setNotice("");
+  }, [access, admin, cleanRecovery, client, hidden, policy.team_id]);
   const discard = useUnsavedChangesWarning(
     dirty,
     "Discard unsaved AI destination policy?",
@@ -109,6 +126,8 @@ function PolicyEditor({
   const save = useMutation({
     mutationFn: async () => {
       if (validation) throw new Error(validation);
+      if (disabled || hidden || access.denied || !allowed || client.getQueryState(["teams", "ai-governance", policy.team_id, admin])?.status === "error") throw new Error("Refresh the current destination policy before changing it. Your draft is preserved.");
+      const capture = access.captureResult();
       const lease = captureSessionLease();
       const saved = await apiFetch<Policy>(path, {
         method: admin ? "PUT" : "PATCH",
@@ -124,10 +143,13 @@ function PolicyEditor({
         }),
       });
       lease.assertCurrent();
-      return saved;
+      return capture(saved);
     },
-    onSuccess: (saved) => {
+    onSuccess: (result) => {
+      const saved = access.currentData(result);
+      if (!saved) return;
       setBaseline(saved);
+      setBaselineGeneration(result.generation);
       setDraft(draftFor(saved));
       setNotice(
         "Destination policy saved. New work uses the selected route; queued work is checked against the new restrictions.",
@@ -140,6 +162,7 @@ function PolicyEditor({
   const allowed = admin
     ? policy.can_approve
     : policy.can_manage && policy.configured;
+  if (hidden || cleanRecovery) return <>{discard.discardDialog}</>;
   return (
     <div className="space-y-3">
       {discard.discardDialog}
@@ -247,8 +270,13 @@ function PolicyEditor({
           disabled={save.isPending}
           onClick={() =>
             discard(() => {
-              setBaseline(policy);
-              setDraft(draftFor(policy));
+              const admission = access.captureResult()(true);
+              const current = access.currentData<Policy>(client.getQueryData(["teams", "ai-governance", policy.team_id, admin]))
+                ?? (admission.generation === 0 ? policy : undefined);
+              if (!current || !access.currentData(admission)) return;
+              setBaseline(current);
+              setDraft(draftFor(current));
+              setBaselineGeneration(admission.generation);
               save.reset();
             })
           }

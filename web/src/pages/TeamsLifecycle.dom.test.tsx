@@ -138,6 +138,100 @@ afterEach(() => {
 })
 
 describe('team workspace asynchronous lifecycle', () => {
+  it('preserves a hidden selected-team draft until the analyst explicitly reloads the fresh baseline', async () => {
+    let status = 200
+    let latest = team
+    vi.mocked(apiFetch).mockImplementation((path) => {
+      if (path.startsWith('/teams?')) return Promise.resolve({ items: [team], total: 1, page: 1, page_size: 25 })
+      if (path === '/teams/team-1') return status === 200 ? Promise.resolve(latest) : Promise.reject(new ApiError('Selected team denied', status, path))
+      if (path.includes('/members')) return Promise.resolve({ items: [], total: 0, page: 1, page_size: 50 })
+      return Promise.resolve([])
+    })
+    await mount(<TeamsPage />, '/teams?team=team-1')
+    edit('Description', 'Unsent selected-team draft')
+    status = 403
+    await act(async () => { await client.invalidateQueries({ queryKey: ['teams', 'detail'] }) })
+    await settle()
+    expect(container.querySelector('textarea')).toBeNull()
+    expect(container.textContent).not.toContain('Unsent selected-team draft')
+    latest = { ...team, revision: 2, description: 'Fresh server description' }
+    status = 200
+    await act(async () => { await client.invalidateQueries({ queryKey: ['teams', 'detail'] }) })
+    await settle()
+    expect(control('Description').value).toBe('Unsent selected-team draft')
+    expect(container.textContent).toContain('draft still uses revision 1')
+    click('Discard draft and reload')
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+    click('Cancel', document.querySelector('[role="alertdialog"]')!)
+    expect(control('Description').value).toBe('Unsent selected-team draft')
+    click('Discard draft and reload')
+    click('Discard changes', document.querySelector('[role="alertdialog"]')!)
+    expect(control('Description').value).toBe('Fresh server description')
+  })
+
+  it('retires cached member pages when another membership page was denied before remount', async () => {
+    const pending = deferred<TeamMemberPage>()
+    let hold = false
+    vi.mocked(apiFetch).mockImplementation((path) => path.includes('page=2')
+      ? Promise.reject(new ApiError('Members denied', 403, path))
+      : hold ? pending.promise : Promise.resolve({ items: [{ id: 'member-1', email: 'private-member@example.test', account_role: 'analyst', is_manager: false }], total: 51, page: 1, page_size: 50 }))
+    let show!: (value: boolean) => void
+    function Harness() {
+      const [visible, setVisible] = useState(true)
+      show = setVisible
+      return visible ? <TeamMembersPanel teamId={team.id} /> : null
+    }
+    await mount(<Harness />)
+    expect(container.textContent).toContain('private-member@example.test')
+    click('Next members')
+    await settle()
+    expect(container.textContent).toContain('Members denied')
+    hold = true
+    act(() => show(false))
+    act(() => show(true))
+    await settle()
+    expect(container.textContent).not.toContain('private-member@example.test')
+  })
+
+  it('keeps a denied selected team private through a later metadata outage', async () => {
+    let status = 200
+    vi.mocked(apiFetch).mockImplementation((path) => {
+      if (path.startsWith('/teams?')) return Promise.resolve({ items: [team], total: 1, page: 1, page_size: 25 })
+      if (path === '/teams/team-1') return status === 200 ? Promise.resolve(team) : Promise.reject(new ApiError('Selected team unavailable', status, path))
+      if (path.includes('/members')) return Promise.resolve({ items: [], total: 0, page: 1, page_size: 50 })
+      return Promise.resolve([])
+    })
+    await mount(<TeamsPage />, '/teams?team=team-1')
+    expect(control('Description').value).toBe(team.description)
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => { await client.invalidateQueries({ queryKey: ['teams', 'detail'] }) })
+      await settle()
+      expect(container.querySelector('textarea')).toBeNull()
+      expect(container.querySelector('section[aria-label="Selected team"]')?.textContent).not.toContain(team.description)
+      expect(container.textContent).toContain(team.name)
+    }
+  })
+
+  it('preserves an ordinary selected-team outage draft while pausing its save', async () => {
+    let failed = false
+    vi.mocked(apiFetch).mockImplementation((path) => {
+      if (path.startsWith('/teams?')) return Promise.resolve({ items: [team], total: 1, page: 1, page_size: 25 })
+      if (path === '/teams/team-1') return failed ? Promise.reject(new ApiError('Team metadata temporarily unavailable', 503, path)) : Promise.resolve(team)
+      if (path.includes('/members')) return Promise.resolve({ items: [], total: 0, page: 1, page_size: 50 })
+      return Promise.resolve([])
+    })
+    await mount(<TeamsPage />, '/teams?team=team-1')
+    edit('Description', 'Local team configuration draft')
+    failed = true
+    await act(async () => { await client.invalidateQueries({ queryKey: ['teams', 'detail'] }) })
+    await settle()
+    expect(control('Description').value).toBe('Local team configuration draft')
+    expect(button('Save team details').disabled).toBe(true)
+    click('Save team details')
+    expect(vi.mocked(apiFetch).mock.calls.some(([, options]) => options?.method)).toBe(false)
+  })
+
   it('pins the draft revision across refresh and preserves the draft after conflict', async () => {
     const pending = deferred<Team>()
     vi.mocked(apiFetch).mockReturnValue(pending.promise)

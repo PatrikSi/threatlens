@@ -62,13 +62,19 @@ export function AiQuotaGroups({
       {q.notice && (
         <p role={q.notice.error ? "alert" : "status"}>{q.notice.text}</p>
       )}
+      {q.hasEditor && q.readUnavailable && (
+        <p role="status">
+          Saved account quota access must be verified before saving. Your draft is kept.
+          Close this editor and select the current quota to reload its baseline.
+        </p>
+      )}
       <div className="flex flex-wrap gap-2">
         {q.query.data?.items.map((group) => (
           <button
             type="button"
             key={group.id}
             className={TEAM_BUTTON}
-            disabled={q.dirty || q.busy}
+            disabled={q.dirty || q.busy || q.readUnavailable}
             onClick={() => q.select(group)}
           >
             {group.name}
@@ -77,7 +83,7 @@ export function AiQuotaGroups({
         <button
           type="button"
           className={TEAM_BUTTON}
-          disabled={q.dirty || q.busy || q.query.isError}
+          disabled={q.dirty || q.busy || q.readUnavailable}
           onClick={() => q.select()}
         >
           Add account quota
@@ -85,7 +91,7 @@ export function AiQuotaGroups({
       </div>
       {draft && (
         <fieldset
-          disabled={q.busy || q.query.isError}
+          disabled={q.busy || q.readUnavailable}
           className="space-y-3 rounded border border-slate/20 p-3"
         >
           <legend className="px-1 font-semibold">
@@ -230,17 +236,18 @@ export function AiQuotaGroups({
             >
               Save account quota
             </button>
-            <button
-              type="button"
-              className={TEAM_BUTTON}
-              onClick={() => (q.dirty ? setDiscard(true) : q.discard())}
-            >
-              Close quota editor
-            </button>
           </div>
         </fieldset>
       )}
-      {q.editor?.baseline && <AiQuotaUtilization groupId={q.editor.id} />}
+      {q.hasEditor && <button
+        type="button"
+        className={TEAM_BUTTON}
+        disabled={q.busy}
+        onClick={() => (q.dirty ? setDiscard(true) : q.discard())}
+      >
+        Close quota editor
+      </button>}
+      {q.editor?.baseline && <AiQuotaUtilization groupId={q.editor.id} readGeneration={q.readGeneration} />}
       <ConfirmDialog
         open={discard}
         title="Discard account quota changes?"

@@ -22,6 +22,52 @@ afterEach(() => { view?.close(); view = undefined; vi.clearAllMocks() })
 const queue = <TeamHuntWorklist teamId="team-1" writable canInvestigate unavailable={false} />
 
 describe('team hunt queue lifecycle', () => {
+  it('preserves a hidden hunt schedule draft until explicit reload of the fresh baseline', async () => {
+    let status = 200
+    let latest = page
+    vi.mocked(apiFetch).mockImplementation((path) => path.endsWith('/hunts/views') ? Promise.resolve(views)
+      : status === 200 ? Promise.resolve(latest) : Promise.reject(new ApiError('Hunt queue denied', status, path)))
+    view = await mountIntel(queue)
+    const input = view.host.querySelector<HTMLInputElement>('input[type="datetime-local"]')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '2026-10-01T12:00')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    status = 403
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['team-hunts', 'team-1'] }) })
+    await settle()
+    expect(view.host.querySelector('input[type="datetime-local"]')).toBeNull()
+    expect(view.host.textContent).not.toContain(entry.item_title)
+    latest = { ...page, items: [{ ...entry, assessment_version: 8 }] }
+    status = 200
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['team-hunts', 'team-1'] }) })
+    await settle()
+    expect(view.host.querySelector<HTMLInputElement>('input[type="datetime-local"]')?.value).toBe('2026-10-01T12:00')
+    expect(view.host.textContent).toContain('The schedule changed')
+    act(() => intelButton(view!.host, 'Reload review schedule').click())
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+    act(() => intelButton(document.body, 'Cancel').click())
+    expect(view.host.querySelector<HTMLInputElement>('input[type="datetime-local"]')?.value).toBe('2026-10-01T12:00')
+    act(() => intelButton(view!.host, 'Reload review schedule').click())
+    act(() => intelButton(document.body, 'Discard changes').click())
+    expect(view.host.querySelector<HTMLInputElement>('input[type="datetime-local"]')?.value).toBe('')
+  })
+
+  it('keeps denied hunt queue evidence hidden through a later outage', async () => {
+    let status = 200
+    vi.mocked(apiFetch).mockImplementation((path) => path.endsWith('/hunts/views') ? Promise.resolve(views)
+      : status === 200 ? Promise.resolve(page) : Promise.reject(new ApiError('Hunt queue unavailable', status, path)))
+    view = await mountIntel(queue)
+    expect(view.host.textContent).toContain(entry.item_title)
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => { await view!.client.invalidateQueries({ queryKey: ['team-hunts', 'team-1'] }) })
+      await settle()
+      expect(view.host.textContent).not.toContain(entry.item_title)
+      expect(view.host.querySelector('[role="dialog"]')).toBeNull()
+    }
+  })
+
   it('pins both claim and assessment versions and blocks duplicate pending actions', async () => {
     const pending = deferred<unknown>()
     vi.mocked(apiFetch).mockImplementation((path, init) => init?.method ? pending.promise : Promise.resolve(path.endsWith('/hunts/views') ? views : page))

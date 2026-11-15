@@ -1,8 +1,9 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../api/client";
 import { resolveApiErrorMessage } from "../api/errors";
 import { captureSessionLease } from "../api/sessionLifecycle";
+import { useQueryAccessScope } from "../hooks/useQueryAccessScope";
 import { createSecureRequestId } from "../utils/secureRandomId";
 
 export interface AiQuotaGroup {
@@ -33,6 +34,12 @@ type Draft = {
   minute_token_budget: string;
   team_hourly_token_budgets: string;
 };
+type QuotaEditor = {
+  id: string;
+  baseline?: AiQuotaGroup;
+  draft: Draft;
+  readGeneration: number;
+};
 const draftFor = (group?: AiQuotaGroup): Draft => ({
   name: group?.name ?? "",
   provider_keys: [...(group?.provider_keys ?? [])],
@@ -50,11 +57,8 @@ const draftFor = (group?: AiQuotaGroup): Draft => ({
 
 export function useAiQuotaGroups(enabled: boolean) {
   const client = useQueryClient();
-  const [editor, setEditor] = useState<{
-    id: string;
-    baseline?: AiQuotaGroup;
-    draft: Draft;
-  } | null>(null);
+  const access = useQueryAccessScope(["ai", "quota-groups"]);
+  const [editor, setEditor] = useState<QuotaEditor | null>(null);
   const [notice, setNotice] = useState<{ error: boolean; text: string } | null>(
     null,
   );
@@ -62,14 +66,30 @@ export function useAiQuotaGroups(enabled: boolean) {
   const query = useQuery({
     queryKey: ["ai", "quota-groups"],
     enabled,
-    queryFn: ({ signal }) =>
-      apiFetch<Page>("/ai/quota-groups?limit=100", { signal }),
+    ...access.queryOptions(({ signal }) =>
+      apiFetch<Page>("/ai/quota-groups?limit=100", { signal })),
   });
   const dirty = Boolean(
     editor &&
       JSON.stringify(editor.draft) !==
         JSON.stringify(draftFor(editor.baseline)),
   );
+  const currentGroup = editor?.baseline
+    ? access.currentData<Page>(client.getQueryData(["ai", "quota-groups"]))?.items.find((group) => group.id === editor.id)
+    : undefined;
+  const baselineRetired = Boolean(editor?.baseline && !access.currentData({
+    generation: editor.readGeneration, value: true,
+  }));
+  const editorHidden = Boolean(editor?.baseline) &&
+    (access.denied || access.generation > 0 && !currentGroup || baselineRetired && !dirty);
+  const readUnavailable = query.isError || access.denied ||
+    Boolean(editor?.baseline && (!currentGroup || baselineRetired));
+  useEffect(() => {
+    if (dirty || !baselineRetired || query.isError) return;
+    const current = access.currentData<Page>(client.getQueryData(["ai", "quota-groups"]))?.items.find((group) => group.id === editor?.id);
+    if (!current) return;
+    setEditor({ id: current.id, baseline: current, draft: draftFor(current), readGeneration: access.captureResult()(true).generation });
+  }, [access, baselineRetired, client, dirty, editor?.id, query.isError]);
   const invalid =
     editor &&
     (!editor.draft.name.trim() ||
@@ -98,6 +118,13 @@ export function useAiQuotaGroups(enabled: boolean) {
       }));
   const save = useMutation({
     mutationFn: async (submitted: NonNullable<typeof editor>) => {
+      if (!enabled || query.isError || access.denied || client.getQueryState(["ai", "quota-groups"])?.status === "error") throw new Error("Refresh the current account quotas before saving. Your draft is preserved.");
+      const current = access.currentData<Page>(client.getQueryData(["ai", "quota-groups"]));
+      if (submitted.baseline && (!access.currentData({ generation: submitted.readGeneration, value: true })
+        || !current?.items.some((group) => group.id === submitted.id))) {
+        throw new Error("Reload the saved account quota before saving. Your draft is preserved.");
+      }
+      const capture = access.captureResult();
       const lease = captureSessionLease();
       const result = await apiFetch<AiQuotaGroup>(
         `/ai/quota-groups${submitted.baseline ? `/${submitted.id}` : ""}`,
@@ -127,11 +154,14 @@ export function useAiQuotaGroups(enabled: boolean) {
         },
       );
       lease.assertCurrent();
-      return result;
+      return capture(result);
     },
-    onSuccess: async (saved) => {
+    onSuccess: async (result) => {
+      const saved = access.currentData(result);
+      if (!saved) return;
       await client.cancelQueries({ queryKey: ["ai", "quota-groups"] });
-      setEditor({ id: saved.id, baseline: saved, draft: draftFor(saved) });
+      if (!access.currentData(result)) return;
+      setEditor({ id: saved.id, baseline: saved, draft: draftFor(saved), readGeneration: result.generation });
       setNotice({
         error: false,
         text: "Shared account quota saved. Pending work keeps its provider selection and uses current account limits.",
@@ -154,18 +184,22 @@ export function useAiQuotaGroups(enabled: boolean) {
   });
   return {
     query,
-    editor,
+    editor: editorHidden ? null : editor,
+    hasEditor: Boolean(editor),
+    readGeneration: access.generation,
+    readUnavailable,
     dirty,
     invalid,
     notice,
     busy: save.isPending,
     select: (group?: AiQuotaGroup) => {
-      if (pending.current || dirty) return;
+      if (pending.current || dirty || readUnavailable) return;
       try {
         setEditor({
           id: group?.id ?? createSecureRequestId(),
           baseline: group,
           draft: draftFor(group),
+          readGeneration: access.captureResult()(true).generation,
         });
         setNotice(null);
       } catch (error) {
@@ -190,7 +224,7 @@ export function useAiQuotaGroups(enabled: boolean) {
         );
     },
     save: () => {
-      if (editor && !invalid && !pending.current && !query.isError) {
+      if (editor && !invalid && !pending.current && !readUnavailable) {
         pending.current = true;
         save.mutate(editor);
       }
