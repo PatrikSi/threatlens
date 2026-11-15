@@ -15,7 +15,7 @@ import { InvestigationConfirmDialog } from './InvestigationShared'
 import type { InvestigationDetailController } from './useInvestigationDetail'
 
 function canChangeNote(controller: InvestigationDetailController, note: InvestigationNote) {
-  return Boolean(controller.access?.canWrite && canEditInvestigationNote(
+  return Boolean(controller.access?.canWrite && !controller.notesReadUnavailable && canEditInvestigationNote(
     note.author_user_id,
     controller.currentUserQuery.data?.id,
     controller.detailQuery.data?.current_user_role ?? null,
@@ -106,6 +106,7 @@ export function InvestigationNotesPanel({
             className="mt-2 min-h-11 w-full rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto dark:bg-cyan dark:text-[#053c2e]"
             disabled={
               controller.mutation.isPending ||
+              controller.notesReadUnavailable ||
               controller.noteDraftVersion === null ||
               !controller.noteDraft.trim()
             }
@@ -123,6 +124,7 @@ export function InvestigationNotesPanel({
         fetching={controller.notesQuery.isFetching}
         error={controller.notesQuery.isError ? controller.notesQuery.error : null}
         hasData={hasNotesPage}
+        accessDenied={controller.notesAccessDenied}
         onRetry={() => void controller.notesQuery.refetch()}
       />
 
@@ -312,6 +314,7 @@ export function InvestigationNotesPanel({
         description="Remove this note from the investigation? Its content will no longer be visible, but the removal remains recorded in Activity and audit logs."
         confirmLabel="Remove note"
         isConfirming={controller.mutation.isPending}
+        confirmDisabled={controller.notesReadUnavailable}
         error={removalError}
         onCancel={() => setPendingRemoval(null)}
         onConfirm={() => {

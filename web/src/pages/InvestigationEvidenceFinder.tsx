@@ -476,7 +476,7 @@ function CandidatePreview({
   const isAttaching =
     controller.mutation.isPending && controller.mutation.variables?.kind === 'add-evidence'
   const selectionVerificationPending = controller.evidenceCandidatesQuery.isFetching
-  const selectionVerificationFailed = controller.evidenceCandidatesQuery.isError
+  const selectionVerificationFailed = controller.evidenceCandidatesQuery.isError || controller.candidateAccessDenied || controller.evidenceReadUnavailable
 
   const submit = (event: FormEvent) => {
     event.preventDefault()

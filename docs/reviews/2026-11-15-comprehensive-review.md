@@ -554,6 +554,32 @@ Independent final source/test review matches all freeze hashes (proof
 `169e360b76d711fa0d0b409025f4c7c23b6375989c126a4b117c5d38510ad9f9`).
 Project-wide final type/lint/build validation remains pending.
 
+### N16 — investigation canonical reads and mutation admission
+
+Investigation list/detail and dependent evidence, member, note and activity
+reads now retain denial history independently. Dirty drafts survive hidden saved
+context. Actual RPC entry checks the current canonical detail, closing the
+experimentally confirmed ordinary-503 event-to-render race. A late successful
+write cannot replace a failed canonical read with a healthy cache entry; the
+committed receipt remains available while a real GET reconciles current state.
+Expected-version checks, independent child permissions and draft rebasing remain.
+
+The change covers 12 production files and four regression files. All 58 cases
+in the complete four-file run pass, including the passing403 control, formerly
+failing503 admission control and late-acknowledgment read-health control. Log
+SHA-256: `9d30aebb8eac6c508237106dc338e1ab6920d482b4d82d07f6df384d2356c0b6`.
+Independent final review matches the exact final source/test freeze, closing the
+earlier unverified leads (proof
+`978391d47397c2a80cd4b8655ecfccf7c433a461a46a21965097f73d1bd73fb4`).
+The expanded whole-project typecheck snapshot passes; the full lint snapshot
+reports no investigation errors. Final project validation remains a release gate.
+
+The pending N13 independent feed review is now complete against commit
+`fcfc2e04`, with every one of its 13 source/test hashes matching. Proof:
+`e08f7508245d287896d2e90780956ded916be79cbee4233da23ad80d86104811`.
+Its alternate-reader confirmation lead passed the actual control and was
+withdrawn; no speculative production change was made.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

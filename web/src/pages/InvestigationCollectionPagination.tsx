@@ -13,6 +13,7 @@ export function InvestigationCollectionQueryState({
   error,
   hasData,
   onRetry,
+  accessDenied = false,
 }: {
   label: string
   total: number
@@ -22,6 +23,7 @@ export function InvestigationCollectionQueryState({
   error: unknown
   hasData: boolean
   onRetry: () => void
+  accessDenied?: boolean
 }) {
   if (loading && !hasData) {
     return (
@@ -36,7 +38,7 @@ export function InvestigationCollectionQueryState({
       </p>
     )
   }
-  if (error) {
+  if (error || accessDenied) {
     return (
       <div
         role="alert"

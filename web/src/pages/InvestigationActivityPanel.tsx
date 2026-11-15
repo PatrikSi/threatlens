@@ -16,7 +16,7 @@ export function InvestigationActivityPanel({
   controller: InvestigationDetailController
 }) {
   const query = controller.activityQuery
-  const accessUnavailable = query.isError && isTerminalInvestigationAccessError(query.error)
+  const accessUnavailable = controller.activityAccessDenied || (query.isError && isTerminalInvestigationAccessError(query.error))
   const data = accessUnavailable ? undefined : query.data
 
   return (
@@ -49,7 +49,7 @@ export function InvestigationActivityPanel({
           Loading investigation activity...
         </p>
       )}
-      {!data && query.isError && (
+      {!data && (query.isError || controller.activityAccessDenied) && (
         <div
           role="alert"
           className="mt-3 rounded border border-red-300/70 bg-red-50 px-3 py-3 text-sm text-red-800 dark:border-red-800/60 dark:bg-red-950/30 dark:text-red-200"

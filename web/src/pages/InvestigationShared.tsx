@@ -110,6 +110,7 @@ export function InvestigationConfirmDialog({
   confirmLabel,
   confirmTone = 'danger',
   isConfirming,
+  confirmDisabled = false,
   onCancel,
   onConfirm,
 }: {
@@ -121,6 +122,7 @@ export function InvestigationConfirmDialog({
   confirmLabel: string
   confirmTone?: 'danger' | 'primary'
   isConfirming: boolean
+  confirmDisabled?: boolean
   onCancel: () => void
   onConfirm: () => void
 }) {
@@ -142,7 +144,7 @@ export function InvestigationConfirmDialog({
       footer={
         <>
           <button ref={cancelRef} type="button" className="min-h-11 rounded border border-slate/20 px-3 py-2 text-sm font-semibold dark:border-white/10" disabled={isConfirming} onClick={onCancel}>Cancel</button>
-          <button type="button" className={`min-h-11 rounded px-3 py-2 text-sm font-semibold disabled:opacity-60 ${confirmClass}`} disabled={isConfirming} onClick={onConfirm}>{isConfirming ? 'Working...' : confirmLabel}</button>
+          <button type="button" className={`min-h-11 rounded px-3 py-2 text-sm font-semibold disabled:opacity-60 ${confirmClass}`} disabled={isConfirming || confirmDisabled} onClick={onConfirm}>{isConfirming ? 'Working...' : confirmLabel}</button>
         </>
       }
     >

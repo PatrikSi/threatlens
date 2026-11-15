@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import type {
@@ -50,11 +51,15 @@ export function useInvestigationsPage() {
 
   useEffect(() => setSearchDraft(filters.query), [filters.query])
 
+  const listAccess = useQueryAccessScope(['investigations', 'list', filters.teamId ?? 'all'])
   const investigationsQuery = useQuery({
     queryKey: ['investigations', 'list', filters],
-    queryFn: () => apiFetch<InvestigationListResponse>(buildInvestigationListPath(filters)),
-    placeholderData: (previous) => previous,
-    staleTime: 15_000,
+    ...listAccess.queryOptions(() => apiFetch<InvestigationListResponse>(buildInvestigationListPath(filters)), 15_000),
+    placeholderData: (previous, previousQuery) => {
+      const previousFilters = previousQuery?.queryKey[2] as InvestigationListFilters | undefined
+      if (previousFilters?.teamId !== filters.teamId) return undefined
+      return listAccess.currentData(previous) === undefined ? undefined : previous
+    },
     refetchOnWindowFocus: true,
   })
 
@@ -66,7 +71,8 @@ export function useInvestigationsPage() {
         body: JSON.stringify(payload),
       }),
     onSuccess: (investigation) => {
-      queryClient.setQueryData(['investigations', 'detail', investigation.id], investigation)
+      // The destination page reads its own current authority; a creation
+      // receipt must not populate a private detail read outside its scope.
       void queryClient.invalidateQueries({ queryKey: ['investigations', 'list'] })
       setCreateDraft(EMPTY_CREATE_DRAFT)
       setCreateOpen(false)
@@ -134,7 +140,7 @@ export function useInvestigationsPage() {
   const submitCreate = (event: FormEvent) => {
     event.preventDefault()
     const title = createDraft.title.trim()
-    if (!title || !currentUserQuery.data) return
+    if (!title || !currentUserQuery.data || !canCreate || createInvestigation.isPending) return
     createInvestigation.mutate({
       ...(filters.teamId ? { team_id: filters.teamId } : {}),
       title,
@@ -155,6 +161,7 @@ export function useInvestigationsPage() {
     currentUserQuery,
     filters,
     investigationsQuery,
+    listAccessDenied: listAccess.denied,
     searchDraft,
     setCreateDraft,
     setCreateOpen,

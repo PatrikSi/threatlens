@@ -120,6 +120,92 @@ afterEach(() => {
 })
 
 describe('InvestigationsPage DOM workflows', () => {
+  it('retires a denied private investigation list instead of retaining its cached rows', async () => {
+    let status = 200
+    domMocks.apiFetch.mockImplementation((path: string) => status === 200
+      ? Promise.resolve(listResponse)
+      : Promise.reject(new ApiError('Investigation list access withdrawn', status, path)))
+    await renderAt('/investigations')
+    expect(pageText()).toContain(baseDetail.title)
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['investigations', 'list'] }) })
+      await flushRequests(3)
+      expect(pageText()).not.toContain(baseDetail.title)
+    }
+  })
+
+  it('retires cached sibling investigation pages after a denied list read', async () => {
+    let status = 200
+    domMocks.apiFetch.mockImplementation((path: string) => status === 200
+      ? Promise.resolve({ ...listResponse, total: 50, page: new URL(path, 'https://fixture.invalid').searchParams.get('page') === '2' ? 2 : 1 })
+      : Promise.reject(new ApiError('Investigation list access withdrawn', status, path)))
+    const { router } = await renderAt('/investigations')
+    await act(async () => { await router.navigate('/investigations?page=2') })
+    await flushRequests(3)
+    status = 403
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['investigations', 'list'] }) })
+    await flushRequests(3)
+    expect(pageText()).not.toContain(baseDetail.title)
+    status = 503
+    await act(async () => { await router.navigate('/investigations') })
+    await flushRequests(3)
+    expect(pageText()).not.toContain(baseDetail.title)
+  })
+
+  it.each([403, 404])('keeps a denied investigation workspace hidden through a later outage after HTTP %s', async (denial) => {
+    let status = 200
+    domMocks.apiFetch.mockImplementation((path: string) => status === 200
+      ? Promise.resolve(baseDetail)
+      : Promise.reject(new ApiError('Investigation access withdrawn', status, path)))
+    await renderAt(`/investigations/${baseDetail.id}`)
+    expect(pageText()).toContain(baseDetail.title)
+    for (const next of [denial, 503]) {
+      status = next
+      await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['investigations', 'detail', baseDetail.id] }) })
+      await flushRequests(3)
+      expect(pageText()).not.toContain(baseDetail.title)
+      expect(findButton('Close investigation')).toBeNull()
+    }
+  })
+
+  it('retains an ordinary investigation outage context while pausing lifecycle writes and keeping the local draft', async () => {
+    let status = 200
+    domMocks.apiFetch.mockImplementation((path: string) => status === 200
+      ? Promise.resolve(baseDetail)
+      : Promise.reject(new ApiError('Investigation temporarily unavailable', status, path)))
+    await renderAt(`/investigations/${baseDetail.id}`)
+    const draft = document.querySelector<HTMLTextAreaElement>('#investigation-description')!
+    act(() => setTextAreaValue(draft, 'Local investigation draft'))
+    status = 503
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['investigations', 'detail', baseDetail.id] }) })
+    await flushRequests(3)
+    expect(pageText()).toContain(baseDetail.title)
+    expect(draft.value).toBe('Local investigation draft')
+    const close = findButton('Close investigation')
+    expect(close).not.toBeNull()
+    expect(close!.disabled).toBe(true)
+    act(() => close!.click())
+    expect(domMocks.apiFetch.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false)
+  })
+
+  it('keeps independently denied analyst notes hidden through a later collection outage', async () => {
+    let status = 200
+    domMocks.apiFetch.mockImplementation((path: string) => path.includes('/notes?')
+      ? status === 200 ? Promise.resolve({ notes: baseDetail.notes, total: 1, page: 1, page_size: 25 })
+        : Promise.reject(new ApiError('Notes access withdrawn', status, path))
+      : Promise.resolve(baseDetail))
+    await renderAt(`/investigations/${baseDetail.id}?tab=notes`)
+    expect(pageText()).toContain('Initial working theory')
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['investigations', 'notes', baseDetail.id] }) })
+      await flushRequests(3)
+      expect(pageText()).not.toContain('Initial working theory')
+    }
+    expect(pageText()).toContain(baseDetail.title)
+  })
+
   it('renders compact desktop and mobile list alternatives with clear result counts', async () => {
     domMocks.apiFetch.mockResolvedValue(listResponse)
     await renderAt('/investigations')
@@ -177,14 +263,11 @@ describe('InvestigationsPage DOM workflows', () => {
   })
 
   it('keeps stale list data visible when refresh fails', async () => {
-    const client = createQueryClient()
-    client.setQueryData(
-      ['investigations', 'list', defaultFilters()],
-      listResponse,
-      { updatedAt: 1 },
-    )
+    domMocks.apiFetch.mockResolvedValue(listResponse)
+    await renderAt('/investigations')
     domMocks.apiFetch.mockRejectedValue(new Error('refresh failed'))
-    await renderAt('/investigations', true, client)
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['investigations', 'list'] }) })
+    await flushRequests()
 
     expect(pageText()).toContain('The last loaded results remain visible.')
     expect(pageText()).toContain('Exchange exploitation review')
@@ -198,9 +281,10 @@ describe('InvestigationsPage DOM workflows', () => {
     expect(findButton('Return to first page')).not.toBeNull()
   })
 
-  it('creates an investigation with the analyst draft and navigates to its cached workspace', async () => {
+  it('creates an investigation with the analyst draft and loads its canonical workspace', async () => {
     domMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/investigations' && options?.method === 'POST') return Promise.resolve(baseDetail)
+      if (path === `/investigations/${baseDetail.id}`) return Promise.resolve(baseDetail)
       return Promise.resolve(listResponse)
     })
     await renderAt('/investigations')
@@ -223,7 +307,11 @@ describe('InvestigationsPage DOM workflows', () => {
       visibility: 'private',
       assignee_user_id: 'user-1',
     })
-    expect(pageText()).toContain('Version 7')
+    await vi.waitFor(async () => {
+      await flushRequests()
+      expect(pageText()).toContain('Version 7')
+    })
+    expect(domMocks.apiFetch).toHaveBeenCalledWith(`/investigations/${baseDetail.id}`)
   })
 
   it('preserves creation input after a retriable failure', async () => {
@@ -389,7 +477,7 @@ describe('InvestigationsPage DOM workflows', () => {
     act(() => findButton('Remove')?.click())
     const dialog = document.querySelector('[role="alertdialog"]')
     expect(dialog?.textContent).toContain('Remove analyst note?')
-    expect(domMocks.apiFetch).not.toHaveBeenCalled()
+    expect(domMocks.apiFetch.mock.calls.some(([, options]) => options?.method)).toBe(false)
 
     const confirm = Array.from(dialog?.querySelectorAll<HTMLButtonElement>('button') ?? [])
       .find((button) => button.textContent === 'Remove note')
@@ -414,7 +502,7 @@ describe('InvestigationsPage DOM workflows', () => {
     act(() => findButton('Edit')?.click())
     const editor = document.querySelector<HTMLTextAreaElement>('#investigation-note-edit-note-1')!
     act(() => setTextAreaValue(editor, 'Preserved unsaved analyst note'))
-    act(() => queryClient!.setQueryData(['investigations', 'detail', detail.id], { ...detail, ...update, version: 8 }))
+    await refreshDetail({ ...detail, ...update, version: 8 })
     await flushRequests()
 
     expect(editor.value).toBe('Preserved unsaved analyst note')
@@ -434,18 +522,19 @@ describe('InvestigationsPage DOM workflows', () => {
     await renderDetail(baseDetail, '?tab=notes')
     act(() => findButton('Remove')?.click())
     expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
-    act(() => queryClient!.setQueryData(['investigations', 'detail', baseDetail.id], { ...baseDetail, current_user_role: 'viewer', version: 8 }))
+    await refreshDetail({ ...baseDetail, current_user_role: 'viewer', version: 8 })
     await flushRequests()
     expect(document.querySelector('[role="alertdialog"]')).toBeNull()
     expect(domMocks.apiFetch.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false)
     expect(pageText()).toContain('Initial working theory')
-    act(() => queryClient!.setQueryData(['investigations', 'detail', baseDetail.id], baseDetail))
+    await refreshDetail(baseDetail)
     await flushRequests()
     expect(document.querySelector('[role="alertdialog"]')).toBeNull()
   })
 
   it('keeps a failed destructive action open and shows its actionable error in the dialog', async () => {
     domMocks.apiFetch.mockImplementation((path: string) => {
+      if (path === `/investigations/${baseDetail.id}`) return Promise.resolve(baseDetail)
       if (path.includes(`/investigations/${baseDetail.id}/notes?page=`)) {
         return Promise.resolve({
           notes: baseDetail.notes,
@@ -483,9 +572,13 @@ describe('InvestigationsPage DOM workflows', () => {
       null,
       { code: 'investigation_not_found' },
     ))
-    const client = createQueryClient()
-    client.setQueryData(['investigations', 'detail', baseDetail.id], baseDetail, { updatedAt: 1 })
-    await renderAt(`/investigations/${baseDetail.id}`, true, client)
+    const rejectedRead = domMocks.apiFetch.getMockImplementation()!
+    domMocks.apiFetch.mockResolvedValue(baseDetail)
+    await renderAt(`/investigations/${baseDetail.id}`)
+    expect(pageText()).toContain(baseDetail.title)
+    domMocks.apiFetch.mockImplementation(rejectedRead)
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['investigations', 'detail', baseDetail.id], exact: true }) })
+    await flushRequests()
 
     expect(pageText()).toContain('Investigation not found.')
     expect(pageText()).not.toContain('Exchange exploitation review')
@@ -617,12 +710,7 @@ describe('InvestigationsPage DOM workflows', () => {
     )
     const candidate = document.querySelector<HTMLInputElement>('input[value="user-2"]')
     act(() => candidate?.click())
-    act(() => {
-      queryClient?.setQueryData(
-        ['investigations', 'detail', baseDetail.id],
-        { ...baseDetail, version: 8 },
-      )
-    })
+    await refreshDetail({ ...baseDetail, version: 8 })
     await flushRequests()
     expect(pageText()).toContain('Version 8')
     act(() => findButton('Add member')?.click())
@@ -869,15 +957,9 @@ describe('InvestigationsPage DOM workflows', () => {
 
   it('keeps a stale notes page visible after a refresh failure', async () => {
     const staleNote = { ...baseDetail.notes[0], body: 'Last loaded analyst context' }
-    const client = createQueryClient()
-    client.setQueryData(['investigations', 'detail', baseDetail.id], baseDetail)
-    client.setQueryData(
-      ['investigations', 'notes', baseDetail.id, 1],
-      { notes: [staleNote], total: 1, page: 1, page_size: 25 },
-      { updatedAt: 1 },
-    )
+    await renderDetail({ ...baseDetail, notes: [staleNote] }, '?tab=notes')
     domMocks.apiFetch.mockRejectedValue(new Error('notes refresh unavailable'))
-    await renderAt(`/investigations/${baseDetail.id}?tab=notes`, true, client)
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['investigations', 'notes', baseDetail.id] }) })
     await flushRequests(2)
 
     expect(pageText()).toContain('Last loaded analyst context')
@@ -890,22 +972,12 @@ describe('InvestigationsPage DOM workflows', () => {
   })
 
   it('fails closed instead of showing a cached notes page after collection access is denied', async () => {
-    const client = createQueryClient()
-    client.setQueryData(['investigations', 'detail', baseDetail.id], baseDetail)
-    client.setQueryData(
-      ['investigations', 'notes', baseDetail.id, 1],
-      {
-        notes: [{ ...baseDetail.notes[0], body: 'Sensitive cached note' }],
-        total: 1,
-        page: 1,
-        page_size: 25,
-      },
-      { updatedAt: 1 },
-    )
+    await renderDetail({ ...baseDetail, notes: [{ ...baseDetail.notes[0], body: 'Sensitive cached note' }] }, '?tab=notes')
+    expect(pageText()).toContain('Sensitive cached note')
     domMocks.apiFetch.mockRejectedValue(
       new ApiError('Investigation access is no longer available.', 403, '/investigations/notes'),
     )
-    await renderAt(`/investigations/${baseDetail.id}?tab=notes`, true, client)
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['investigations', 'notes', baseDetail.id] }) })
     await flushRequests(2)
 
     expect(pageText()).not.toContain('Sensitive cached note')
@@ -983,12 +1055,13 @@ describe('InvestigationsPage DOM workflows', () => {
 
     act(() => findButton('Reopen investigation')?.click())
     expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Reopen investigation?')
-    expect(domMocks.apiFetch).not.toHaveBeenCalled()
+    expect(domMocks.apiFetch.mock.calls.some(([, options]) => options?.method)).toBe(false)
     const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')).find((button) => button.textContent === 'Reopen investigation')
     act(() => confirm?.click())
     await flushRequests()
 
-    const body = JSON.parse(domMocks.apiFetch.mock.calls[0][1].body as string)
+    const reopen = domMocks.apiFetch.mock.calls.find(([, options]) => options?.method === 'PATCH')!
+    const body = JSON.parse(reopen[1].body as string)
     expect(body).toEqual({ status: 'open', disposition: null, expected_version: 7 })
   })
 
@@ -1089,35 +1162,57 @@ async function failActivityRefresh(status: number) {
   ))
   await act(async () => {
     await queryClient!.invalidateQueries({
-      queryKey: ['investigations', 'activity', baseDetail.id, 1], exact: true,
+      queryKey: ['investigations', 'activity', baseDetail.id],
     })
   })
   await flushRequests(2)
   expect(pageText()).toContain('Activity refresh rejected')
 }
 
+// Warm private reads through the production query functions; never fabricate cache envelopes.
+function installInitialDetailReads(detail: InvestigationDetail, includeCollections: boolean) {
+  const requests = domMocks.apiFetch.getMockImplementation()
+  let initialDetail = true
+  let initialEvidence = includeCollections
+  let initialNotes = includeCollections
+  domMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+    if (!options?.method && path === `/investigations/${detail.id}` && initialDetail) {
+      initialDetail = false
+      return Promise.resolve(detail)
+    }
+    if (!options?.method && path === `/investigations/${detail.id}/evidence?page=1&page_size=25` && initialEvidence) {
+      initialEvidence = false
+      return Promise.resolve({ evidence: detail.evidence.slice(0, 25), total: detail.evidence_count, page: 1, page_size: 25 })
+    }
+    if (!options?.method && path === `/investigations/${detail.id}/notes?page=1&page_size=25` && initialNotes) {
+      initialNotes = false
+      return Promise.resolve({ notes: detail.notes.slice(0, 25), total: detail.note_count, page: 1, page_size: 25 })
+    }
+    if (requests) return requests(path, options)
+    if (!options?.method && path === `/investigations/${detail.id}`) return Promise.resolve(detail)
+    return Promise.reject(new Error(`Unexpected request: ${path}`))
+  })
+}
+
 async function renderDetail(detail: InvestigationDetail, suffix = '') {
-  const client = createQueryClient()
-  client.setQueryData(['investigations', 'detail', detail.id], detail)
-  client.setQueryData(['investigations', 'evidence', detail.id, 1], {
-    evidence: detail.evidence.slice(0, 25),
-    total: detail.evidence_count,
-    page: 1,
-    page_size: 25,
-  })
-  client.setQueryData(['investigations', 'notes', detail.id, 1], {
-    notes: detail.notes.slice(0, 25),
-    total: detail.note_count,
-    page: 1,
-    page_size: 25,
-  })
-  return renderAt(`/investigations/${detail.id}${suffix}`, true, client)
+  installInitialDetailReads(detail, true)
+  return renderAt(`/investigations/${detail.id}${suffix}`)
 }
 
 async function renderDetailWithCollectionFetch(detail: InvestigationDetail, suffix: string) {
-  const client = createQueryClient()
-  client.setQueryData(['investigations', 'detail', detail.id], detail)
-  return renderAt(`/investigations/${detail.id}${suffix}`, true, client)
+  installInitialDetailReads(detail, false)
+  return renderAt(`/investigations/${detail.id}${suffix}`)
+}
+
+async function refreshDetail(detail: InvestigationDetail) {
+  const requests = domMocks.apiFetch.getMockImplementation()
+  domMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+    if (!options?.method && path === `/investigations/${detail.id}`) return Promise.resolve(detail)
+    return requests?.(path, options)
+  })
+  await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['investigations', 'detail', detail.id], exact: true }) })
+  await flushRequests()
+  domMocks.apiFetch.mockImplementation(requests!)
 }
 
 async function renderAt(path: string, settle = true, client = createQueryClient()) {
@@ -1153,17 +1248,6 @@ function createQueryClient() {
       mutations: { retry: false },
     },
   })
-}
-
-function defaultFilters() {
-  return {
-    query: '',
-    statuses: [],
-    severities: [],
-    assignedToMe: false,
-    includeArchived: false,
-    page: 1,
-  }
 }
 
 async function flushRequests(rounds = 1) {

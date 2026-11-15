@@ -40,6 +40,10 @@ function canChangeLifecycle(controller: InvestigationDetailController) {
   return Boolean(controller.access?.canWrite && detail && (!detail.team_id || detail.current_user_role === 'owner'))
 }
 
+function hasTerminalDetailReadError(controller: InvestigationDetailController) {
+  return controller.detailAccessDenied || (controller.detailQuery.isError && isTerminalInvestigationAccessError(controller.detailQuery.error))
+}
+
 export function InvestigationDetailWorkspace({
   controller,
 }: {
@@ -55,9 +59,11 @@ export function InvestigationDetailWorkspace({
     typeof listSearch === 'string' && listSearch.startsWith('?')
       ? `/investigations${listSearch}`
       : '/investigations'
-  const terminalAccessError =
-    controller.detailQuery.isError &&
-    isTerminalInvestigationAccessError(controller.detailQuery.error)
+  const terminalAccessError = hasTerminalDetailReadError(controller)
+  useEffect(() => {
+    if (!controller.detailAccessDenied) return
+    setLifecycleConfirmation(null)
+  }, [controller.detailAccessDenied])
 
   if (!detail && controller.detailQuery.isLoading) {
     return <InvestigationLoading message="Loading investigation workspace..." />
@@ -126,7 +132,7 @@ export function InvestigationDetailWorkspace({
             canWrite={canChangeLifecycle(controller)}
             canArchive={controller.access.canArchive}
             canReopen={controller.access.canReopen}
-            pending={controller.mutation.isPending}
+            pending={controller.mutation.isPending || controller.detailReadUnavailable}
             onUpdateStatus={(status) =>
               runLifecycleMutation({
                 kind: 'update',
@@ -228,6 +234,7 @@ export function InvestigationDetailWorkspace({
         title={detail.title}
         disposition={closeDisposition}
         pending={controller.mutation.isPending}
+        unavailable={controller.detailReadUnavailable}
         error={
           Boolean(lifecycleConfirmation) &&
           controller.mutation.isError &&
@@ -407,6 +414,7 @@ function LifecycleDialog({
   title,
   disposition,
   pending,
+  unavailable,
   error,
   onDispositionChange,
   onCancel,
@@ -416,6 +424,7 @@ function LifecycleDialog({
   title: string
   disposition: string
   pending: boolean
+  unavailable: boolean
   error: string | null
   onDispositionChange: (value: string) => void
   onCancel: () => void
@@ -452,6 +461,7 @@ function LifecycleDialog({
       confirmLabel={selected.label}
       confirmTone={selected.tone}
       isConfirming={pending}
+      confirmDisabled={unavailable}
       onCancel={onCancel}
       onConfirm={onConfirm}
     >

@@ -2,12 +2,20 @@ import { FormEvent, useDeferredValue, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type { TeamMemberPage } from '../types/teams'
 
-import type { InvestigationSeverity } from '../types/investigations'
+import type { InvestigationDetail, InvestigationSeverity } from '../types/investigations'
 import { formatDateTime } from '../utils/datetime'
 import { INVESTIGATION_SEVERITIES } from './investigationPageModel'
 import type { InvestigationDetailController } from './useInvestigationDetail'
+
+function assignableInvestigationMembers(detail: InvestigationDetail, page: TeamMemberPage | undefined, unavailable: boolean) {
+  if (detail.team_id) return unavailable ? [] : (page?.items ?? []).map((member) => ({
+    user_id: member.id, email: member.email, role: member.is_manager ? 'owner' : 'editor',
+  }))
+  return detail.members.filter((member) => member.role === 'owner' || member.role === 'editor')
+}
 
 export function InvestigationOverviewPanel({
   controller,
@@ -17,16 +25,15 @@ export function InvestigationOverviewPanel({
   const detail = controller.detailQuery.data
   const [assigneeSearch, setAssigneeSearch] = useState('')
   const deferredAssigneeSearch = useDeferredValue(assigneeSearch)
+  const membersAccess = useQueryAccessScope(['teams', detail?.team_id ?? '', 'assignment-members'])
   const teamMembers = useQuery({
-    queryKey: ['teams', detail?.team_id, 'assignment-members', deferredAssigneeSearch],
-    queryFn: () => apiFetch<TeamMemberPage>(`/teams/${detail!.team_id}/members?page_size=100&q=${encodeURIComponent(deferredAssigneeSearch)}`),
+    queryKey: ['teams', detail?.team_id, 'assignment-members', deferredAssigneeSearch, controller.detailReadGeneration],
+    ...membersAccess.queryOptions(() => apiFetch<TeamMemberPage>(`/teams/${detail!.team_id}/members?page_size=100&q=${encodeURIComponent(deferredAssigneeSearch)}`)),
     enabled: Boolean(detail?.team_id && controller.access?.canWrite && detail.current_user_role === 'owner'),
   })
   if (!detail || !controller.access) return null
   const draft = controller.overviewDraft
-  const assignableMembers = detail.team_id ? (teamMembers.isError ? [] : teamMembers.data?.items.map(member => ({ user_id: member.id, email: member.email, role: member.is_manager ? 'owner' : 'editor' })) ?? []) : detail.members.filter(
-    (member) => member.role === 'owner' || member.role === 'editor',
-  )
+  const assignableMembers = assignableInvestigationMembers(detail, teamMembers.data, teamMembers.isError)
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -190,6 +197,7 @@ export function InvestigationOverviewPanel({
               className="min-h-11 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
               disabled={
                 controller.mutation.isPending ||
+                controller.detailReadUnavailable ||
                 controller.overviewBaselineVersion === null ||
                 !controller.overviewDirty ||
                 !draft.title.trim()

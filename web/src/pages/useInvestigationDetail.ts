@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import type {
@@ -81,12 +82,30 @@ const EMPTY_EVIDENCE_DRAFT: InvestigationEvidenceDraft = {
   note: '',
 }
 
+function canAuthorInvestigation(user: ReturnType<typeof useCurrentUser>, detail: InvestigationDetail | undefined) {
+  return Boolean(user.data && !user.isError && hasRequiredPermissions(
+    user.data.access?.permissions ?? [],
+    detail?.team_id ? ['write:investigations', 'write:teams'] : ['write:investigations'],
+  ))
+}
+
+function hasUnsavedInvestigationDrafts(overviewDirty: boolean, note: string, editingId: string | null, editingBody: string, editingBaseline: string, evidence: InvestigationEvidenceDraft) {
+  return overviewDirty || note.length > 0 || (editingId !== null && editingBody !== editingBaseline)
+    || !sameEvidenceDraft(evidence, EMPTY_EVIDENCE_DRAFT)
+}
+
 export function useInvestigationDetail(investigationId: string) {
   const queryClient = useQueryClient()
   const currentUserQuery = useCurrentUser()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = readInvestigationTab(searchParams)
   const detailKey = useMemo(() => ['investigations', 'detail', investigationId] as const, [investigationId])
+  const detailAccess = useQueryAccessScope(['investigations', 'detail', investigationId])
+  const memberAccess = useQueryAccessScope(['investigations', 'member-candidates'])
+  const evidenceAccess = useQueryAccessScope(['investigations', 'evidence', investigationId])
+  const candidateAccess = useQueryAccessScope(['investigations', 'evidence-candidates', investigationId])
+  const notesAccess = useQueryAccessScope(['investigations', 'notes', investigationId])
+  const activityAccess = useQueryAccessScope(['investigations', 'activity', investigationId])
   const [overviewDraft, setOverviewDraft] = useState<InvestigationOverviewDraft>(EMPTY_OVERVIEW_DRAFT)
   const [overviewBaseline, setOverviewBaseline] = useState<InvestigationOverviewDraft>(EMPTY_OVERVIEW_DRAFT)
   const [overviewBaselineVersion, setOverviewBaselineVersion] = useState<number | null>(null)
@@ -163,30 +182,18 @@ export function useInvestigationDetail(investigationId: string) {
 
   const detailQuery = useQuery({
     queryKey: detailKey,
-    queryFn: () => apiFetch<InvestigationDetail>(`/investigations/${investigationId}`),
-    staleTime: 15_000,
+    ...detailAccess.queryOptions(() => apiFetch<InvestigationDetail>(`/investigations/${investigationId}`), 15_000),
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   })
   const detail = detailQuery.data
-  const canAuthor = Boolean(
-    currentUserQuery.data &&
-      !currentUserQuery.isError &&
-      hasRequiredPermissions(
-        currentUserQuery.data.access?.permissions ?? [],
-        detail?.team_id ? ['write:investigations', 'write:teams'] : ['write:investigations'],
-      ),
-  )
+  const canAuthor = canAuthorInvestigation(currentUserQuery, detail)
   const access = detail
     ? resolveInvestigationAccess(detail, canAuthor)
     : null
   const overviewDirty = !sameOverviewDraft(overviewDraft, overviewBaseline)
-  const hasUnsavedChanges =
-    overviewDirty ||
-    noteDraft.length > 0 ||
-    (editingNoteId !== null && editingNoteBody !== editingNoteBaseline) ||
-    !sameEvidenceDraft(evidenceDraft, EMPTY_EVIDENCE_DRAFT)
+  const hasUnsavedChanges = hasUnsavedInvestigationDrafts(overviewDirty, noteDraft, editingNoteId, editingNoteBody, editingNoteBaseline, evidenceDraft)
   const confirmDiscardChanges = useUnsavedChangesWarning(
     hasUnsavedChanges,
     'Discard unsaved investigation changes?',
@@ -217,8 +224,8 @@ export function useInvestigationDetail(investigationId: string) {
   }, [evidenceSearch])
 
   const memberCandidatesQuery = useQuery({
-    queryKey: ['investigations', 'member-candidates', debouncedMemberSearch, memberPage],
-    queryFn: () => {
+    queryKey: ['investigations', 'member-candidates', debouncedMemberSearch, memberPage, investigationId, detailAccess.generation],
+    ...memberAccess.queryOptions(() => {
       const params = new URLSearchParams({
         page: String(memberPage),
         page_size: String(INVESTIGATION_MEMBER_PAGE_SIZE),
@@ -227,10 +234,12 @@ export function useInvestigationDetail(investigationId: string) {
       return apiFetch<InvestigationMemberCandidateListResponse>(
         `/investigations/member-candidates?${params.toString()}`,
       )
-    },
+    }, 30_000),
     enabled: Boolean(access?.canManageMembers && activeTab === 'members'),
-    placeholderData: (previous) => previous,
-    staleTime: 30_000,
+    placeholderData: (previous, previousQuery) => {
+      if (previousQuery?.queryKey.at(-1) !== detailAccess.generation || previousQuery.queryKey.at(-2) !== investigationId) return undefined
+      return memberAccess.currentData(previous) === undefined ? undefined : previous
+    },
   })
 
   const availableMemberCandidates = useMemo(() => {
@@ -241,7 +250,7 @@ export function useInvestigationDetail(investigationId: string) {
     memberSearch.trim() !== debouncedMemberSearch ||
     memberCandidatesQuery.isFetching ||
     memberCandidatesQuery.isPlaceholderData ||
-    memberCandidatesQuery.isError
+    memberCandidatesQuery.isError || memberAccess.denied || detailQuery.isError || detailAccess.denied
 
   const localEvidenceSourceAvailability = useMemo(
     () =>
@@ -262,13 +271,12 @@ export function useInvestigationDetail(investigationId: string) {
   )
 
   const evidenceQuery = useQuery({
-    queryKey: ['investigations', 'evidence', investigationId, evidencePage],
-    queryFn: () =>
+    queryKey: ['investigations', 'evidence', investigationId, evidencePage, detailAccess.generation],
+    ...evidenceAccess.queryOptions(() =>
       apiFetch<InvestigationEvidenceListResponse>(
         `/investigations/${investigationId}/evidence?page=${evidencePage}&page_size=${INVESTIGATION_EVIDENCE_PAGE_SIZE}`,
-      ),
+      ), 15_000),
     enabled: Boolean(detail && activeTab === 'evidence'),
-    staleTime: 15_000,
   })
 
   const evidenceCandidatesQuery = useQuery({
@@ -281,8 +289,9 @@ export function useInvestigationDetail(investigationId: string) {
       evidenceRange,
       evidenceCandidatePage,
       evidenceCandidatePage === 1 ? null : evidenceCandidateAsOf,
+      detailAccess.generation,
     ],
-    queryFn: ({ signal }) => {
+    ...candidateAccess.queryOptions(({ signal }) => {
       const candidateRequest = buildEvidenceCandidateRequest({
           investigationId,
           query: debouncedEvidenceSearch,
@@ -299,7 +308,7 @@ export function useInvestigationDetail(investigationId: string) {
           body: JSON.stringify(candidateRequest.body),
         },
       )
-    },
+    }, 10_000),
     enabled: Boolean(
       detail &&
         access?.canWrite &&
@@ -308,17 +317,15 @@ export function useInvestigationDetail(investigationId: string) {
         evidenceSearchCanRun(debouncedEvidenceSearch) &&
         requestedEvidenceSourceTypes.length > 0,
     ),
-    staleTime: 10_000,
   })
 
   const notesQuery = useQuery({
-    queryKey: ['investigations', 'notes', investigationId, notePage],
-    queryFn: () =>
+    queryKey: ['investigations', 'notes', investigationId, notePage, detailAccess.generation],
+    ...notesAccess.queryOptions(() =>
       apiFetch<InvestigationNoteListResponse>(
         `/investigations/${investigationId}/notes?page=${notePage}&page_size=${INVESTIGATION_NOTE_PAGE_SIZE}`,
-      ),
+      ), 15_000),
     enabled: Boolean(detail && activeTab === 'notes'),
-    staleTime: 15_000,
   })
 
   useEffect(() => {
@@ -338,6 +345,10 @@ export function useInvestigationDetail(investigationId: string) {
       clearEvidenceSelectionState()
     }
   }, [evidenceCandidatePage, evidenceCandidatesQuery.data])
+
+  useEffect(() => {
+    if (candidateAccess.denied || detailAccess.denied) clearEvidenceSelectionState()
+  }, [candidateAccess.denied, detailAccess.denied])
 
   useEffect(() => {
     if (
@@ -369,26 +380,53 @@ export function useInvestigationDetail(investigationId: string) {
   }, [detail?.note_count, notesQuery.data?.total])
 
   const activityQuery = useQuery({
-    queryKey: ['investigations', 'activity', investigationId, activityPage],
-    queryFn: () =>
+    queryKey: ['investigations', 'activity', investigationId, activityPage, detailAccess.generation],
+    ...activityAccess.queryOptions(() =>
       apiFetch<InvestigationActivityListResponse>(
         `/investigations/${investigationId}/activity?page=${activityPage}&page_size=${INVESTIGATION_ACTIVITY_PAGE_SIZE}`,
-      ),
+      ), 15_000),
     enabled: Boolean(detail && activeTab === 'activity'),
-    placeholderData: (previous) => previous,
-    staleTime: 15_000,
+    placeholderData: (previous, previousQuery) => {
+      if (previousQuery?.queryKey.at(-1) !== detailAccess.generation || previousQuery.queryKey[2] !== investigationId) return undefined
+      return activityAccess.currentData(previous) === undefined ? undefined : previous
+    },
   })
+
+  const detailReadUnavailable = detailQuery.isError || detailAccess.denied || !detail
+  const notesReadUnavailable = detailReadUnavailable || notesQuery.isError || notesAccess.denied
+  const evidenceReadUnavailable = detailReadUnavailable || evidenceQuery.isError || evidenceAccess.denied
 
   const mutation = useMutation({
     mutationKey: ['investigations', 'mutate', investigationId],
-    mutationFn: (operation: InvestigationMutationOperation) =>
-      executeInvestigationMutation(investigationId, operation),
+    mutationFn: (operation: InvestigationMutationOperation) => {
+      // Query failure events can precede the next React observer render.
+      const currentDetail = queryClient.getQueryState(detailKey)?.status === 'error' ? undefined
+        : detailAccess.currentData<InvestigationDetail>(queryClient.getQueryData(detailKey))
+      const currentAccess = currentDetail ? resolveInvestigationAccess(currentDetail, canAuthor) : null
+      const readUnavailable = !currentDetail || detailReadUnavailable ||
+        (isNoteMutation(operation) && notesReadUnavailable) ||
+        (isEvidenceMutation(operation) && evidenceReadUnavailable) ||
+        (operation.kind === 'add-evidence' && (evidenceCandidatesQuery.isError || candidateAccess.denied)) ||
+        (operation.kind === 'add-member' && memberCandidateSelectionUnavailable)
+      const canReopen = operation.kind === 'update' && operation.changes.status === 'open' && currentAccess?.canReopen
+      if (readUnavailable || !currentAccess || (!currentAccess.canWrite && !canReopen)) {
+        throw new Error('Refresh the current investigation before changing it. Your draft remains available.')
+      }
+      const capture = detailAccess.captureResult()
+      return executeInvestigationMutation(investigationId, operation).then(capture)
+    },
     onMutate: () => {
       setConflictNotice(null)
       setSuccessNotice(null)
     },
-    onSuccess: (updated, operation) => {
-      queryClient.setQueryData(detailKey, updated)
+    onSuccess: (result, operation) => {
+      const updated = detailAccess.currentData(result)
+      if (!updated) {
+        void queryClient.invalidateQueries({ queryKey: detailKey, exact: true })
+        return
+      }
+      if (queryClient.getQueryState(detailKey)?.status === 'success') queryClient.setQueryData(detailKey, result)
+      else void queryClient.invalidateQueries({ queryKey: detailKey, exact: true })
       void queryClient.invalidateQueries({ queryKey: ['investigations', 'list'] })
       if (isEvidenceMutation(operation)) {
         const lastPage = investigationCollectionPageCount(
@@ -598,6 +636,9 @@ export function useInvestigationDetail(investigationId: string) {
     canRebaseLatestDraft,
     currentUserQuery,
     detailQuery,
+    detailReadUnavailable,
+    detailReadGeneration: detailAccess.generation,
+    detailAccessDenied: detailAccess.denied,
     editingNoteBody,
     editingNoteId,
     evidenceDraft,
@@ -606,6 +647,8 @@ export function useInvestigationDetail(investigationId: string) {
     evidenceFinderOpen,
     evidencePage,
     evidenceQuery,
+    evidenceReadUnavailable,
+    evidenceAccessDenied: evidenceAccess.denied,
     evidenceRange,
     evidenceSearch,
     debouncedEvidenceSearch,
@@ -620,6 +663,10 @@ export function useInvestigationDetail(investigationId: string) {
     noteDraftVersion,
     notePage,
     notesQuery,
+    notesReadUnavailable,
+    notesAccessDenied: notesAccess.denied,
+    activityAccessDenied: activityAccess.denied,
+    candidateAccessDenied: candidateAccess.denied,
     overviewBaseline,
     overviewBaselineVersion,
     overviewDraft,

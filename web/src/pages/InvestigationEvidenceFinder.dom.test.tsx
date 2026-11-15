@@ -616,12 +616,19 @@ async function renderDetail(detail = baseDetail) {
     },
   })
   queryClient = client
-  client.setQueryData(['investigations', 'detail', detail.id], detail)
-  client.setQueryData(['investigations', 'evidence', detail.id, 1], {
-    evidence: detail.evidence,
-    total: detail.evidence_count,
-    page: 1,
-    page_size: 25,
+  const requests = domMocks.apiFetch.getMockImplementation()
+  let initialDetail = true
+  let initialEvidence = true
+  domMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+    if (!options?.method && path === `/investigations/${detail.id}` && initialDetail) {
+      initialDetail = false
+      return Promise.resolve(detail)
+    }
+    if (!options?.method && path === `/investigations/${detail.id}/evidence?page=1&page_size=25` && initialEvidence) {
+      initialEvidence = false
+      return Promise.resolve({ evidence: detail.evidence, total: detail.evidence_count, page: 1, page_size: 25 })
+    }
+    return requests?.(path, options)
   })
   container = document.createElement('div')
   document.body.appendChild(container)

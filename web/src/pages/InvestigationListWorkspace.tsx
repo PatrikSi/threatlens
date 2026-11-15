@@ -107,7 +107,7 @@ export function InvestigationListWorkspace({
       {!data && investigationsQuery.isLoading && (
         <InvestigationLoading message="Loading investigations..." />
       )}
-      {!data && investigationsQuery.isError && (
+      {!data && (investigationsQuery.isError || controller.listAccessDenied) && (
         <div className="p-3 sm:p-4">
           <InvestigationPageError
             error={investigationsQuery.error}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { resolveApiErrorMessage } from '../api/errors'
 import { CopyableIdentifier } from '../components/CopyableIdentifier'
@@ -27,6 +27,9 @@ export function InvestigationEvidencePanel({
     evidence: InvestigationEvidence
     expectedVersion: number
   } | null>(null)
+  useEffect(() => {
+    if (controller.evidenceAccessDenied) setPendingRemoval(null)
+  }, [controller.evidenceAccessDenied])
   if (!detail || !controller.access) return null
   const terminalCollectionError =
     controller.evidenceQuery.isError &&
@@ -68,6 +71,7 @@ export function InvestigationEvidencePanel({
         fetching={controller.evidenceQuery.isFetching}
         error={controller.evidenceQuery.isError ? controller.evidenceQuery.error : null}
         hasData={hasEvidencePage}
+        accessDenied={controller.evidenceAccessDenied}
         onRetry={() => void controller.evidenceQuery.refetch()}
       />
 
@@ -85,7 +89,7 @@ export function InvestigationEvidencePanel({
             <EvidenceEntry
               key={evidence.id}
               evidence={evidence}
-              canRemove={controller.access?.canWrite ?? false}
+              canRemove={Boolean(controller.access?.canWrite && !controller.evidenceReadUnavailable)}
               pending={controller.mutation.isPending}
               onRemove={(evidence) =>
                 setPendingRemoval({ evidence, expectedVersion: detail.version })
@@ -110,7 +114,7 @@ export function InvestigationEvidencePanel({
       )}
 
       <InvestigationConfirmDialog
-        open={Boolean(pendingRemoval)}
+        open={Boolean(pendingRemoval) && Boolean(evidencePage?.evidence.some((entry) => entry.id === pendingRemoval?.evidence.id))}
         title="Remove evidence?"
         description={
           pendingRemoval
@@ -119,10 +123,11 @@ export function InvestigationEvidencePanel({
         }
         confirmLabel="Remove evidence"
         isConfirming={controller.mutation.isPending}
+        confirmDisabled={controller.evidenceReadUnavailable}
         error={removalError}
         onCancel={() => setPendingRemoval(null)}
         onConfirm={() => {
-          if (!pendingRemoval) return
+          if (!pendingRemoval || controller.evidenceReadUnavailable) return
           controller.mutation.mutate(
             {
               kind: 'remove-evidence',

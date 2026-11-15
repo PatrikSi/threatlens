@@ -206,7 +206,7 @@ export function InvestigationMembersPanel({
       <MembersList
         members={detail.members}
         currentUserId={controller.currentUserQuery.data?.id}
-        canManage={controller.access.canManageMembers}
+        canManage={controller.access.canManageMembers && !controller.detailReadUnavailable}
         pending={controller.mutation.isPending}
         onRoleChange={(member, role) => {
           if (isAccessReducingRoleChange(member.role, role)) {
@@ -231,6 +231,7 @@ export function InvestigationMembersPanel({
 
       <InvestigationConfirmDialog
         open={Boolean(pendingRoleChange)}
+        confirmDisabled={controller.detailReadUnavailable}
         title="Reduce investigation access?"
         description={
           pendingRoleChange
@@ -257,6 +258,7 @@ export function InvestigationMembersPanel({
 
       <InvestigationConfirmDialog
         open={Boolean(pendingRemoval)}
+        confirmDisabled={controller.detailReadUnavailable}
         title="Remove investigation member?"
         description={
           pendingRemoval
