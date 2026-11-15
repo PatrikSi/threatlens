@@ -7,6 +7,7 @@ import { resolveApiErrorMessage } from '../api/errors'
 import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import {
   AuthSessionListResponse,
   CurrentAuthentication,
@@ -49,9 +50,24 @@ const EMPTY_LOCAL_RECENT_AUTH_DRAFT: LocalRecentAuthDraft = {
   currentPassword: '',
   code: '',
 }
+const PROVIDER_QUERY_KEY = ['auth', 'oidc', 'provider'] as const
+
+function identitySecurityReadState(
+  user: { isLoading: boolean; isFetching: boolean; error: unknown },
+  sessions: { isLoading: boolean; isFetching: boolean; error: unknown },
+  mfa: { isFetching: boolean },
+  modernAuthenticationAvailable: boolean,
+) {
+  return {
+    securityLoading: user.isLoading || (!modernAuthenticationAvailable && sessions.isLoading),
+    securityFetching: user.isFetching || sessions.isFetching || mfa.isFetching,
+    securityError: user.error || (!modernAuthenticationAvailable ? sessions.error : null),
+  }
+}
 
 export function IdentitySettingsPage() {
   const queryClient = useQueryClient()
+  const providerReadAccess = useQueryAccessScope(PROVIDER_QUERY_KEY)
   const location = useLocation()
   const currentUserQuery = useCurrentUser()
   const [draft, setDraft] = useState<OIDCSettingsDraft>(DEFAULT_OIDC_DRAFT)
@@ -61,16 +77,20 @@ export function IdentitySettingsPage() {
   const [formErrorFieldId, setFormErrorFieldId] = useState<string | null>(null)
   const [revisionConflict, setRevisionConflict] =
     useState<OIDCProviderRevisionConflict | null>(null)
-  const [reviewOpen, setReviewOpen] = useState(false)
+  const [reviewRead, setReviewRead] = useState<Awaited<ReturnType<typeof providerReadAccess.read<boolean>>> | null>(null)
+  const reviewOpen = providerReadAccess.currentData(reviewRead ?? undefined) === true
   const [localRecentAuthDraft, setLocalRecentAuthDraft] = useState(
     EMPTY_LOCAL_RECENT_AUTH_DRAFT,
   )
   const initializedForProviderRef = useRef<string | null>(null)
   const revisionConflictMessageRef = useRef<string | null>(null)
-  const providerQuery = useQuery({
-    queryKey: ['auth', 'oidc', 'provider'],
-    queryFn: () => apiFetch<OIDCProviderSettings>('/auth/oidc/provider'),
-  })
+  const providerRead = providerReadAccess.queryOptions(({ signal }) => apiFetch<OIDCProviderSettings>('/auth/oidc/provider', { signal }))
+  const providerQuery = useQuery({ queryKey: PROVIDER_QUERY_KEY, ...providerRead })
+  function currentProviderRead() {
+    const state = queryClient.getQueryState<Awaited<ReturnType<typeof providerRead.queryFn>>>(PROVIDER_QUERY_KEY)
+    if (state?.status !== 'success' || state.fetchStatus !== 'idle') return undefined
+    return providerReadAccess.currentData(state.data)
+  }
   const providerDataStale = isProviderDataStale(
     providerQuery.isError,
     providerQuery.data,
@@ -106,7 +126,7 @@ export function IdentitySettingsPage() {
     }
     const nextDraft = createOIDCDraft(providerQuery.data)
     if (baselineSettings && hasUnsavedChanges) {
-      setReviewOpen(false)
+      setReviewRead(null)
       setRevisionConflict((current) => ({
         baseline: current?.baseline ?? baselineSettings,
         latest: providerQuery.data ?? null,
@@ -123,7 +143,7 @@ export function IdentitySettingsPage() {
   }, [baselineSettings, hasUnsavedChanges, providerQuery.data])
 
   useEffect(() => {
-    if (providerDataStale) setReviewOpen(false)
+    if (providerDataStale) setReviewRead(null)
   }, [providerDataStale])
 
   const reauthNavigation = readOIDCReauthNavigationState(
@@ -178,17 +198,9 @@ export function IdentitySettingsPage() {
     reauthNotice,
   )
   const providerChangesAllowed = providerAccess.allowed
-  const modernAuthenticationAvailable = Boolean(authentication)
-  const securityLoading =
-    currentUserQuery.isLoading ||
-    (!modernAuthenticationAvailable && sessionsQuery.isLoading)
-  const securityFetching =
-    currentUserQuery.isFetching ||
-    sessionsQuery.isFetching ||
-    ownMfaQuery.isFetching
-  const securityError =
-    currentUserQuery.error ||
-    (!modernAuthenticationAvailable ? sessionsQuery.error : null)
+  const { securityLoading, securityFetching, securityError } = identitySecurityReadState(
+    currentUserQuery, sessionsQuery, ownMfaQuery, Boolean(authentication),
+  )
 
   const validationIssue = useMemo(
     () =>
@@ -199,30 +211,43 @@ export function IdentitySettingsPage() {
     [draft, providerQuery.data?.has_client_secret],
   )
   const saveProvider = useMutation({
-    mutationFn: () =>
-      apiFetch<OIDCProviderSettings>('/auth/oidc/provider', {
+    mutationFn: () => {
+      const current = currentProviderRead()
+      if (!current || !reviewOpen || !providerChangesAllowed || !baselineSettings
+        || providerRevisionKey(current) !== providerRevisionKey(baselineSettings)) {
+        throw new Error('Refresh the single sign-on settings and review the draft before saving changes.')
+      }
+      const capture = providerReadAccess.captureResult()
+      return apiFetch<OIDCProviderSettings>('/auth/oidc/provider', {
         method: 'PUT',
         body: JSON.stringify(
           createOIDCRequest(draft, baselineSettings?.config_revision ?? 0),
         ),
-      }),
+      }).then(capture)
+    },
     onMutate: () => {
       setFormError(null)
       setFormErrorFieldId(null)
     },
-    onSuccess: (saved) => {
-      queryClient.setQueryData(['auth', 'oidc', 'provider'], saved)
+    onSuccess: (result) => {
+      const saved = providerReadAccess.currentData(result)
+      if (!saved) return
+      if (queryClient.getQueryState(PROVIDER_QUERY_KEY)?.status !== 'success') {
+        void queryClient.invalidateQueries({ queryKey: PROVIDER_QUERY_KEY, exact: true })
+        return
+      }
+      queryClient.setQueryData(PROVIDER_QUERY_KEY, result)
       const nextDraft = createOIDCDraft(saved)
       setDraft(nextDraft)
       setBaselineSettings(saved)
       initializedForProviderRef.current = providerRevisionKey(saved)
       revisionConflictMessageRef.current = null
       setRevisionConflict(null)
-      setReviewOpen(false)
+      setReviewRead(null)
     },
     onError: (error) => {
       if (isOIDCMfaAssuranceRequired(error)) {
-        setReviewOpen(false)
+        setReviewRead(null)
         setFormError(
           resolveApiErrorMessage(
             error,
@@ -233,7 +258,7 @@ export function IdentitySettingsPage() {
         return
       }
       if (isRecentAuthenticationRequired(error)) {
-        setReviewOpen(false)
+        setReviewRead(null)
         setFormError(
           resolveApiErrorMessage(
             error,
@@ -244,7 +269,7 @@ export function IdentitySettingsPage() {
         return
       }
       if (!isProviderRevisionConflict(error)) return
-      setReviewOpen(false)
+      setReviewRead(null)
       if (baselineSettings) {
         const saveError = resolveApiErrorMessage(
           error,
@@ -262,11 +287,17 @@ export function IdentitySettingsPage() {
     },
   })
   const testProvider = useMutation({
-    mutationFn: () =>
-      apiFetch<OIDCProviderTestResponse>('/auth/oidc/provider/test', {
+    mutationFn: () => {
+      const capture = providerReadAccess.captureResult()
+      const revision = providerQuery.data ? providerRevisionKey(providerQuery.data) : null
+      return apiFetch<OIDCProviderTestResponse>('/auth/oidc/provider/test', {
         method: 'POST',
-      }),
+      }).then((result) => ({ result: capture(result), revision }))
+    },
   })
+  const verifiedTest = testProvider.data && providerQuery.data
+    && testProvider.data.revision === providerRevisionKey(providerQuery.data)
+    ? providerReadAccess.currentData(testProvider.data.result) : undefined
 
   const updateDraft = (
     updater: (current: OIDCSettingsDraft) => OIDCSettingsDraft,
@@ -279,7 +310,7 @@ export function IdentitySettingsPage() {
   }
 
   const submit = () => {
-    if (providerDataStale) {
+    if (!currentProviderRead()) {
       setFormError(
         'Refresh the single sign-on settings successfully before reviewing or saving changes.',
       )
@@ -306,7 +337,7 @@ export function IdentitySettingsPage() {
       return
     }
     if (!hasUnsavedChanges) return
-    setReviewOpen(true)
+    setReviewRead(providerReadAccess.captureResult()(true))
   }
 
   const refreshLatestProvider = async (
@@ -315,8 +346,10 @@ export function IdentitySettingsPage() {
   ) => {
     if (!conflictBaseline) return
     try {
-      const latest = await apiFetch<OIDCProviderSettings>('/auth/oidc/provider')
-      queryClient.setQueryData(['auth', 'oidc', 'provider'], latest)
+      const result = await providerReadAccess.read(() => apiFetch<OIDCProviderSettings>('/auth/oidc/provider'))
+      const latest = providerReadAccess.currentData(result)
+      if (!latest) return
+      queryClient.setQueryData(PROVIDER_QUERY_KEY, result)
       initializedForProviderRef.current = providerRevisionKey(latest)
       setRevisionConflict((current) => ({
         baseline: conflictBaseline,
@@ -338,7 +371,8 @@ export function IdentitySettingsPage() {
   }
 
   const reloadConflict = () => {
-    if (!revisionConflict?.latest) return
+    const current = currentProviderRead()
+    if (!revisionConflict?.latest || !current || providerRevisionKey(current) !== providerRevisionKey(revisionConflict.latest)) return
     const nextDraft = createOIDCDraft(revisionConflict.latest)
     setDraft(nextDraft)
     setBaselineSettings(revisionConflict.latest)
@@ -350,7 +384,8 @@ export function IdentitySettingsPage() {
   }
 
   const rebaseConflict = () => {
-    if (!revisionConflict?.latest) return
+    const current = currentProviderRead()
+    if (!revisionConflict?.latest || !current || providerRevisionKey(current) !== providerRevisionKey(revisionConflict.latest)) return
     const rebased = rebaseOIDCDraft(
       createOIDCDraft(revisionConflict.baseline),
       draft,
@@ -376,7 +411,8 @@ export function IdentitySettingsPage() {
 
       <ProviderQueryStatus
         loading={providerQuery.isLoading}
-        error={providerQuery.isError ? providerQuery.error : null}
+        error={providerQuery.isError ? providerQuery.error : providerReadAccess.denied
+          ? new Error('Single sign-on access must be verified. Retry the settings read.') : null}
         stale={providerDataStale}
         fetching={providerQuery.isFetching}
         onRetry={() => void providerQuery.refetch()}
@@ -842,7 +878,7 @@ export function IdentitySettingsPage() {
           </fieldset>
 
           <OIDCProviderActions
-            conflict={revisionConflict}
+            conflict={currentProviderConflict(revisionConflict, providerQuery.data)}
             conflictSaveError={revisionConflictMessageRef.current}
             operatorDraft={draft}
             refreshing={providerQuery.isFetching}
@@ -851,10 +887,10 @@ export function IdentitySettingsPage() {
             savePending={saveProvider.isPending}
             saveSucceeded={saveProvider.isSuccess}
             hasUnsavedChanges={hasUnsavedChanges}
-            providerChangesAllowed={providerChangesAllowed && !providerDataStale}
+            providerChangesAllowed={providerChangesAllowed && !providerDataStale && !providerQuery.isFetching}
             providerConfigured={providerQuery.data.configured}
             testPending={testProvider.isPending}
-            testKeyCount={testProvider.data?.jwks_key_count ?? null}
+            testKeyCount={verifiedTest?.jwks_key_count ?? null}
             testFailure={resolveProviderTestFailure(testProvider.error)}
             onRetryRefresh={() =>
               void refreshLatestProvider(revisionConflict?.baseline ?? null)
@@ -869,10 +905,10 @@ export function IdentitySettingsPage() {
             baseline={baselineDraft}
             draft={draft}
             pending={saveProvider.isPending}
-            onCancel={() => setReviewOpen(false)}
+            onCancel={() => setReviewRead(null)}
             onConfirm={() => {
               if (providerDataStale) {
-                setReviewOpen(false)
+                setReviewRead(null)
                 setFormError(
                   'Refresh the single sign-on settings successfully before saving changes.',
                 )
@@ -980,6 +1016,13 @@ function isProviderDataStale(
   data: OIDCProviderSettings | undefined,
 ): boolean {
   return isError && Boolean(data)
+}
+
+function currentProviderConflict(conflict: OIDCProviderRevisionConflict | null, current: OIDCProviderSettings | undefined) {
+  if (!conflict) return null
+  const latest = conflict.latest && current
+    && providerRevisionKey(conflict.latest) === providerRevisionKey(current) ? current : null
+  return { ...conflict, latest }
 }
 
 function Field({

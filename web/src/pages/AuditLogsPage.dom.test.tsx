@@ -13,7 +13,7 @@ const auditLogsDomMocks = vi.hoisted(() => ({
   queryOptions: [] as Array<{
     queryKey: unknown[]
     enabled?: boolean
-    queryFn?: () => Promise<unknown>
+    queryFn?: (context: { signal: AbortSignal }) => Promise<unknown>
   }>,
   queryLogs: [] as Array<{
     id: string
@@ -41,11 +41,23 @@ const auditLogsDomMocks = vi.hoisted(() => ({
 
 vi.mock('../api/client', () => ({ apiFetch: auditLogsDomMocks.apiFetch }))
 
+// These query doubles exercise presentation/filtering. Real access-scope and
+// QueryClient regressions live in AuditLogsAccess and AuditExportAccess.
+vi.mock('../hooks/useQueryAccessScope', () => ({ useQueryAccessScope: () => ({
+  currentData: (value: unknown) => value,
+  captureResult: () => (value: unknown) => value,
+  read: (request: () => Promise<unknown>) => request(),
+  queryOptions: (request: unknown) => ({ queryFn: request }),
+}) }))
+
 vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({ getQueryState: () => ({ status: 'success', fetchStatus: 'idle', data: {
+    logs: auditLogsDomMocks.queryLogs, total: auditLogsDomMocks.queryLogs.length, page: 1, page_size: 50,
+  } }) }),
   useQuery: (options: {
     queryKey: unknown[]
     enabled?: boolean
-    queryFn?: () => Promise<unknown>
+    queryFn?: (context: { signal: AbortSignal }) => Promise<unknown>
   }) => {
     auditLogsDomMocks.queryOptions.push(options)
     return {
@@ -362,10 +374,11 @@ describe('AuditLogsPage DOM workflows', () => {
     })
 
     act(() => setInputValue(actorInput!, principalId))
-    await auditLogsDomMocks.queryOptions.at(-1)?.queryFn?.()
+    await auditLogsDomMocks.queryOptions.at(-1)?.queryFn?.({ signal: new AbortController().signal })
 
     expect(auditLogsDomMocks.apiFetch).toHaveBeenCalledWith(
       `/audit-logs?page=1&page_size=50&actor_principal_id=${principalId}`,
+      { signal: expect.any(AbortSignal) },
     )
   })
 })

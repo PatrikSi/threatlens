@@ -653,6 +653,26 @@ and `db144fd2678c92e33243470274148188223f0ca7da27559b73f0970c3d67c59a`.
 Targeted lint and the 1,016-file source-size gate pass. Final project type/build,
 dependency artifacts and platform checks remain open.
 
+### N20 — audit export and identity settings recovery
+
+Audit filtering, saved rows and export receipts share scoped read history. Export
+checks the live successful canonical read at RPC entry; a late response after
+withdrawal cannot download the old payload. All 12 audit cases pass, including
+late exports and cached sibling navigation (log
+`26b44b262856f01bd3ac9c565517076320ddb739435c2ebd04d786d534b0ad1a`).
+
+Single sign-on drafts, impact reviews, revision conflicts and test diagnostics
+now retain their originating read authority. Save checks the current baseline
+and reviewed intent. A confirmed pending-save / failed-read / late-ACK regression
+is fixed: the completion preserves the read error and local draft and requests
+a fresh canonical read. All 16 identity cases pass (log
+`29e93d81690ff35f2fbff113188300e283e878d4cff1aee16377c9d34f1e95b8`).
+Independent final source proofs are `2e35f84e606c9b4d04663f08ab7010dc1a4833223f0fb60c1e870e38f8b470eb`
+and `2e9c7ef0cdb8f49f35beea2469e968376358aec589f461ced10f240e95bfd0a0`.
+Whole-project TypeScript passes; the full lint report has no findings in these
+files. Three remaining lint findings belong to the still-open group/workspace/
+team configuration units. Full frontend and release gates remain open.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

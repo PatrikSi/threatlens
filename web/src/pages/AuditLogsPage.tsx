@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
@@ -11,6 +11,7 @@ import {
   AuditLogListResponse,
 } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -30,28 +31,34 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
 }
 
 export function AuditLogsPage() {
+  const client = useQueryClient()
+  const access = useQueryAccessScope(['audit-logs'])
   const [action, setAction] = useState('')
   const [actorPrincipalId, setActorPrincipalId] = useState('')
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const pageSize = 50
   const [exportError, setExportError] = useState('')
-  const [exportMessage, setExportMessage] = useState('')
+  const [exportReceipt, setExportReceipt] = useState<Awaited<ReturnType<typeof access.read<string>>> | null>(null)
+  const exportMessage = access.currentData(exportReceipt ?? undefined) ?? ''
+  const setExportMessage = (message: string) => setExportReceipt(message ? access.captureResult()(message) : null)
   const trimmedActorPrincipalId = actorPrincipalId.trim()
   const actorPrincipalIdError =
     trimmedActorPrincipalId && !UUID_PATTERN.test(trimmedActorPrincipalId) ? 'Actor/principal ID must be a valid UUID.' : ''
   const auditQueryEnabled = !actorPrincipalIdError
 
-  const auditQuery = useQuery({
-    queryKey: ['audit-logs', action, actorPrincipalId, page],
-    queryFn: () => {
+  const queryKey = ['audit-logs', action, actorPrincipalId, page]
+  const read = access.queryOptions(({ signal }) => {
       const params = new URLSearchParams()
       params.set('page', String(page))
       params.set('page_size', String(pageSize))
       if (action.trim()) params.set('action', action.trim())
       if (trimmedActorPrincipalId) params.set('actor_principal_id', trimmedActorPrincipalId)
-      return apiFetch<AuditLogListResponse>(`/audit-logs?${params.toString()}`)
-    },
+      return apiFetch<AuditLogListResponse>(`/audit-logs?${params.toString()}`, { signal })
+  })
+  const auditQuery = useQuery({
+    queryKey,
+    ...read,
     enabled: auditQueryEnabled,
   })
 
@@ -62,15 +69,24 @@ export function AuditLogsPage() {
     : ''
   const hasActiveFilters = Boolean(action || actorPrincipalId)
 
+  function canExportCurrentRead() {
+    const state = client.getQueryState<Awaited<ReturnType<typeof read.queryFn>>>(queryKey)
+    return auditQueryEnabled && state?.status === 'success' && state.fetchStatus === 'idle'
+      && access.currentData(state.data) !== undefined
+  }
+
   const exportLogs = useMutation({
     mutationFn: () => {
+      if (!canExportCurrentRead()) throw new Error('Load the current audit log successfully before exporting it.')
       const params = new URLSearchParams()
       if (action.trim()) params.set('action', action.trim())
       if (trimmedActorPrincipalId) params.set('actor_principal_id', trimmedActorPrincipalId)
       params.set('limit', '10000')
-      return apiFetch<AuditLogExportResponse>(`/audit-logs/export?${params.toString()}`)
+      return access.read(() => apiFetch<AuditLogExportResponse>(`/audit-logs/export?${params.toString()}`))
     },
-    onSuccess: (payload) => {
+    onSuccess: (result) => {
+      const payload = access.currentData(result)
+      if (!payload) return
       const body = JSON.stringify(payload, null, 2)
       const blob = new Blob([body], { type: 'application/json' })
       const objectUrl = URL.createObjectURL(blob)
@@ -102,14 +118,24 @@ export function AuditLogsPage() {
         title="Audit log"
         description="Trace security, access, and administrative activity across this deployment."
         actions={(
+          <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
+            onClick={() => void auditQuery.refetch()}
+            disabled={!auditQueryEnabled || auditQuery.isFetching}
+          >
+            Refresh audit log
+          </button>
           <button
             type="button"
             className="w-full rounded border border-slate/30 px-3 py-2 text-sm font-semibold sm:w-auto dark:border-cyan-900/40"
             onClick={() => exportLogs.mutate()}
-            disabled={exportLogs.isPending || Boolean(actorPrincipalIdError)}
+            disabled={exportLogs.isPending || !canExportCurrentRead()}
           >
             {exportLogs.isPending ? 'Exporting...' : 'Export JSON'}
           </button>
+          </div>
         )}
       >
         {(exportError || exportMessage) && (

@@ -345,6 +345,102 @@ describe('IdentitySettingsPage', () => {
     ).toHaveLength(2)
   })
 
+  it('keeps denied saved identity-provider configuration private through a later outage', async () => {
+    let status = 200
+    const rejected: number[] = []
+    identityPageMocks.apiFetch.mockImplementation((path: string) => {
+      if (path === '/auth/security/sessions') return Promise.resolve(localSessionInventory)
+      if (path === '/auth/security/mfa') return Promise.resolve(localMfaStatus)
+      if (status === 200) return Promise.resolve(providerSettings)
+      rejected.push(status)
+      return Promise.reject(new ApiError('Identity configuration unavailable', status, path))
+    })
+    const view = renderPage()
+    await act(async () => { await flushPromises(); await flushPromises() })
+    await vi.waitFor(() => expect(view.querySelector<HTMLInputElement>('#oidc-name')?.value).toBe('Acme SSO'))
+    expect(view.querySelector<HTMLInputElement>('#oidc-issuer')?.value).toBe(providerSettings.issuer_url)
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => { await queryClient?.refetchQueries({ queryKey: ['auth', 'oidc', 'provider'] }) })
+      await vi.waitFor(() => expect((queryClient?.getQueryState(['auth', 'oidc', 'provider'])?.error as ApiError | undefined)?.status).toBe(next))
+      await act(async () => { await flushPromises() })
+      expect(rejected).toContain(next)
+      expect(view.querySelector('#oidc-name')).toBeNull()
+      expect(view.querySelector('#oidc-issuer')).toBeNull()
+      expect(view.textContent).not.toContain('soc-analysts')
+    }
+    status = 200
+    const retry = [...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Retry single sign-on settings')!
+    await act(async () => { retry.click(); await flushPromises(); await flushPromises() })
+    await vi.waitFor(() => expect(view.querySelector<HTMLInputElement>('#oidc-name')?.value).toBe('Acme SSO'))
+  })
+
+  it('preserves an unsaved identity draft while retiring its old impact review across read denial and recovery', async () => {
+    let status = 200
+    identityPageMocks.apiFetch.mockImplementation((path: string) => {
+      if (path === '/auth/security/sessions') return Promise.resolve(localSessionInventory)
+      if (path === '/auth/security/mfa') return Promise.resolve(localMfaStatus)
+      return status === 200 ? Promise.resolve(providerSettings)
+        : Promise.reject(new ApiError('Identity configuration unavailable', status, path))
+    })
+    const view = renderPage()
+    await act(async () => { await flushPromises(); await flushPromises() })
+    await vi.waitFor(() => expect(view.querySelector<HTMLInputElement>('#oidc-name')?.value).toBe('Acme SSO'))
+    act(() => setInputValue(view.querySelector<HTMLInputElement>('#oidc-name')!, 'Local unsaved provider name'))
+    act(() => [...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Review changes')!.click())
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+    for (const next of [403, 503]) {
+      status = next
+      await act(async () => { await queryClient?.refetchQueries({ queryKey: ['auth', 'oidc', 'provider'] }) })
+      await vi.waitFor(() => expect((queryClient?.getQueryState(['auth', 'oidc', 'provider'])?.error as ApiError | undefined)?.status).toBe(next))
+      expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+    }
+    status = 200
+    await act(async () => { await queryClient?.refetchQueries({ queryKey: ['auth', 'oidc', 'provider'] }) })
+    await vi.waitFor(() => expect(view.querySelector<HTMLInputElement>('#oidc-name')?.value).toBe('Local unsaved provider name'))
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+    act(() => [...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Review changes')!.click())
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+    expect(identityPageMocks.apiFetch.mock.calls.some(([, options]) => options?.method === 'PUT')).toBe(false)
+  })
+
+  it('keeps a current provider read outage paused when an earlier accepted save completes', async () => {
+    let readStatus = 200
+    let resolveSave!: (value: typeof providerSettings) => void
+    const pendingSave = new Promise<typeof providerSettings>((resolve) => { resolveSave = resolve })
+    const reads: number[] = []
+    identityPageMocks.apiFetch.mockImplementation((path: string, options?: { method?: string }) => {
+      if (path === '/auth/security/sessions') return Promise.resolve(localSessionInventory)
+      if (path === '/auth/security/mfa') return Promise.resolve(localMfaStatus)
+      if (options?.method === 'PUT') return pendingSave
+      if (readStatus === 200) return Promise.resolve(providerSettings)
+      reads.push(readStatus)
+      return Promise.reject(new ApiError('Current provider read temporarily unavailable', readStatus, path))
+    })
+    const view = renderPage()
+    await vi.waitFor(async () => {
+      await act(async () => { await flushPromises() })
+      expect(view.querySelector<HTMLInputElement>('#oidc-name')?.value).toBe('Acme SSO')
+    })
+    act(() => setInputValue(view.querySelector<HTMLInputElement>('#oidc-name')!, 'My submitted provider name'))
+    act(() => [...view.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === 'Review changes')!.click())
+    act(() => [...document.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === 'Save single sign-on changes')!.click())
+    await vi.waitFor(() => expect(identityPageMocks.apiFetch.mock.calls.filter(([, options]) => options?.method === 'PUT')).toHaveLength(1))
+    readStatus = 503
+    await act(async () => { await queryClient!.refetchQueries({ queryKey: ['auth', 'oidc', 'provider'], exact: true }) })
+    await vi.waitFor(() => expect((queryClient!.getQueryState(['auth', 'oidc', 'provider'])?.error as ApiError)?.status).toBe(503))
+    expect(reads).toContain(503)
+    await act(async () => {
+      resolveSave({ ...providerSettings, config_revision: 4, name: 'Accepted provider name from earlier save' })
+      await flushPromises()
+    })
+    await vi.waitFor(() => expect(queryClient!.isMutating()).toBe(0))
+    await act(async () => { await flushPromises() })
+    expect((queryClient!.getQueryState(['auth', 'oidc', 'provider'])?.error as ApiError)?.status).toBe(503)
+    expect(view.querySelector<HTMLInputElement>('#oidc-name')?.value).toBe('My submitted provider name')
+    expect([...view.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === 'Review changes')?.disabled).toBe(true)
+  })
+
   it('labels cached provider settings as stale and blocks editing until refresh succeeds', async () => {
     let failProviderRefresh = false
     identityPageMocks.apiFetch.mockImplementation((path: string) => {
@@ -533,14 +629,15 @@ describe('IdentitySettingsPage', () => {
     })
     expect(document.body.querySelector('[role="alertdialog"]')).not.toBeNull()
 
-    act(() => {
-      queryClient?.setQueryData(['auth', 'oidc', 'provider'], {
+    identityPageMocks.apiFetch.mockImplementation((path: string) => Promise.resolve(
+      path === '/auth/security/sessions' ? localSessionInventory : path === '/auth/security/mfa' ? localMfaStatus : {
         ...providerSettings,
         config_revision: 4,
         name: 'Server-side update',
         updated_at: '2026-08-27T20:10:00Z',
-      })
-    })
+      },
+    ))
+    await act(async () => { await queryClient?.refetchQueries({ queryKey: ['auth', 'oidc', 'provider'] }) })
     await act(async () => await flushPromises())
 
     expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
