@@ -1,24 +1,24 @@
-C:Q1Opk/zzFiQfVst9ubrkkUvMJ9G2A=
+C:Q1k3m4nZR17Catv0Y97/QQ0BpafYA=
 P:curl
-V:8.21.0-r0
+V:8.23.0-r0
 A:x86_64
-S:177184
-I:280125
+S:180007
+I:285358
 T:URL retrieval utility and library
 U:https://curl.se/
 L:curl
 o:curl
 m:Achill Gilgenast <achill@achill.org>
-t:1782819482
-c:461165dc7870b3466496e2c7fc8368c974f06355
-D:libcurl=8.21.0-r0 so:libc.musl-x86_64.so.1 so:libcurl.so.4 so:libz.so.1
-p:wcurl=8.21.0-r0 cmd:curl=8.21.0-r0 cmd:wcurl=8.21.0-r0
+t:1792943290
+c:c65a7b3f6d6bc4b3c0a8a6fff759d8fd05a167ce
+D:libcurl=8.23.0-r0 so:libc.musl-x86_64.so.1 so:libcurl.so.4 so:libz.so.1
+p:wcurl=8.23.0-r0 cmd:curl=8.23.0-r0 cmd:wcurl=8.23.0-r0
 r:wcurl
 F:usr
 F:usr/bin
 R:curl
 a:0:0:755
-Z:Q1T0b8zuyH7ZxqbtUWnVVXOXAq6Xo=
+Z:Q1oFvQmzpArpDwpBnyLkBzcAw6mW8=
 R:wcurl
 a:0:0:755
-Z:Q1aabfEKXNKirc4+cDp4VMS3KUDK4=
+Z:Q1dXaBqYFpzPVsLIAvbMtTHWX8cqM=

@@ -1,16 +1,16 @@
-C:Q1LdyNF7O7mkXtXKt43TvITXj8otA=
+C:Q1kDu5mR77njHr1I5zgjN/hT6p4QE=
 P:libx11
-V:1.8.13-r0
+V:1.8.14-r0
 A:x86_64
-S:867519
-I:2325674
+S:867768
+I:2325832
 T:X11 client-side library
 U:https://xorg.freedesktop.org/
 L:X11
 o:libx11
 m:Natanael Copa <ncopa@alpinelinux.org>
-t:1770544999
-c:f993bc30142d46271ede4a746c1abefaa1a78eee
+t:1792315803
+c:e129d974905f6cf078e41390b58241a73519f572
 D:so:libc.musl-x86_64.so.1 so:libxcb.so.1
 p:so:libX11-xcb.so.1=1.0.0 so:libX11.so.6=6.4.0
 F:usr
@@ -20,13 +20,13 @@ a:0:0:777
 Z:Q18Wg6VwyUnUioVY5vzVAGMHzdaik=
 R:libX11-xcb.so.1.0.0
 a:0:0:755
-Z:Q1+zTY/PLRO23P5zsWwqjCG62Az6E=
+Z:Q1i8IX7hw5Q7/paP9/uiUzxKJSybY=
 R:libX11.so.6
 a:0:0:777
 Z:Q1hVcJS4XXGeeqfJ/pMYVolslcrTU=
 R:libX11.so.6.4.0
 a:0:0:755
-Z:Q1Fh/fSrfAOMsgf0Fp1+xSBv+W/i4=
+Z:Q13vXfJEqPQS4hpOPHl6lGd2iG6as=
 F:usr/share
 F:usr/share/X11
 R:XErrorDB
@@ -35,9 +35,9 @@ R:Xcms.txt
 Z:Q1x79rGDDyA/WqW1Ihdr4wx0xoHY8=
 F:usr/share/X11/locale
 R:compose.dir
-Z:Q1ncEYYwulym2bRm7cTGJwVCPGgpg=
+Z:Q1IZJLwgZ/Sli5uuJhzTOrqGVs0a0=
 R:locale.alias
-Z:Q1xlq5VJ9EE2RGWccEOJMQijBmxww=
+Z:Q1kZF0m9Mmb8yi3kQCILb9r0WXYZA=
 R:locale.dir
 Z:Q1foysmZsveMaiHQMfIlQKqKTrnys=
 F:usr/share/X11/locale/C

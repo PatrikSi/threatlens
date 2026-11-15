@@ -975,11 +975,46 @@ remain unexecuted. Node 24-capable runner support is an existing requirement.
 Application/build inputs remain unchanged; the new backend test is excluded from
 images by the existing Docker ignore policy.
 
+### N34 — final frontend and native web evidence
+
+The sixth full frontend run passes all 1,718 cases in 210 files, exits 0 and
+records no unhandled errors or handled route-crash markers. TypeScript, full
+ESLint, the dependency audit across all severities, production build and bundle
+DOM smoke also pass. Full-suite log:
+`737de02d9d94ccccc27968b959bb40333e9abf9b441b7382e35f0e79a2d37325`.
+
+The fixed native web image built from `be5b3b0011da4cf554d5ddb5a0264273c34500fa`
+is `sha256:1401b143189606f25bf968c3ec7bf260149a20ef2642e96b215c583580746a72`.
+Its actual scan contains zero fixable HIGH/CRITICAL entries (log
+`10056d463de76140f5f4dde34fbc3776faf8a16e47c34e665ed994f631c184e9`).
+The six frontend inventory/legal reference roots now match its extracted
+197 generated files, including 114 runtime packages and 72 Alpine records.
+All 18 supplemental notices and five fonts were checked against their sources;
+application bundle bytes match the host build. The sole extra HTML asset is the
+official nginx error page. Native bundle DOM smoke passes.
+
+The actual isolated nginx/API/SDK HTTP qualification and both non-root web
+filesystem/startup/restart cases pass, with all resources belonging to that
+qualification removed. Log:
+`ee446faa87fdcfc0567fce3a78fe9c56414cc33ba185f6370f620ea3376f20f3`.
+This uses a source-mounted API/nginx fixture on native dependency images;
+it is not a full production-topology or browser result. Independent native
+inventory/license assessment:
+`66952433bdffb52ff41eb10990f6926731ed10a1113d4a4eb9e00b548a9fa8a7`.
+
+An additional installed-Python audit reopens the backend gate: pytest 8.4.2 and
+bootstrap pip in both private test environments have confirmed advisories;
+the prior native backend also contains affected pip 25.0.1. The 96 application
+runtime pins remain clean. The earlier HIGH/CRITICAL image scan did not cover
+these lower-severity bootstrap findings. Test/bootstrap updates, full pytest
+compatibility tests, broader CI auditing and backend image requalification are
+in progress; no overall release clearance is claimed.
+
 ## Next executable steps
 
-Build the fixed web image from the committed source, verify its actual scan and
-refreshed packaged inventory/notices, and exercise the isolated API/nginx/SDK
-instance. Reconcile the final revision with independent reviews and actual gate
-receipts, then remove only owned disposable resources. Browser and ARM CI,
+Finish the pip/pytest corrections, run the full backend suite on the patched
+runner, and rebuild/requalify the backend image including its bootstrap package.
+Reconcile the final revision with independent reviews and actual gate receipts,
+then remove only owned disposable resources. Browser and ARM CI,
 current capacity campaigns and full production-topology qualification remain
 unexecuted; no version bump, push, merge or deployment is included.

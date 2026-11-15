@@ -1,16 +1,16 @@
-C:Q1xZEzZzvboPzJLIl9neaCwjAbXX8=
+C:Q1etqr/7fR+stc096aUitDvGM3O9Q=
 P:libcurl
-V:8.21.0-r0
+V:8.23.0-r0
 A:x86_64
-S:348625
-I:726827
+S:364567
+I:751435
 T:The multiprotocol file transfer library
 U:https://curl.se/
 L:curl
 o:curl
 m:Achill Gilgenast <achill@achill.org>
-t:1782819482
-c:461165dc7870b3466496e2c7fc8368c974f06355
+t:1792943290
+c:c65a7b3f6d6bc4b3c0a8a6fff759d8fd05a167ce
 D:ca-certificates-bundle so:libbrotlidec.so.1 so:libc.musl-x86_64.so.1 so:libcares.so.2 so:libcrypto.so.3 so:libidn2.so.0 so:libnghttp2.so.14 so:libpsl.so.5 so:libssl.so.3 so:libz.so.1 so:libzstd.so.1
 p:so:libcurl.so.4=4.8.0
 r:wcurl
@@ -21,4 +21,4 @@ a:0:0:777
 Z:Q1DHp/h26nd6KEWd20xlB9ckuXP9M=
 R:libcurl.so.4.8.0
 a:0:0:755
-Z:Q1dhoKmfAWwfrtTSxcwjIT/XgCOg0=
+Z:Q1QGcLx4p5sqSquCZ5mKF6VFkMRZU=

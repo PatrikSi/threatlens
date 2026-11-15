@@ -1,27 +1,30 @@
-C:Q1gJo57RlxOjhcNw9zKP5w0vh3P8I=
+C:Q17WDBYPWcq5TOzbzlcyM4Qesr/1U=
 P:nginx
-V:1.31.3-r1
+V:1.31.7-r1
 A:x86_64
-S:1280983
-I:2850106
+S:1320265
+I:2926320
 T:High performance web server
 U:https://nginx.org/
 L:2-clause BSD-like license
 o:nginx
 m:NGINX Packaging <nginx-packaging@f5.com>
-t:1784134432
+t:1790895864
 k:1
 D:/bin/sh so:libc.musl-x86_64.so.1 so:libcrypto.so.3 so:libpcre2-8.so.0 so:libssl.so.3 so:libz.so.1
-p:nginx-r1.31.3 cmd:nginx-debug=1.31.3-r1 cmd:nginx=1.31.3-r1
+p:nginx-r1.31.7 cmd:nginx-debug=1.31.7-r1 cmd:nginx=1.31.7-r1
 r:nginx-common nginx-initscripts nginx-lua nginx-rtmp
 F:etc
+F:etc/conf.d
+R:nginx
+Z:Q12Yd9JnifaPqQl0NPbQBbGBZqPgM=
 F:etc/init.d
 R:nginx
 a:0:0:755
-Z:Q1pp0qhsM2empwyMrtnv2Iv1xvGbc=
+Z:Q1tXO7MoyqzDUjm/zB/gU0N+f7dPA=
 R:nginx-debug
 a:0:0:755
-Z:Q1zNGe5H+Ljo7MSJVMhEqMrxWUI2A=
+Z:Q1q6D1QLT4JAun4J1ElAdGsAENfjU=
 F:etc/logrotate.d
 R:nginx
 Z:Q1tkX1C+sitBz15kswh0BvDKNu6qA=
@@ -52,10 +55,10 @@ F:usr/lib/nginx/modules
 F:usr/sbin
 R:nginx
 a:0:0:755
-Z:Q1s82kM9Pj6LwdgPta0jNNAzBoIjw=
+Z:Q1JeyTyOBdFuyMBTBAZcBcAa6JbBE=
 R:nginx-debug
 a:0:0:755
-Z:Q1hlTWMCqpRkH6p+GG1re+8BxSOUM=
+Z:Q1GpjBBxwaDci80Wv0ffSnrOaJPC4=
 F:usr/share
 F:usr/share/licenses
 F:usr/share/licenses/nginx
@@ -64,7 +67,7 @@ Z:Q16CwUo00x5oz6k8OET68GSCXHG20=
 F:usr/share/man
 F:usr/share/man/man8
 R:nginx.8.gz
-Z:Q1AiUc0GRUcvhfEFPtz1lTdsN3YHo=
+Z:Q10ot+IAwnGOiONzjXGFi/ykD0gO4=
 F:usr/share/nginx
 F:usr/share/nginx/html
 R:50x.html

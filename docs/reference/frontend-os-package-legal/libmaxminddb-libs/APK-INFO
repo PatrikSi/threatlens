@@ -1,0 +1,23 @@
+C:Q15IW63K+xXd9jDN3n56zPTKYDKSw=
+P:libmaxminddb-libs
+V:1.13.3-r0
+A:x86_64
+S:10976
+I:22128
+T:Maxmind GeoIP2 database library (libraries)
+U:https://github.com/maxmind/libmaxminddb
+L:Apache-2.0
+o:libmaxminddb
+m:Timo Teräs <timo.teras@iki.fi>
+t:1772783362
+c:08a54817abfdc81f83ae2cac4c37057632fbfab7
+D:so:libc.musl-x86_64.so.1
+p:so:libmaxminddb.so.0=0.0.7
+F:usr
+F:usr/lib
+R:libmaxminddb.so.0
+a:0:0:777
+Z:Q1oVDbsTuNpWy4VReIc2vIIFAWOVw=
+R:libmaxminddb.so.0.0.7
+a:0:0:755
+Z:Q1AePZ6xHfBMQ9FmOso6CcqnYGaDA=

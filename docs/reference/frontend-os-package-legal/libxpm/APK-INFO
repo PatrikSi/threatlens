@@ -1,23 +1,23 @@
-C:Q14j/h6IeBQw2zR6Z7NNll+67xskU=
+C:Q1+KCKT30eYG12lZ+Wk/y10MjQFEU=
 P:libxpm
-V:3.5.19-r0
+V:3.5.20-r0
 A:x86_64
-S:43418
+S:43390
 I:108976
 T:X11 pixmap library
 U:https://xorg.freedesktop.org/
 L:X11
 o:libxpm
 m:Natanael Copa <ncopa@alpinelinux.org>
-t:1776779656
-c:30778c48d72b12e64d7de8dfcef2937aa2886690
+t:1792315803
+c:f5d3a71d8949514ce4a8057ae2002180a6f42321
 D:so:libX11.so.6 so:libXext.so.6 so:libXt.so.6 so:libc.musl-x86_64.so.1
-p:cmd:cxpm=3.5.19-r0 cmd:sxpm=3.5.19-r0 so:libXpm.so.4=4.11.0
+p:cmd:cxpm=3.5.20-r0 cmd:sxpm=3.5.20-r0 so:libXpm.so.4=4.11.0
 F:usr
 F:usr/bin
 R:cxpm
 a:0:0:755
-Z:Q1SRWR9yHa5gbXw3J+PkVCt7PCs60=
+Z:Q1lyjDzhK21ICWOKww+H8jD0s7Pqg=
 R:sxpm
 a:0:0:755
 Z:Q1OCHg/aJvEYWg9S4XKTtvCBpOLqM=
@@ -27,4 +27,4 @@ a:0:0:777
 Z:Q1WSp3owMlI814PR3/vLXFgSTg+Pc=
 R:libXpm.so.4.11.0
 a:0:0:755
-Z:Q15EP7je5114ziIcv/oHuKrXSVKJs=
+Z:Q1FAKqW0tFUQN/Jd6QpIGjwBL5uQU=

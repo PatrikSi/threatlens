@@ -1,23 +1,23 @@
-C:Q1ZAoo/2JF9wHUZPulOgWxvGV8N6c=
+C:Q17RXrqEwqOyT57+GUGh3XDItYJdI=
 P:c-ares
-V:1.34.8-r0
+V:1.34.9-r0
 A:x86_64
-S:110689
-I:243416
+S:113179
+I:247512
 T:Asynchronous DNS/names resolver library
 U:https://c-ares.org/
 L:MIT
 o:c-ares
 m:Carlo Landmeter <clandmeter@alpinelinux.org>
-t:1783541406
-c:138a6bf9dea5974644e48fef4826b7c474f2f7d8
+t:1792583714
+c:50f178d7a4c30ea44b54b7d4731ab58558c38b14
 D:so:libc.musl-x86_64.so.1
-p:so:libcares.so.2=2.19.7
+p:so:libcares.so.2=2.19.8
 F:usr
 F:usr/lib
 R:libcares.so.2
 a:0:0:777
-Z:Q1ag8JcrMzeqdfslRvPTbj1pdeJKg=
-R:libcares.so.2.19.7
+Z:Q1eb5FxHIJTHuydrCKjmAVjAkfPDw=
+R:libcares.so.2.19.8
 a:0:0:755
-Z:Q1sdfqZAQIoMbY89ZpUX+J31KFVW8=
+Z:Q1YKrl1iRNMlwiaI+Dex9dWQKFoSs=

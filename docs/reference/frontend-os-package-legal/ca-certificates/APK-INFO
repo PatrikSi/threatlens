@@ -1,22 +1,22 @@
-C:Q1jyoEq+tUszHilwoKDf+3vWvd5Wc=
+C:Q1u5EAmbDnuKr2yRSXmG/co6uxPTU=
 P:ca-certificates
-V:20260611-r0
+V:20261020-r0
 A:x86_64
-S:129499
-I:212873
+S:129361
+I:212273
 T:Common CA certificates PEM files from Mozilla
 U:https://www.mozilla.org/en-US/about/governance/policies/security-group/certs/
 L:MPL-2.0 AND MIT
 o:ca-certificates
 m:Natanael Copa <ncopa@alpinelinux.org>
-t:1781362042
-c:e41cbd2ae991adfe8df298ba8e8e777e90bd0e03
+t:1792510288
+c:e78f5987166c6ffbe23f6472e2e8f040298fe2da
 D:/bin/sh so:libc.musl-x86_64.so.1 so:libcrypto.so.3
-p:cmd:c_rehash=20260611-r0 cmd:update-ca-certificates=20260611-r0
+p:cmd:c_rehash=20261020-r0 cmd:update-ca-certificates=20261020-r0
 r:openssl
 F:etc
 R:ca-certificates.conf
-Z:Q1KnbeO/JpoCOzg6qCxrGB9tng4X0=
+Z:Q1AO4/F0SFfJK6XLI/v0u/Nt+bHoQ=
 F:etc/apk
 F:etc/apk/protected_paths.d
 R:ca-certificates.list
@@ -32,7 +32,7 @@ F:usr
 F:usr/bin
 R:c_rehash
 a:0:0:755
-Z:Q1YKEcJ4mEfBsP21Sktdb5VDvbqNE=
+Z:Q1lclYd9yzt0lMvbAHRl640yYt4bo=
 F:usr/local
 F:usr/local/share
 F:usr/local/share/ca-certificates
@@ -61,8 +61,6 @@ R:Amazon_Root_CA_3.crt
 Z:Q1LnFTqB+5ig+7UIs7k4KeTp7aXSM=
 R:Amazon_Root_CA_4.crt
 Z:Q12ayOl3M2DRbZUiV0diaHPoGqn9Y=
-R:Atos_TrustedRoot_2011.crt
-Z:Q1PnvxSafNMice8YMooix2a9sZLHY=
 R:Atos_TrustedRoot_Root_CA_ECC_TLS_2021.crt
 Z:Q1IddJFiD1afEl6mdQ+8UeDWiGXq8=
 R:Atos_TrustedRoot_Root_CA_RSA_TLS_2021.crt
@@ -193,6 +191,10 @@ R:QuoVadis_Root_CA_2_G3.crt
 Z:Q1Xz/eGc+P/GA4VXW5iXVkS3t/8DE=
 R:QuoVadis_Root_CA_3_G3.crt
 Z:Q1fHadn9tN9NdDrJ24/SY3Y+Hp5J4=
+R:SECOM_TLS_ECC_Root_CA_2024.crt
+Z:Q12bYQkcaa/yOYGZUgF+l7lffXbG4=
+R:SECOM_TLS_RSA_Root_CA_2024.crt
+Z:Q1tVfH/qk8QunW7HJLQG1Bv447Yq4=
 R:SSL.com_EV_Root_Certification_Authority_ECC.crt
 Z:Q1w9AVqjkkw0B32+f1eNbOOJuRnXE=
 R:SSL.com_EV_Root_Certification_Authority_RSA_R2.crt
@@ -241,6 +243,10 @@ R:Telekom_Security_TLS_ECC_Root_2020.crt
 Z:Q1YhukC2KFUvglQ+SviN6MCE4P2GA=
 R:Telekom_Security_TLS_RSA_Root_2023.crt
 Z:Q1eu9PRB4Lyxwmcxzr/203F7g1d+g=
+R:Telia_EC_TLS_Root_CA_v3.crt
+Z:Q12L6UEOFpmpXzjYfz2u8jce7Dh/I=
+R:Telia_RSA_TLS_Root_CA_v3.crt
+Z:Q1aHiaVfwG0jC6w8DMXRlenLoEVZs=
 R:Telia_Root_CA_v2.crt
 Z:Q1BJ3hLa1i5KMTGP5rAkqItkWDDao=
 R:TrustAsia_Global_Root_CA_G3.crt
@@ -267,14 +273,6 @@ R:e-Szigno_Root_CA_2017.crt
 Z:Q1DuxkZMEGWjseWGZYDi/c1HSUyHA=
 R:e-Szigno_TLS_Root_CA_2023.crt
 Z:Q1NLL1GyvWYARgAmOlJXLrmAel2Y8=
-R:ePKI_Root_Certification_Authority.crt
-Z:Q1ukis7BL6ag6KKa2IAYJcbQorhek=
-R:emSign_ECC_Root_CA_-_C3.crt
-Z:Q1zYsDcDDxkMsTErh0fzzRhBWGq7I=
-R:emSign_ECC_Root_CA_-_G3.crt
-Z:Q1P1uKoUGnyo2ucdhrcHR5Bxf/vnY=
-R:emSign_Root_CA_-_C1.crt
-Z:Q1mbgWLDLz7PBYBhErqnercjDpmNU=
 R:emSign_Root_CA_-_G1.crt
 Z:Q1b4bdtYXS9RawKPohlY8Jq+RjuMw=
 R:vTrus_ECC_Root_CA.crt

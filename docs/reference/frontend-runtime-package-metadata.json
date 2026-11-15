@@ -1,7 +1,7 @@
 [
   {
     "name": "@noble/hashes",
-    "version": "2.0.1",
+    "version": "2.4.0",
     "license": "MIT",
     "description": "Audited & minimal 0-dependency JS implementation of SHA, RIPEMD, BLAKE, HMAC, HKDF, PBKDF & Scrypt",
     "homepage": "https://paulmillr.com/noble/",
@@ -17,14 +17,14 @@
         "kind": "license",
         "file_name": "LICENSE",
         "source_path": "node_modules/@noble/hashes/LICENSE",
-        "artifact_path": "@noble/hashes/2.0.1/LICENSE",
+        "artifact_path": "@noble/hashes/2.4.0/LICENSE",
         "sha256": "4f221aee6e072336700c408c68ab3b96a3fc09f6aebe6f48f1bd99e5ef13faec"
       }
     ]
   },
   {
     "name": "@tanstack/query-core",
-    "version": "5.97.0",
+    "version": "5.107.1",
     "license": "MIT",
     "description": "The framework agnostic core that powers TanStack Query",
     "homepage": "https://tanstack.com/query",
@@ -40,14 +40,14 @@
         "kind": "license",
         "file_name": "LICENSE",
         "source_path": "node_modules/@tanstack/query-core/LICENSE",
-        "artifact_path": "@tanstack/query-core/5.97.0/LICENSE",
+        "artifact_path": "@tanstack/query-core/5.107.1/LICENSE",
         "sha256": "a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7"
       }
     ]
   },
   {
     "name": "@tanstack/react-query",
-    "version": "5.97.0",
+    "version": "5.107.1",
     "license": "MIT",
     "description": "Hooks for managing, caching and syncing asynchronous and remote data in React",
     "homepage": "https://tanstack.com/query",
@@ -63,7 +63,7 @@
         "kind": "license",
         "file_name": "LICENSE",
         "source_path": "node_modules/@tanstack/react-query/LICENSE",
-        "artifact_path": "@tanstack/react-query/5.97.0/LICENSE",
+        "artifact_path": "@tanstack/react-query/5.107.1/LICENSE",
         "sha256": "a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7"
       }
     ]
@@ -93,7 +93,7 @@
   },
   {
     "name": "@types/estree",
-    "version": "1.0.8",
+    "version": "1.0.10",
     "license": "MIT",
     "description": "TypeScript definitions for estree",
     "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/estree",
@@ -109,7 +109,7 @@
         "kind": "license",
         "file_name": "LICENSE",
         "source_path": "node_modules/@types/estree/LICENSE",
-        "artifact_path": "@types/estree/1.0.8/LICENSE",
+        "artifact_path": "@types/estree/1.0.10/LICENSE",
         "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
       }
     ]
@@ -208,7 +208,7 @@
   },
   {
     "name": "@types/react",
-    "version": "19.2.14",
+    "version": "19.3.0",
     "license": "MIT",
     "description": "TypeScript definitions for react",
     "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react",
@@ -224,7 +224,7 @@
         "kind": "license",
         "file_name": "LICENSE",
         "source_path": "node_modules/@types/react/LICENSE",
-        "artifact_path": "@types/react/19.2.14/LICENSE",
+        "artifact_path": "@types/react/19.3.0/LICENSE",
         "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
       }
     ]
@@ -668,7 +668,7 @@
   },
   {
     "name": "hast-util-to-jsx-runtime",
-    "version": "2.3.6",
+    "version": "2.3.7",
     "license": "MIT",
     "description": "hast utility to transform to preact, react, solid, svelte, vue, etc",
     "homepage": null,
@@ -684,7 +684,7 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/hast-util-to-jsx-runtime/license",
-        "artifact_path": "hast-util-to-jsx-runtime/2.3.6/license",
+        "artifact_path": "hast-util-to-jsx-runtime/2.3.7/license",
         "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
@@ -737,7 +737,7 @@
   },
   {
     "name": "inline-style-parser",
-    "version": "0.2.7",
+    "version": "0.2.9",
     "license": "MIT",
     "description": "An inline style parser.",
     "homepage": null,
@@ -753,7 +753,7 @@
         "kind": "license",
         "file_name": "LICENSE",
         "source_path": "node_modules/inline-style-parser/LICENSE",
-        "artifact_path": "inline-style-parser/0.2.7/LICENSE",
+        "artifact_path": "inline-style-parser/0.2.9/LICENSE",
         "sha256": "395c95f20598da653ff1eb1cb9d74947c7fac689697147f1d192fd0242a0e635"
       }
     ]
@@ -898,7 +898,7 @@
   },
   {
     "name": "lucide-react",
-    "version": "1.37.0",
+    "version": "1.73.0",
     "license": "ISC",
     "description": "A Lucide icon library package for React applications.",
     "homepage": "https://lucide.dev",
@@ -914,14 +914,14 @@
         "kind": "license",
         "file_name": "LICENSE",
         "source_path": "node_modules/lucide-react/LICENSE",
-        "artifact_path": "lucide-react/1.37.0/LICENSE",
+        "artifact_path": "lucide-react/1.73.0/LICENSE",
         "sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57"
       }
     ]
   },
   {
     "name": "markdown-table",
-    "version": "3.0.4",
+    "version": "3.1.0",
     "license": "MIT",
     "description": "Generate a markdown (GFM) table",
     "homepage": null,
@@ -937,14 +937,14 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/markdown-table/license",
-        "artifact_path": "markdown-table/3.0.4/license",
+        "artifact_path": "markdown-table/3.1.0/license",
         "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
   },
   {
     "name": "mdast-util-find-and-replace",
-    "version": "3.0.2",
+    "version": "3.0.4",
     "license": "MIT",
     "description": "mdast utility to find and replace text in a tree",
     "homepage": null,
@@ -960,14 +960,14 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/mdast-util-find-and-replace/license",
-        "artifact_path": "mdast-util-find-and-replace/3.0.2/license",
+        "artifact_path": "mdast-util-find-and-replace/3.0.4/license",
         "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
   },
   {
     "name": "mdast-util-from-markdown",
-    "version": "2.0.3",
+    "version": "2.1.0",
     "license": "MIT",
     "description": "mdast utility to parse markdown",
     "homepage": null,
@@ -983,7 +983,7 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/mdast-util-from-markdown/license",
-        "artifact_path": "mdast-util-from-markdown/2.0.3/license",
+        "artifact_path": "mdast-util-from-markdown/2.1.0/license",
         "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
@@ -1013,7 +1013,7 @@
   },
   {
     "name": "mdast-util-gfm-autolink-literal",
-    "version": "2.0.1",
+    "version": "2.1.0",
     "license": "MIT",
     "description": "mdast extension to parse and serialize GFM autolink literals",
     "homepage": null,
@@ -1029,8 +1029,8 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/mdast-util-gfm-autolink-literal/license",
-        "artifact_path": "mdast-util-gfm-autolink-literal/2.0.1/license",
-        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+        "artifact_path": "mdast-util-gfm-autolink-literal/2.1.0/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
   },
@@ -1059,7 +1059,7 @@
   },
   {
     "name": "mdast-util-gfm-strikethrough",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "license": "MIT",
     "description": "mdast extension to parse and serialize GFM strikethrough",
     "homepage": null,
@@ -1075,14 +1075,14 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/mdast-util-gfm-strikethrough/license",
-        "artifact_path": "mdast-util-gfm-strikethrough/2.0.0/license",
-        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+        "artifact_path": "mdast-util-gfm-strikethrough/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
   },
   {
     "name": "mdast-util-gfm-table",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "license": "MIT",
     "description": "mdast extension to parse and serialize GFM tables",
     "homepage": null,
@@ -1098,14 +1098,14 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/mdast-util-gfm-table/license",
-        "artifact_path": "mdast-util-gfm-table/2.0.0/license",
-        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+        "artifact_path": "mdast-util-gfm-table/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
   },
   {
     "name": "mdast-util-gfm-task-list-item",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "license": "MIT",
     "description": "mdast extension to parse and serialize GFM task list items",
     "homepage": null,
@@ -1121,8 +1121,8 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/mdast-util-gfm-task-list-item/license",
-        "artifact_path": "mdast-util-gfm-task-list-item/2.0.0/license",
-        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+        "artifact_path": "mdast-util-gfm-task-list-item/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
   },
@@ -1151,7 +1151,7 @@
   },
   {
     "name": "mdast-util-mdx-jsx",
-    "version": "3.2.0",
+    "version": "3.2.1",
     "license": "MIT",
     "description": "mdast extension to parse and serialize MDX or MDX.js JSX",
     "homepage": null,
@@ -1167,8 +1167,8 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/mdast-util-mdx-jsx/license",
-        "artifact_path": "mdast-util-mdx-jsx/3.2.0/license",
-        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+        "artifact_path": "mdast-util-mdx-jsx/3.2.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
   },
@@ -1220,7 +1220,7 @@
   },
   {
     "name": "mdast-util-to-hast",
-    "version": "13.2.1",
+    "version": "13.2.2",
     "license": "MIT",
     "description": "mdast utility to transform to hast",
     "homepage": null,
@@ -1236,14 +1236,14 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/mdast-util-to-hast/license",
-        "artifact_path": "mdast-util-to-hast/13.2.1/license",
-        "sha256": "ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d"
+        "artifact_path": "mdast-util-to-hast/13.2.2/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
   },
   {
     "name": "mdast-util-to-markdown",
-    "version": "2.1.2",
+    "version": "2.2.3",
     "license": "MIT",
     "description": "mdast utility to serialize markdown",
     "homepage": null,
@@ -1259,7 +1259,7 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/mdast-util-to-markdown/license",
-        "artifact_path": "mdast-util-to-markdown/2.1.2/license",
+        "artifact_path": "mdast-util-to-markdown/2.2.3/license",
         "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
@@ -1289,7 +1289,7 @@
   },
   {
     "name": "micromark",
-    "version": "4.0.2",
+    "version": "4.0.3",
     "license": "MIT",
     "description": "small commonmark compliant markdown parser with positional info and concrete tokens",
     "homepage": null,
@@ -1305,14 +1305,14 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/micromark/license",
-        "artifact_path": "micromark/4.0.2/license",
+        "artifact_path": "micromark/4.0.3/license",
         "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
   },
   {
     "name": "micromark-core-commonmark",
-    "version": "2.0.3",
+    "version": "2.0.4",
     "license": "MIT",
     "description": "The CommonMark markdown constructs",
     "homepage": null,
@@ -1328,7 +1328,7 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/micromark-core-commonmark/license",
-        "artifact_path": "micromark-core-commonmark/2.0.3/license",
+        "artifact_path": "micromark-core-commonmark/2.0.4/license",
         "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
@@ -1542,7 +1542,7 @@
   },
   {
     "name": "micromark-factory-space",
-    "version": "2.0.1",
+    "version": "2.1.0",
     "license": "MIT",
     "description": "micromark factory to parse markdown space (found in lots of places)",
     "homepage": null,
@@ -1558,7 +1558,7 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/micromark-factory-space/license",
-        "artifact_path": "micromark-factory-space/2.0.1/license",
+        "artifact_path": "micromark-factory-space/2.1.0/license",
         "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
@@ -1748,6 +1748,29 @@
     ]
   },
   {
+    "name": "micromark-util-edit-map",
+    "version": "1.0.0",
+    "license": "MIT",
+    "description": "micromark utility to batch changes to lists of events",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-util-edit-map",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-util-edit-map",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-util-edit-map/license",
+        "artifact_path": "micromark-util-edit-map/1.0.0/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
     "name": "micromark-util-encode",
     "version": "2.0.1",
     "license": "MIT",
@@ -1910,7 +1933,7 @@
   },
   {
     "name": "micromark-util-types",
-    "version": "2.0.2",
+    "version": "2.0.3",
     "license": "MIT",
     "description": "micromark utility with a couple of typescript types",
     "homepage": null,
@@ -1926,7 +1949,7 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/micromark-util-types/license",
-        "artifact_path": "micromark-util-types/2.0.2/license",
+        "artifact_path": "micromark-util-types/2.0.3/license",
         "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
@@ -2002,11 +2025,11 @@
   },
   {
     "name": "react",
-    "version": "19.2.5",
+    "version": "19.3.1",
     "license": "MIT",
     "description": "React is a JavaScript library for building user interfaces.",
     "homepage": "https://react.dev/",
-    "repository": "https://github.com/facebook/react.git",
+    "repository": "https://github.com/react/react.git",
     "author": null,
     "package_path": "node_modules/react",
     "license_files": [
@@ -2018,18 +2041,18 @@
         "kind": "license",
         "file_name": "LICENSE",
         "source_path": "node_modules/react/LICENSE",
-        "artifact_path": "react/19.2.5/LICENSE",
+        "artifact_path": "react/19.3.1/LICENSE",
         "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
       }
     ]
   },
   {
     "name": "react-dom",
-    "version": "19.2.5",
+    "version": "19.3.1",
     "license": "MIT",
     "description": "React package for working with the DOM.",
     "homepage": "https://react.dev/",
-    "repository": "https://github.com/facebook/react.git",
+    "repository": "https://github.com/react/react.git",
     "author": null,
     "package_path": "node_modules/react-dom",
     "license_files": [
@@ -2041,7 +2064,7 @@
         "kind": "license",
         "file_name": "LICENSE",
         "source_path": "node_modules/react-dom/LICENSE",
-        "artifact_path": "react-dom/19.2.5/LICENSE",
+        "artifact_path": "react-dom/19.3.1/LICENSE",
         "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
       }
     ]
@@ -2071,7 +2094,7 @@
   },
   {
     "name": "react-router",
-    "version": "7.18.2",
+    "version": "7.18.5",
     "license": "MIT",
     "description": "Declarative routing for React",
     "homepage": null,
@@ -2087,14 +2110,14 @@
         "kind": "license",
         "file_name": "LICENSE.md",
         "source_path": "node_modules/react-router/LICENSE.md",
-        "artifact_path": "react-router/7.18.2/LICENSE.md",
+        "artifact_path": "react-router/7.18.5/LICENSE.md",
         "sha256": "77c9ee6a9c5d5782fb0c50b50d101189116314c14f7df0a1b0d385fc96a7ba49"
       }
     ]
   },
   {
     "name": "react-router-dom",
-    "version": "7.18.2",
+    "version": "7.18.5",
     "license": "MIT",
     "description": "Declarative routing for React web applications",
     "homepage": null,
@@ -2110,7 +2133,7 @@
         "kind": "license",
         "file_name": "LICENSE.md",
         "source_path": "node_modules/react-router-dom/LICENSE.md",
-        "artifact_path": "react-router-dom/7.18.2/LICENSE.md",
+        "artifact_path": "react-router-dom/7.18.5/LICENSE.md",
         "sha256": "77c9ee6a9c5d5782fb0c50b50d101189116314c14f7df0a1b0d385fc96a7ba49"
       }
     ]
@@ -2209,11 +2232,11 @@
   },
   {
     "name": "scheduler",
-    "version": "0.27.0",
+    "version": "0.28.0",
     "license": "MIT",
     "description": "Cooperative scheduler for the browser environment.",
     "homepage": "https://react.dev/",
-    "repository": "https://github.com/facebook/react.git",
+    "repository": "https://github.com/react/react.git",
     "author": null,
     "package_path": "node_modules/scheduler",
     "license_files": [
@@ -2225,14 +2248,14 @@
         "kind": "license",
         "file_name": "LICENSE",
         "source_path": "node_modules/scheduler/LICENSE",
-        "artifact_path": "scheduler/0.27.0/LICENSE",
+        "artifact_path": "scheduler/0.28.0/LICENSE",
         "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
       }
     ]
   },
   {
     "name": "set-cookie-parser",
-    "version": "2.7.2",
+    "version": "2.7.3",
     "license": "MIT",
     "description": "Parses set-cookie headers into objects",
     "homepage": "https://github.com/nfriedly/set-cookie-parser",
@@ -2248,7 +2271,7 @@
         "kind": "license",
         "file_name": "LICENSE",
         "source_path": "node_modules/set-cookie-parser/LICENSE",
-        "artifact_path": "set-cookie-parser/2.7.2/LICENSE",
+        "artifact_path": "set-cookie-parser/2.7.3/LICENSE",
         "sha256": "c5c6c5183a789d122f267c405f685037efb87e27fcde28ab1dd7378a2d2f5962"
       }
     ]
@@ -2300,31 +2323,8 @@
     ]
   },
   {
-    "name": "style-to-js",
-    "version": "1.1.21",
-    "license": "MIT",
-    "description": "Parses CSS inline style to JavaScript object (camelCased).",
-    "homepage": null,
-    "repository": "git+https://github.com/remarkablemark/style-to-js.git",
-    "author": "Mark <mark@remarkablemark.org>",
-    "package_path": "node_modules/style-to-js",
-    "license_files": [
-      "LICENSE"
-    ],
-    "notice_files": [],
-    "redistribution_files": [
-      {
-        "kind": "license",
-        "file_name": "LICENSE",
-        "source_path": "node_modules/style-to-js/LICENSE",
-        "artifact_path": "style-to-js/1.1.21/LICENSE",
-        "sha256": "bbb380e5c1a717079378d6ea4d33c8a5a81655d4612b749f882e34e46712aab5"
-      }
-    ]
-  },
-  {
     "name": "style-to-object",
-    "version": "1.0.14",
+    "version": "2.0.2",
     "license": "MIT",
     "description": "Parse CSS inline style to JavaScript object.",
     "homepage": null,
@@ -2340,14 +2340,14 @@
         "kind": "license",
         "file_name": "LICENSE",
         "source_path": "node_modules/style-to-object/LICENSE",
-        "artifact_path": "style-to-object/1.0.14/LICENSE",
+        "artifact_path": "style-to-object/2.0.2/LICENSE",
         "sha256": "896c9fd6b5fc48ac31800b9d29a6e3ffcb0c2d534ed077ebfa5c2fa388cc38b7"
       }
     ]
   },
   {
     "name": "tabbable",
-    "version": "6.3.0",
+    "version": "6.5.2",
     "license": "MIT",
     "description": "Returns an array of all tabbable DOM nodes within a containing node.",
     "homepage": "https://github.com/focus-trap/tabbable#readme",
@@ -2363,7 +2363,7 @@
         "kind": "license",
         "file_name": "LICENSE",
         "source_path": "node_modules/tabbable/LICENSE",
-        "artifact_path": "tabbable/6.3.0/LICENSE",
+        "artifact_path": "tabbable/6.5.2/LICENSE",
         "sha256": "8e714750725e75c8b31172ef84c0805f94873f86e3b5cfca8a948553f0778fa1"
       }
     ]
@@ -2508,7 +2508,7 @@
   },
   {
     "name": "unist-util-visit",
-    "version": "5.1.0",
+    "version": "5.2.0",
     "license": "MIT",
     "description": "unist utility to visit nodes",
     "homepage": null,
@@ -2524,14 +2524,14 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/unist-util-visit/license",
-        "artifact_path": "unist-util-visit/5.1.0/license",
-        "sha256": "63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf"
+        "artifact_path": "unist-util-visit/5.2.0/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
   },
   {
     "name": "unist-util-visit-parents",
-    "version": "6.0.2",
+    "version": "6.1.0",
     "license": "MIT",
     "description": "unist utility to recursively walk over nodes, with ancestral information",
     "homepage": null,
@@ -2547,8 +2547,8 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/unist-util-visit-parents/license",
-        "artifact_path": "unist-util-visit-parents/6.0.2/license",
-        "sha256": "ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d"
+        "artifact_path": "unist-util-visit-parents/6.1.0/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]
   },
@@ -2577,7 +2577,7 @@
   },
   {
     "name": "vfile-message",
-    "version": "4.0.3",
+    "version": "4.0.4",
     "license": "MIT",
     "description": "vfile utility to create a virtual message",
     "homepage": null,
@@ -2593,7 +2593,7 @@
         "kind": "license",
         "file_name": "license",
         "source_path": "node_modules/vfile-message/license",
-        "artifact_path": "vfile-message/4.0.3/license",
+        "artifact_path": "vfile-message/4.0.4/license",
         "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
       }
     ]

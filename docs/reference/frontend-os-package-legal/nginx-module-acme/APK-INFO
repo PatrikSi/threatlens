@@ -1,27 +1,27 @@
-C:Q1dJAqJdNwjijMFyl+91IS3y0e0yk=
+C:Q1+uEH7ZZEHal15Uwm65tS5UC4+zs=
 P:nginx-module-acme
-V:1.31.3.0.4.1-r1
+V:1.31.7.0.4.1-r1
 A:x86_64
-S:2899840
-I:8363261
+S:2851616
+I:8236461
 T:nginx nginx-acme
 U:https://nginx.org/
 L:2-clause BSD-like license
 o:nginx-module-acme
 m:NGINX Packaging <nginx-packaging@f5.com>
-t:1784134485
-D:nginx~1.31.3 nginx-r1.31.3 /bin/sh so:libc.musl-x86_64.so.1 so:libgcc_s.so.1
-p:nginx-module-acme-r1.31.3
+t:1790895919
+D:nginx~1.31.7 nginx-r1.31.7 /bin/sh so:libc.musl-x86_64.so.1 so:libgcc_s.so.1
+p:nginx-module-acme-r1.31.7
 F:usr
 F:usr/lib
 F:usr/lib/nginx
 F:usr/lib/nginx/modules
 R:ngx_http_acme_module-debug.so
 a:0:0:755
-Z:Q1r4dn92DIJSZZflDY3zr0+MoA0Ng=
+Z:Q13THsmPFsFwihIiqz/UjOCw96/Mg=
 R:ngx_http_acme_module.so
 a:0:0:755
-Z:Q1lYudp7YwBDuBe0dPiLLN58kx0VA=
+Z:Q1/kmbdduy3rGcpsgtwWxqtVkrI2M=
 F:usr/share
 F:usr/share/licenses
 F:usr/share/licenses/nginx-module-acme
