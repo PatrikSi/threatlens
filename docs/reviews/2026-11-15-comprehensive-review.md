@@ -4,8 +4,8 @@
 
 Code corrections and available local engineering gates are complete on branch
 `review/2026-11-15`, starting from `7426dbe9cc3c9585bd5b217b70521767bc98b17b`.
-The final executable source/image revision is `161fbde324ff45f05fdc7804205d5234d722aacc`;
-the following artifact/evidence commit preserves those application inputs.
+The qualified 2.1.0 source/image revision is `161fbde324ff45f05fdc7804205d5234d722aacc`;
+its following artifact/evidence commit preserves those application inputs.
 This pass covers the shipped
 ThreatLens application across analyst and administrator workflows, accessibility,
 API and worker correctness, authorization and secrets, resilience, query and
@@ -26,8 +26,9 @@ qualify new November changes. Available November local checks are recorded in
 native recovery and capacity-sensitive public-release gates remain pending;
 this review does not declare a public release ready.
 
-N01–N37 retain chronological checkpoints, including earlier failures and pending
-steps. N38 and the final JSON ledger describe the latest local qualification.
+N01–N38 retain chronological checkpoints, including earlier failures and pending
+steps. N38 and its JSON ledger describe the 2.1.0 local qualification. N39 records
+the later history cleanup and 2.1.1 source-version checks.
 
 ## Review coverage
 
@@ -1205,12 +1206,45 @@ runtime records, supplemental notices, fonts and 58 bundle files. No unresolved
 bounded finding remains; these checks do not provide legal or global release
 clearance.
 
+### N39 — plain commit subjects and 2.1.1 source version
+
+At the user's explicit request, the complete reviewed ancestry has plain
+imperative commit subjects. The rewrite cleans 123 subjects across 1,417 commits,
+remapping 1,107 IDs and retaining 310. Independent raw-object checks verify every
+file tree, original author/committer/date, message body and ordered parent list;
+all 32 merge nodes are preserved. A private all-ref recovery bundle is retained.
+The tracked [old-to-new mapping](2026-11-15-history-rewrite-map.json) preserves
+traceability for historical evidence and original image labels. Unrelated branch
+and worktree references remain intact. Repository guidance now records the
+no-prefix rule for future commits.
+
+Version 2.1.1 is a patch increment from the 2.1.0 source candidate: changes are
+security, correctness, dependencies and qualification, with no new migration
+head or API surface. The version helper synchronizes all seven metadata files.
+Regenerated OpenAPI/API documents change only the version and its dependent
+contract digest; 312 paths and 390 operations remain identical. The new digest is
+`d124cb25ffeadb4073e7aa826abae7ec1c6d0fe16dac52ddd8eaccc45fc01490`.
+
+All 149 focused backend version/API/Compose/CI/MCP checks pass without skips,
+including pinned SDK mock-transport compatibility. Eight AppShell DOM checks,
+TypeScript, the production build and production-bundle DOM smoke also pass, with
+no unhandled errors. No full suite or native-image rerun is attributed to 2.1.1;
+the earlier 2.1.0 receipts retain their actual versions and revisions. Exact
+commands/hashes are in [the version check ledger](2026-11-15-version-2.1.1-checks.json).
+The [2.1.1 source notes](../releases/2.1.1.md) retain upgrade requirements and
+pending platform/capacity boundaries.
+
+The user authorized merging this cleaned history into `main` and pushing it.
+Publication uses an explicit lease on the original remote main reference so a
+concurrent remote change cannot be overwritten. No version tag is created.
+Pushing main starts the existing gated image workflow; its future result is not
+recorded as a local pass here.
+
 ## Next executable steps
 
-Review the final local commits and run the existing hosted quality workflow on
-the intended merge revision, including browser, ARM64, native recovery and vendor
+Observe the hosted quality workflow on the updated main revision, including
+browser, ARM64, native recovery and vendor
 platform jobs. Complete the release process's compatible committed-ref capacity
 comparison for capacity-sensitive public-release changes in an authorized target
-environment. Version remains 2.1.0; no push, merge, tag, publication or deployment
-was performed. These remaining gates prevent an unconditional release-readiness
-claim.
+environment. Version is 2.1.1. No version tag or manual deployment is part of this
+update. These remaining gates prevent an unconditional release-readiness claim.

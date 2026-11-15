@@ -1,0 +1,107 @@
+{
+  "version": "2.1.1",
+  "scope": "Version metadata/API digest and focused compatibility checks; historical full 2.1.0/native-image receipts are preserved separately.",
+  "basis_original_commit": "fb148437e00f57cfd5823758783afa1e0d6a02db",
+  "equivalent_cleaned_basis": "53000cf5c14d38eca27652c60cd0f442541ff078",
+  "history_subjects_cleaned": 123,
+  "history_file_trees_and_original_identities_preserved": true,
+  "history_mapping": "2026-11-15-history-rewrite-map.json",
+  "metadata_files_synchronized": 7,
+  "dependency_graphs_changed": false,
+  "api": {
+    "before_version": "2.1.0",
+    "version": "2.1.1",
+    "old_anchor": "a608ae21656a8d50f83919e01a16751720c1199a7f4cd552465770bd3df16aaa",
+    "new_anchor": "d124cb25ffeadb4073e7aa826abae7ec1c6d0fe16dac52ddd8eaccc45fc01490",
+    "api_changed_only_version_and_digest": true,
+    "paths": 312,
+    "operations": 390,
+    "stale_environment_override_ignored": true,
+    "real_env_read": false,
+    "reference_sha256": "5ba4daf8edfbaf7159b71e248a7508e9807e8cb5b754600049003f35037a35bc",
+    "schema_sha256": "fd0e5900bc38e23145f87252412dc60c489c6e59ea05d164fdcc290d6a32a2b8"
+  },
+  "backend_contract_cases_passed": 149,
+  "backend_failed": 0,
+  "backend_errors": 0,
+  "backend_skipped": 0,
+  "appshell_dom_cases_passed": 8,
+  "frontend_unhandled_errors": 0,
+  "checks": {
+    "version211-api-regeneration": {
+      "actual_exit": 0,
+      "command": [
+        "python3",
+        "$UPDATE_EVIDENCE/generate_and_verify_version_contract.py"
+      ],
+      "log_sha256": "5d54aeddb63389b3657479d630fc44d7e45c93307a21aff9980d629514eea5b2",
+      "receipt_sha256": "3ed95b80252f73d85319f32f8b31e601c108c95aa103405745382f45aec526b3"
+    },
+    "version211-backend-contracts": {
+      "actual_exit": 0,
+      "command": [
+        "python3",
+        "$UPDATE_EVIDENCE/check_version_metadata_and_contracts.py"
+      ],
+      "log_sha256": "632077e000ec3110031d124d34558cc1861fce1b3a7f170625cdb637b55adf6f",
+      "receipt_sha256": "61ca366295e205648d77e86fb54523420254c3d3de8a7e4075ce7d8695ecabea"
+    },
+    "version211-appshell-dom": {
+      "actual_exit": 0,
+      "command": [
+        "$REVIEW_EVIDENCE/tools/node-v22.23.5-linux-x64/bin/node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "src/components/AppShell.dom.test.tsx",
+        "--reporter=default",
+        "--reporter=json",
+        "--reporter=$UPDATE_EVIDENCE/version211-unhandled-reporter.mjs",
+        "--outputFile.json=$UPDATE_EVIDENCE/version211-appshell-vitest.json",
+        "--maxWorkers=1"
+      ],
+      "log_sha256": "bd0871f36ff12ef36d746dbaf6371e8ea0cd0d210e912742e8aaf20f6d71d54b",
+      "receipt_sha256": "3d5ed2a24cd21c7c59a8f3cf7486aa494fdf16897ee73bbe04a34fa840573ba0"
+    },
+    "version211-typescript": {
+      "actual_exit": 0,
+      "command": [
+        "$REVIEW_EVIDENCE/tools/node-v22.23.5-linux-x64/bin/node",
+        "node_modules/typescript/bin/tsc",
+        "-b",
+        "--pretty",
+        "false"
+      ],
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "receipt_sha256": "2bb4e4f3acdbe238c14f90d4ef9287e426ef83aaf7a9798522361ac7b4b845e9"
+    },
+    "version211-production-build": {
+      "actual_exit": 0,
+      "command": [
+        "$REVIEW_EVIDENCE/tools/node-v22.23.5-linux-x64/bin/node",
+        "node_modules/vite/bin/vite.js",
+        "build"
+      ],
+      "log_sha256": "2e4f3ae8df32b3a39d6ed88dd62c102f832f2b1143b7dc31c0d6b4216695e79e",
+      "receipt_sha256": "3f93bbf62dda776f79320a60c04d73d50921980c90a1e6a48b74ce67eb3eec91"
+    },
+    "version211-production-bundle-smoke": {
+      "actual_exit": 0,
+      "command": [
+        "$REVIEW_EVIDENCE/tools/node-v22.23.5-linux-x64/bin/node",
+        "scripts/smoke_production_bundle.mjs"
+      ],
+      "log_sha256": "4e7c7a57a81475b745ae5be46034d5b16483e2952137a4afa694d6284880c696",
+      "receipt_sha256": "f0c4de0ba5da6616cc917b4745a64339282db5aa5cb1fddc0cdd4252d58f5071"
+    }
+  },
+  "publication": "Main update authorized; no release tag created. Main push starts the existing gated publishing workflow.",
+  "pending": [
+    "Hosted browser and ARM64 qualification.",
+    "Native recovery, hosted publishing and environment qualification.",
+    "Capacity-sensitive public-release comparison."
+  ],
+  "not_claimed": [
+    "New 2.1.1 full backend/frontend suites or native image qualification.",
+    "Public release, tag, image digest or capacity/model promotion clearance."
+  ]
+}

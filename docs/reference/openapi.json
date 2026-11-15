@@ -9,8 +9,8 @@
       "identifier": "Apache-2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
-    "version": "2.1.0",
-    "x-threatlens-contract-sha256": "a608ae21656a8d50f83919e01a16751720c1199a7f4cd552465770bd3df16aaa"
+    "version": "2.1.1",
+    "x-threatlens-contract-sha256": "d124cb25ffeadb4073e7aa826abae7ec1c6d0fe16dac52ddd8eaccc45fc01490"
   },
   "servers": [
     {

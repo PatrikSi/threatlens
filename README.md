@@ -2,7 +2,7 @@
 
 ThreatLens is a self-hosted app for tracking security (or any other) RSS feeds and articles.
 
-It stores feeds, extracts article text, and gives a single pane of glass to review articles, alerting matches, optional AI summaries/recommendations. 
+It stores feeds, extracts article text, and gives a single pane of glass to review articles, alerting matches, optional AI summaries/recommendations.
 
 ## Screenshots
 
@@ -233,7 +233,7 @@ ThreatLens works without AI.
 
 ## Useful Commands
 
-For the 2.1 source candidate, read the [release notes and upgrade steps](docs/releases/2.1.0.md).
+For the 2.1.1 source candidate, read the [release notes and upgrade steps](docs/releases/2.1.1.md).
 Published images remain at their existing version until the release is qualified and published.
 
 For the 2.0 upgrade, read the [release notes and compatibility changes](docs/releases/2.0.0.md)
