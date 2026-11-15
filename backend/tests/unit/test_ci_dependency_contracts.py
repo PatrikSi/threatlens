@@ -1,4 +1,5 @@
 import re
+import shlex
 from pathlib import Path
 
 import yaml
@@ -62,3 +63,20 @@ def test_dependabot_covers_the_actual_docker_build_contexts_and_compose_files():
     for manifest in manifests:
         parent = "/" + manifest.parent.relative_to(ROOT).as_posix().strip(".")
         assert parent in directories, f"Dependabot misses {manifest.relative_to(ROOT)}"
+
+
+def test_backend_and_sdk_audit_the_installed_tooling_as_well_as_runtime_pins():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/quality-gates.yml").read_text())
+    for name in ("backend", "mcp-sdk"):
+        audits = []
+        for step in workflow["jobs"][name]["steps"]:
+            for line in step.get("run", "").replace("\\\n", " ").splitlines():
+                command = shlex.split(line)
+                if "pip_audit" in command:
+                    audits.append(command)
+        installed = [
+            command for command in audits
+            if not any(flag in command for flag in ("-r", "--requirement", "--path"))
+        ]
+        assert installed, f"{name} must include installed pip, pytest and SDK dependencies"
+        assert all("--strict" in command and "--ignore-vuln" not in command for command in installed)

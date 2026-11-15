@@ -70,6 +70,15 @@ addition to the scanner action reference; the action's default CLI can lag
 security fixes. Registry attestation steps explicitly disable optional artifact
 storage records, preserving their existing permissions and registry behavior.
 
+Python checks audit both the exact application runtime lock and the installed
+backend/SDK test environments, including pip, pytest and their dependencies.
+The auditor is pinned and installed under the runtime lock's constraints after
+the tests, so installing it cannot silently change an application pin. Strict
+audits fail on uncollectable dependencies. The backend image upgrades its own
+pip before installing the runtime lock; review that bootstrap package as well
+as the application dependencies in the extracted image inventory. A scan
+limited to HIGH/CRITICAL findings does not cover every Python advisory.
+
 JavaScript actions require a Node 24-capable runner, including Actions runner
 2.327.1 or newer as documented by [Checkout](https://github.com/actions/checkout/blob/v7.0.1/README.md).
 The self-hosted capacity runner must satisfy that existing requirement; a local

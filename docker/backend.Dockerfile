@@ -12,7 +12,8 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY requirements.txt requirements-lock.txt /app/
-RUN pip install --no-cache-dir -r /app/requirements-lock.txt
+RUN python -m pip install --no-cache-dir --upgrade pip==26.3 \
+    && python -m pip install --no-cache-dir -r /app/requirements-lock.txt
 
 COPY . /app
 # Compile-only checks do not catch transport dependencies supplied by dev tools.

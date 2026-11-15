@@ -1,5 +1,6 @@
 -r requirements-lock.txt
-pytest==8.4.2
+pip==26.3
+pytest==9.0.3
 pytest-cov==6.3.0
 ruff==0.17.5
 pypdf==6.21.4

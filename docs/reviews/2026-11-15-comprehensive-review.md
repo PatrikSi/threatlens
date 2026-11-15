@@ -1010,6 +1010,56 @@ these lower-severity bootstrap findings. Test/bootstrap updates, full pytest
 compatibility tests, broader CI auditing and backend image requalification are
 in progress; no overall release clearance is claimed.
 
+### N35 — Python bootstrap and test-tool security
+
+An audit of all installed distributions found seven unique advisory IDs affecting
+pip and pytest outside the 96-pin application audit. Raw advisory records repeat
+those IDs; they are not fourteen distinct vulnerabilities. Both independent test
+manifests now pin pip 26.3 and the minimum patched pytest 9.0.3, retaining MCP
+2.3.0 and the existing lightweight SDK stage. The backend Dockerfile upgrades
+interpreter-bound pip before installing the unchanged runtime lock.
+
+Only pip and pytest changed in the private 105-package backend and 113-package
+SDK environments. Both `pip check` and strict installed-distribution audits
+pass with no findings or skips. The user's original virtual environment was
+preserved. Source/environment freeze:
+`73a80cc3af9b86aea895e2872ea0b8a259be07778dd85e062594a3f4b1dd6d96`.
+Versions and wheel integrity were checked against the publishers' exact-version
+[pip](https://pypi.org/pypi/pip/26.3/json) and
+[pytest](https://pypi.org/pypi/pytest/9.0.3/json) metadata.
+
+CI retains the separate strict complete-runtime-lock audit and adds installed
+environment audits for backend and SDK, including bootstrap/test/auditor
+dependencies. The auditor is pinned to 2.10.1 and constrained by the runtime
+lock. Minimal migration/recovery install paths derive the same pip pin without
+importing the entire development graph. Tests precede auditor installation;
+workflow permissions and service scope are unchanged. The release guide
+describes this distinction and the image scan's severity limit.
+
+The new CI regression fails before correction, then all 16 dependency/Compose
+cases pass on pytest 9.0.3 (log
+`ecf57d762b443151696ef4727347520d0d5715719bac1e0cd93caddf627ffa61`).
+Ruff passes across backend application/tests/scripts. Regenerating the API and
+preview artifacts produces identical bytes; the 1,018-file source-size gate
+passes (log `1240dc09a268ed060ee41ac72160613e5f5f3dcf9ba516c0eedf62345a1e2147`).
+The actual runtime resolver under pip 26.3 reproduces all 96 pins byte-for-byte.
+
+In a separate SDK environment copy, the constrained auditor installation adds
+18 packages and changes none of the existing 113; its actual installed audit
+passes for all 131 packages, as does the separate runtime audit. Completion proof:
+`43e3757507c73c300e32c5a91856009060461d2eccbf2a975a4f2a42d4f35c1b`.
+Independent final six-source review and six fake-process controls for the actual
+minimal recovery scripts pass, including installer failures, derived pins,
+bounded deadlines and unchanged dependency graphs. The migration extraction and
+shell syntax also pass. Independent proof:
+`c51ec258e1cbe7258827f3a1ee203357ba1dafe4d421fb129931f14f320984d2`.
+
+The new full backend compatibility run uses six serialized fresh-database shards.
+Its result and final native backend image/audit/inventory/runtime qualification
+remain pending. The MCP job retains its 15-minute overall ceiling: aggregate
+per-command deadlines do not guarantee a hosted duration. Actual hosted Actions
+execution remains a separate gate.
+
 ## Next executable steps
 
 Finish the pip/pytest corrections, run the full backend suite on the patched
