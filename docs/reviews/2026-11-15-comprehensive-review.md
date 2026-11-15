@@ -174,6 +174,23 @@ Browser clipboard writes already issued cannot be cancelled by these guards;
 the guarantee concerns feedback and dismissal, not erasing clipboard contents
 or guaranteeing permanent secret storage.
 
+### N06 — Tagging default validation and identity refresh (P2)
+
+The tagging defaults panel submitted blank/zero confidence as an unrelated
+fallback value and did not enforce the backend's numeric bounds outside a form.
+It also retained write availability after the identity query failed. Saving now
+requires finite confidence in `0.05..0.995` and an integer secondary limit in
+`0..2`, captures the admitted payload before mutation, and pauses writes when
+the current identity cannot be verified. Invalid input and existing drafts are
+preserved rather than silently replaced; zero remains a valid secondary limit.
+
+The supplemental before-run exposes twelve tagging failures with three valid
+boundary controls passing. All fifteen new tagging cases pass in the related
+162-case run; the initial whole-source TypeScript check also passes. Independent
+security review confirms the validator matches the backend constraints and
+found no additional blocker in this change. This fix does not reinterpret
+separate read/write permissions or discard retained user drafts.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

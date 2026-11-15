@@ -17,10 +17,12 @@ import {
   TaggingNotice,
   TaggingReapplyRequest,
   TaggingSettingsDraft,
+  type TaggingSettingsRequest,
   createRuleRequestFromDraft,
   createSettingsDraft,
   getRuleDraftValidationError,
   parseTaggingReapplyRequest,
+  parseTaggingSettingsDraft,
 } from './taggingSettingsModel'
 import { useTaggingRuleDraft, type TaggingRuleSubmission } from './useTaggingRuleDraft'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
@@ -42,7 +44,7 @@ export function useTaggingSettingsController() {
   const [pendingRuleDelete, setPendingRuleDelete] = useState<TaggingRule | null>(null)
   const [pendingReapplyRequest, setPendingReapplyRequest] = useState<TaggingReapplyRequest | null>(null)
   const syncedSettingsDraftRef = useRef<TaggingSettingsDraft | null>(null)
-  const canManageTagging = hasRequiredPermissions(
+  const canManageTagging = !currentUserQuery.isError && hasRequiredPermissions(
     currentUserQuery.data?.access?.permissions ?? [],
     ['write:tagging'],
   )
@@ -85,14 +87,10 @@ export function useTaggingSettingsController() {
 
   const saveSettings = useMutation({
     mutationKey: ['tagging', 'settings', 'save'],
-    mutationFn: () =>
+    mutationFn: (payload: TaggingSettingsRequest) =>
       apiFetch('/tagging/settings', {
         method: 'PUT',
-        body: JSON.stringify({
-          enabled_categories: settingsDraft.enabled_categories,
-          min_auto_tag_confidence: Number(settingsDraft.min_auto_tag_confidence) || 0.45,
-          secondary_tag_limit: Number(settingsDraft.secondary_tag_limit) || 0,
-        }),
+        body: JSON.stringify(payload),
       }),
     onSuccess: () => {
       setNotice({ tone: 'success', message: 'Tagging settings updated.' })
@@ -231,8 +229,13 @@ export function useTaggingSettingsController() {
     },
     onSaveSettings: () => {
       if (!canManageTagging) return
+      const parsed = parseTaggingSettingsDraft(settingsDraft)
+      if (!parsed.request) {
+        setNotice({ tone: 'error', message: parsed.error })
+        return
+      }
       setNotice(null)
-      saveSettings.mutate()
+      saveSettings.mutate(parsed.request)
     },
     onSelectRule: selectRule,
     pendingReapplyRequest,

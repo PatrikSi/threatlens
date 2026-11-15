@@ -29,6 +29,23 @@ export type TaggingSettingsDraft = {
   secondary_tag_limit: string
 }
 
+export type TaggingSettingsRequest = Pick<TaggingSettingsBundleResponse['settings'],
+  'enabled_categories' | 'min_auto_tag_confidence' | 'secondary_tag_limit'>
+
+export function parseTaggingSettingsDraft(draft: TaggingSettingsDraft):
+  { request: TaggingSettingsRequest; error: null } | { request: null; error: string } {
+  const confidence = Number(draft.min_auto_tag_confidence)
+  if (!draft.min_auto_tag_confidence.trim() || !Number.isFinite(confidence) || confidence < 0.05 || confidence > 0.995) {
+    return { request: null, error: 'Minimum tagging confidence must be a number from 0.05 to 0.995.' }
+  }
+  const secondaryLimit = Number(draft.secondary_tag_limit)
+  if (!draft.secondary_tag_limit.trim() || !Number.isInteger(secondaryLimit) || secondaryLimit < 0 || secondaryLimit > 2) {
+    return { request: null, error: 'Secondary tag limit must be a whole number from 0 to 2.' }
+  }
+  return { request: { enabled_categories: [...draft.enabled_categories], min_auto_tag_confidence: confidence,
+    secondary_tag_limit: secondaryLimit }, error: null }
+}
+
 export type TaggingRuleDraft = Omit<TaggingRuleWriteRequest, 'min_classification_confidence'> & {
   min_classification_confidence: string
 }
