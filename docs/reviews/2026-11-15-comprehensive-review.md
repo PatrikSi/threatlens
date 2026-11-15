@@ -102,6 +102,24 @@ The resilience reviewer independently inspected the changed paths, exception
 redaction and cleanup and found no additional defect; final committed-byte
 confirmation is still required after the remaining fixes.
 
+### N03 — Publisher URL normalization and malformed-link handling (P2)
+
+The article preview sanitizer checked raw script-scheme prefixes before URL
+rebasing. Entity-decoded tabs/newlines could pass that check and then normalize
+to a script scheme; malformed IPv6 links could also raise during rebasing and
+turn otherwise valid publisher HTML into a server error. URL attributes and
+`srcset` candidates now use the same URL parser's scheme normalization and omit
+values that fail parsing. Safe relative, HTTP, protocol-relative, fragment,
+mailto and data-image cases retain their existing behavior.
+
+The new real BeautifulSoup/sanitizer regressions reproduce 19 failures and eight
+passing compatibility controls before the fix. All 27 new cases and all twenty
+existing preview cases pass afterward, within a 134-case PostgreSQL/integration
+and preview run with no failures or errors. Ruff passes. The independent
+resilience reviewer found no additional defect in the changed parser boundary.
+CSP, iframe sandbox and resource opt-in are unchanged; this is a defense and
+robustness correction, not a demonstrated XSS exploit or complete browser audit.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

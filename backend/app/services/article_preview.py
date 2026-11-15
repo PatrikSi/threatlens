@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
@@ -60,7 +60,7 @@ _BLOCKED_META_HTTP_EQUIV = {
 }
 _URL_ATTRS = {"href", "src", "poster", "action"}
 _URL_LIST_ATTRS = {"srcset"}
-_BLOCKED_URL_SCHEMES = ("javascript:", "vbscript:")
+_BLOCKED_URL_SCHEMES = {"javascript", "vbscript"}
 
 
 @dataclass(frozen=True)
@@ -226,8 +226,14 @@ def _ensure_document_shell(soup: BeautifulSoup) -> None:
 def _is_blocked_url_value(value: object) -> bool:
     if not isinstance(value, str):
         return False
-    normalized = value.strip().lower()
-    return normalized.startswith(_BLOCKED_URL_SCHEMES)
+    try:
+        # Match the URL parser used when rebasing links, including its C0 and
+        # ASCII tab/newline normalization. Invalid publisher URLs are omitted
+        # instead of turning an otherwise usable preview into a server error.
+        scheme = urlsplit(value).scheme.lower()
+    except ValueError:
+        return True
+    return scheme in _BLOCKED_URL_SCHEMES
 
 
 def _is_blocked_url_list_value(value: object) -> bool:
