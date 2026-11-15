@@ -330,7 +330,9 @@ def test_download_holds_iam_and_data_policy_fences_through_file_stream(
     request.addfinalizer(cleanup)
 
     async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
+        # The request body is already consumed. A real ASGI receive waits for
+        # disconnect here; returning immediately forever starves the stream.
+        await anyio.sleep_forever()
 
     async def send(message):
         if message["type"] == "http.response.start":
@@ -413,7 +415,7 @@ def test_export_artifact_is_removed_when_streaming_disconnects(tmp_path):
     )
 
     async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
+        await anyio.sleep_forever()
 
     async def disconnecting_send(message):
         if message["type"] == "http.response.body":

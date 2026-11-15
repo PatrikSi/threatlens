@@ -26,6 +26,7 @@ from app.services.integration_connectors import (
 from app.services.integration_event_schemas import (
     max_supported_integration_event_schema,
 )
+from app.services.integration_delivery_state import coerce_utc as _coerce_utc
 from app.services.data_access_runtime import (
     ensure_integration_event_data_access_envelope,
 )
@@ -1185,14 +1186,6 @@ def _isoformat_optional(value: datetime | None) -> str | None:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc).isoformat()
-
-
-def _coerce_utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
 
 
 def _format_routing_errors(errors: list[ConnectorRoutingError]) -> str:

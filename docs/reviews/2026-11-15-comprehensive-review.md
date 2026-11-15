@@ -191,6 +191,132 @@ security review confirms the validator matches the backend constraints and
 found no additional blocker in this change. This fix does not reinterpret
 separate read/write permissions or discard retained user drafts.
 
+### N07 — Denied UI query generations and asynchronous recovery (P2)
+
+Independent review and real QueryClient/DOM controls exposed cached private
+responses resurfacing after an authoritative read denial followed by a network
+outage, a cached sibling selection, or a late response. The affected workflows
+include report libraries/details/editorial content, reviewed publications and
+consumers, team integrations, indicators/assessments/suppressions, automations
+and webhook credentials, AI activity/children/usage/qualification, alerts,
+statistics, OAuth consent and operational diagnostics.
+
+The shared `web/src/hooks/useQueryAccessScope.ts` records a read generation per
+QueryClient and narrowly defined permission family. Protected cache entries are
+wrapped internally and selected only when they belong to the current allowed
+generation. A successful read begun after denial can recover access; an older
+response, sibling cache hit or mutation cannot. Mutation cache writes capture
+the admitting generation, and parent AI run denial retires dependent child and
+source selections. Separate backend permission families remain independent;
+feed-catalogue denial must not withdraw permitted statistics. Retained local
+user drafts remain distinct from saved server data. The helper masks retained
+cache payloads; it does not erase browser memory or replace server checks.
+
+Regression evidence includes 12 failing generation cases with two passing
+controls, 16 failing automation/AI/alert cases with 41 passing controls, and 11
+failing metadata/diagnostic cases. A peer pass reproduced six further failures
+and one compatibility pass: stale assessment regeneration, parent-dependent
+AI caches, independent statistics/feed access, late OAuth completion and a
+qualification receipt link. Explicit paid qualification remains allowed with
+its existing consent, provider-version, idempotency and budget controls while
+history is initially loading; history availability is not a new authority gate.
+
+After compatible package updates, the seven-file report/assessment/indicator
+suite passes all 73 cases. Other first after-runs found two invalid fixture
+selectors and one real statistics error-feedback regression; corrections and
+final whole-source tests are in progress. The first full lint run also exposes
+complexity/dependency issues that are being corrected without suppressions or
+raised thresholds. No final UI qualification is claimed at this checkpoint. The first consumer
+inventory covered the existing access-data helper, rather than every raw query
+renderer. Independent follow-up confirmed additional raw report-preview and
+token-inventory gaps; regression controls and the wider raw-consumer inventory
+are now in progress. These surfaces are not marked cleared by the earlier pass.
+
+### N08 — Dependency refresh and runtime-only transport completeness (P2)
+
+The initial installed runtime audit found advisories affecting six packages;
+the initial frontend audit reported fourteen vulnerable dependency entries.
+Current compatible runtime and development updates have been resolved against
+upstream metadata and security notices. The exact backend candidate contains
+96 runtime distributions; its fresh audit reports zero vulnerabilities and
+zero skipped packages. The frontend candidate resolves the advisory paths,
+including `minimatch`, and its install audit reports zero vulnerabilities.
+These are current database checks, not guarantees against unknown flaws.
+
+A runtime-only import check caught `packaging` missing from the Celery Redis
+transport before development tools could mask it. Declaring `celery[redis]`
+properly activates the transport extra and includes `packaging==26.3` in the
+lock. All 553 application modules then import successfully in the exact
+runtime-only environment with network connections blocked. Development tools
+were installed only after that check. The backend Dockerfile also imports the
+actual API, worker and Beat entrypoints during its runtime-only build.
+
+Manifests changed: `backend/requirements.txt`, `requirements-lock.txt`,
+`requirements-dev.txt`, `requirements-mcp-test.txt`, `web/package.json` and
+`web/package-lock.json`. Container bases are updated to Python 3.12.16,
+Node 22.23.5 and nginx 1.31.7. Native builds, image inventories and bundled legal
+artifact verification remain pending. Local backend tests use Python 3.12.3;
+the new base interpreter is not yet a local-image pass.
+
+The frontend lock was refreshed using a private npm 11.21.2 because the bundled
+npm 10 resolver failed with its Arborist `edgesOut` error. The complete lock
+subsequently installs successfully with npm 10.9.9, preserving compatibility
+with the existing CI/container installation path. No global tool configuration
+was changed. Major-line upgrades with unresolved compatibility requirements
+are deferred; supported maintenance lines are used instead of forcing them.
+
+Independent exact-wheel checks verify upstream digests and full distribution
+notices for the changed license-sensitive packages, including Pillow's complete
+composite license, the historical PSF license in the feed parser dependency,
+and packaging's dual-license files. Fresh image artifacts must retain these
+texts before release. This is engineering license triage, not legal clearance.
+
+### Verification corrections and current native backend evidence
+
+The first broad updated-runtime run was interrupted after 12 failures, 651
+passes and three skips. Eleven failures correlate with eleven actual OOM kills
+in the deliberately small, owned PostgreSQL fixture (384 MiB/no swap, 256 MiB
+`tmpfs` data). Raising memory exposed the separate temporary-filesystem limit.
+This does not establish a production capacity defect: Compose defaults use a
+2 GiB database and persistent storage. The owned fixture was replaced with an
+isolated disk volume and a 1 GiB/no-swap limit; no product database was touched.
+
+The remaining stream test used a synthetic ASGI `receive()` that immediately
+returned the same completed request forever. Starlette's new disconnect
+listener could then starve its file-send task. Both direct file-response test
+receivers now wait cancellably after the already-consumed body, matching an
+open connection. IAM/data-policy locks, blocked-writer checks, disconnect errors
+and artifact cleanup assertions are retained. All 58 cases in the four complete
+provider/export test files pass after these fixture corrections. No failed or
+interrupted broad run is counted as a full pass. The full backend rerun remains
+in progress under the corrected fixture.
+
+The backend source-size check additionally found `integration_events.py` above
+its existing limit. It now reuses the identical UTC normalization helper from
+`integration_delivery_state.py`, preserving the local alias and behavior.
+Source size passes for all 1,009 production files; updated Ruff and compile
+checks pass. No size/complexity threshold was raised.
+
+The first native amd64 backend image builds successfully with Python 3.12.16,
+the exact runtime lock and actual API/worker/Beat import checks. Its generated
+API JSON and Markdown match the checked-in contract byte-for-byte, including
+anchor `a608ae21656a8d50f83919e01a16751720c1199a7f4cd552465770bd3df16aaa`.
+Trivy 0.76.2 with a fresh database reports zero fixable HIGH/CRITICAL findings,
+including the base image's additional bootstrap `pip` package. This filtered
+scan does not claim zero findings of every severity or for unpublished flaws.
+
+Actual generated runtime and OS inventories/legal files were copied from a
+stopped native image, without starting the app. Independent checks confirm all
+96 runtime pins, all 124 legal-file hashes and the full license texts already
+verified against upstream wheels. The image's Debian timezone database reports
+2026f and contains a valid UTC TZif file. The ANTLR runtime wheel's missing
+standalone notice was also confirmed; the exact official 4.13.2 BSD copyright
+and conditions are now supplemented under `docs/licenses/` and both compliance
+mirrors, with source URL and digest recorded in the backend compliance README.
+A rebuilt image includes that supplement; final image-pair verification and the
+web build remain pending. These checks do not qualify ARM64, browsers, live
+vendors, sustained capacity or release publication.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,
