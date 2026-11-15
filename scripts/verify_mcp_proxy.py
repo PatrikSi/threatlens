@@ -7,7 +7,7 @@ connects to a running stack.
 The only published port is random and bound to 127.0.0.1. All containers and the
 networks are removed on exit. Data services use an internal network; nginx also
 joins a separate ingress network. Optionally qualify the official SDK using
-an interpreter with mcp==2.2.0 and httpx2 installed.
+an interpreter with mcp==2.3.0 and httpx2 installed.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ import asyncio, json, sys
 from importlib.metadata import version
 import mcp, httpx2
 from mcp.client.streamable_http import streamable_http_client
-assert version('mcp') == '2.2.0'
+assert version('mcp') == '2.3.0'
 values = json.load(sys.stdin)
 async def exercise():
     for mode, expected in [('auto','2026-07-28'), ('legacy','2025-11-25')]:
@@ -79,7 +79,7 @@ async def exercise():
                 result = await client.call_tool('get_article_evidence', {'item_id':values['item_id']})
                 assert not result.is_error
                 assert result.structured_content['data']['article_text'] == 'Synthetic stored evidence through nginx.'
-                print('Official SDK 2.2.0 real proxy: '+mode+' passed')
+                print('Official SDK 2.3.0 real proxy: '+mode+' passed')
 asyncio.run(exercise())
 """
 
@@ -567,7 +567,7 @@ def _verify(args):
                 )
             else:
                 print(
-                    "Official SDK network check skipped: supply --sdk-python with mcp==2.2.0",
+                    "Official SDK network check skipped: supply --sdk-python with mcp==2.3.0",
                     flush=True,
                 )
             revoke = "from datetime import datetime,timezone; import uuid; from app.db.session import SessionLocal; from app.models.api_token import ApiToken; db=SessionLocal(); token=db.get(ApiToken,uuid.UUID(__import__('sys').argv[1])); assert token.last_used_at is not None; token.revoked_at=datetime.now(timezone.utc); db.commit(); db.close()"

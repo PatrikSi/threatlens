@@ -12,6 +12,13 @@ from urllib.error import HTTPError, URLError
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def script_import_path(monkeypatch):
+    # Direct CLI execution puts scripts/ on sys.path. Importlib loading does not.
+    # Restore the path after each test rather than depending on collection order.
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3] / "scripts"))
+
+
 def _script(name):
     path = Path(__file__).resolve().parents[3] / "scripts" / name
     spec = importlib.util.spec_from_file_location(name.removesuffix(".py"), path)

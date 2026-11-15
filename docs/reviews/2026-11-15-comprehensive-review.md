@@ -505,6 +505,34 @@ the exact 13-file freeze is requested and pending; this tested increment is not
 a release-readiness claim. The private index freeze records every staged hash,
 including the feed-only hunk in team configuration.
 
+### N14 — complete backend shards and coverage
+
+All six fresh-database shards now complete: 4,906 passed, zero failed, four
+skipped (4,910 collected cases). The skips are the two explicit capacity/recovery
+campaign entry points and two optional SDK tests in the base environment. The
+official SDK's two protocol modes were separately exercised successfully in the
+isolated SDK environment; those results are not added to the base-suite count.
+No active capacity or recovery campaign is claimed.
+
+The final six passing data files combine to 87.11% overall branch coverage and
+87.25% reporting coverage. The repository's overall/reporting thresholds and all
+58 critical module floors pass through `scripts/check_coverage.py`. Actual runs,
+JUnit files, coverage inputs and outputs are retained in the private November
+directory, with the aggregate in `backend-v6-full-suite-receipt.json`. The earlier
+stopped runs, the failed original fifth shard, and one mistyped collector attempt
+remain separate unsuccessful evidence and are not counted as passes.
+
+The original fifth shard's three failures were script-loader fixtures importing
+without the `scripts/` path that real CLI execution supplies. A per-test restored
+path fixture fixes that collection-order dependency. All 17 qualification-script
+unit cases pass independently; the corrected complete fifth shard passes 951.
+The remaining MCP proxy SDK guard/help text now matches the pinned optional
+2.3.0 SDK. CLI `--help` and Ruff with the repository backend configuration pass.
+Independent review of these exact two files reports no finding in scope (proof
+`e515cf6668542dc1d1a613d9fbf93fff2fce67290d04de696b7f6fd9406e9c52`).
+This does not claim a new live SDK proxy run; that native qualification and a
+backend image rebuild containing the migration fix remain pending.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,
