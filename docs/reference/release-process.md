@@ -167,6 +167,24 @@ the exact [official release-tag license](https://github.com/antlr/antlr4/blob/4.
 separately from the generated wheel inventory. Keep that supplement while this
 distribution is shipped; its SHA-256 is recorded in `backend/compliance/README.md`.
 
+The frontend also emits runtime code from development tools. Preserve these
+exact supplemental files in `docs/licenses/` and both compliance mirrors:
+
+| File | Authoritative distribution | SHA-256 |
+| --- | --- | --- |
+| `Vite-7.3.8-LICENSE.txt` | [vite 7.3.8](https://registry.npmjs.org/vite/-/vite-7.3.8.tgz) | `a77a1c089806b39ad339535bdf3677f636c91d96693e8ad7b11fe733f650ea64` |
+| `TailwindCSS-4.3.5-MIT.txt` | [tailwindcss 4.3.5](https://registry.npmjs.org/tailwindcss/-/tailwindcss-4.3.5.tgz) | `60e0b68c0f35c078eef3a5d29419d0b03ff84ec1df9c3f9d6e39a519a5ae7985` |
+| `Rollup-4.68.3-LICENSE.txt` | [rollup 4.68.3](https://registry.npmjs.org/rollup/-/rollup-4.68.3.tgz) | `fa1bd040c5bdeefe65b3821cebf474f2733ce65df13089bd151dda1778e62fe8` |
+| `NGINX-1.31.7-BSD-2-Clause.txt` | [nginx 1.31.7](https://nginx.org/download/nginx-1.31.7.tar.gz) | `08845fe39e06b51dad7685c28140ab49577a86e947523e16b536a46caf89ad5c` |
+
+Vite preload code, Rollup namespace/interop helpers and Tailwind CSS can appear in
+the production bundle even though their packages are build dependencies excluded
+from the generated runtime graph. nginx's exact copyright notice also accompanies
+the generic BSD text. Preserve the entire upstream payload, including bundled
+third-party notices; recheck the source archive, lock integrity and resulting
+bundle whenever these versions change. These notices supplement the actual
+package/OS inventories and do not constitute legal clearance.
+
 The four generated `*-package-legal/` trees preserve upstream legal files byte-for-byte. Repository diff hygiene therefore excludes those trees from whitespace-style and conflict-marker heuristics while continuing to check first-party compliance files, dependency manifests, package inventories, metadata, and source code.
 
 The backend image installs its Python application dependency layer from the checked-in `backend/requirements-lock.txt` file, and the frontend image resolves its application dependency layer from `web/package-lock.json`. The Dockerfiles and Compose base images use explicit version tags. The backend installs font packages and upgrades inherited PCRE2 and Perl from apt, enforcing Debian's `10.42-1+deb12u2` and `5.36.0-7+deb12u4` security updates or newer; the web image applies selected Alpine package upgrades, including PCRE2, and requires TIFF `4.7.2-r0` or newer during builds. Refresh base images and package installation layers for security rebuilds (`--pull --no-cache`), then scan the actual image: refreshing apt indexes alone does not upgrade inherited packages. ThreatLens does not claim byte-for-byte rebuild reproducibility: builds depend on external registries, OS package repositories, and lockfile-resolved application packages. Regenerate and review the packaged OS inventories for the actual release images. Both release platform digests must pass the existing fixable HIGH/CRITICAL vulnerability gate.

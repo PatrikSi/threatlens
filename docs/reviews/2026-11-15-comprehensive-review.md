@@ -878,6 +878,28 @@ and an empty unhandled-error list (log
 The primary reviewer independently reviewed the separate agent's fixture changes.
 Current whole-project types and lint pass; the final full pipeline remains open.
 
+### N30 — exact notices for emitted frontend code and nginx
+
+The runtime dependency graph does not include build tools whose code/CSS can
+appear in the production bundle. Added exact published Vite 7.3.8, Rollup 4.68.3
+and Tailwind CSS 4.3.5 license payloads for traced preload, namespace/interop and
+CSS output, plus nginx 1.31.7's specific copyright notice. All four files are
+mirrored byte-for-byte across repository/backend/web bundles under the existing
+mirror policy. Archive integrity, version, primary-source URL and SHA-256 are
+recorded; this is engineering triage, without legal clearance.
+
+Publisher license files include trailing whitespace. A narrow `.gitattributes`
+rule preserves only blank-at-EOL in six exact versioned Vite/Rollup notice paths;
+other files and whitespace checks remain unchanged. No global configuration or
+CI error-ignore setting is changed. Independent final 15-path source/payload/
+documentation review:
+`d060cfaf8ecd0e224329c632946471389974fe21c97260a33e07f69ea4b30e5c`.
+Both native images still require rebuilding and checking these actual packaged
+notices, generated inventories and vulnerability scans. The earlier backend
+image evidence remains a prior snapshot. The final frontend audit passes with
+zero advisories across all severities (log
+`9e6d18af871e16d47d45331422d540e9d3c3a1c29f2862987ea9fa8c5a9980ec`).
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

@@ -1,0 +1,7 @@
+# Preserve upstream trailing whitespace in these exact, integrity-verified notices.
+docs/licenses/Vite-7.3.8-LICENSE.txt whitespace=-blank-at-eol
+docs/licenses/Rollup-4.68.3-LICENSE.txt whitespace=-blank-at-eol
+backend/compliance/licenses/Vite-7.3.8-LICENSE.txt whitespace=-blank-at-eol
+backend/compliance/licenses/Rollup-4.68.3-LICENSE.txt whitespace=-blank-at-eol
+web/compliance/licenses/Vite-7.3.8-LICENSE.txt whitespace=-blank-at-eol
+web/compliance/licenses/Rollup-4.68.3-LICENSE.txt whitespace=-blank-at-eol
