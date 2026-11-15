@@ -23,6 +23,85 @@ function select(label: string, value: string) {
   act(() => { control.value = value; control.dispatchEvent(new Event('change', { bubbles: true })) })
 }
 
+it('keeps a consumer denial fenced through an outage until a fresh authorized read', async () => {
+  vi.mocked(apiFetch).mockResolvedValue([consumer])
+  view = await mountIntel(<PublicationConsumers teamId="team-1" publications={[publication]} />)
+  await open()
+  expect(view.host.textContent).toContain(consumer.name)
+  for (const status of [403, 503]) {
+    vi.mocked(apiFetch).mockRejectedValue(new ApiError('Consumer access unavailable', status, '/consumers'))
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['publication-consumers', 'team-1'] }) }); await settle()
+    expect(view.host.textContent).not.toContain(consumer.name)
+    expect(view.host.querySelector('form')).toBeNull()
+  }
+  vi.mocked(apiFetch).mockResolvedValue([{ ...consumer, name: 'Fresh authorized receiver' }])
+  act(() => intelButton(view!.host, 'Retry consumer access').click()); await settle()
+  expect(view.host.textContent).toContain('Fresh authorized receiver')
+})
+
+it('pauses consumer writes and retires confirmation while an outage preserves context', async () => {
+  vi.mocked(apiFetch).mockResolvedValue([consumer])
+  view = await mountIntel(<PublicationConsumers teamId="team-1" publications={[publication]} />)
+  await open()
+  select('Consumer ', consumer.id)
+  select('Publication ', publication.id)
+  act(() => intelButton(view!.host, 'Retire and withdraw').click()); await settle()
+  expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+  vi.mocked(apiFetch).mockRejectedValue(new ApiError('Consumer status unavailable', 503, '/consumers'))
+  await act(async () => { await view!.client.invalidateQueries({ queryKey: ['publication-consumers', 'team-1'] }) }); await settle()
+  expect(view.host.textContent).toContain(consumer.name)
+  expect(intelButton(view.host, 'Rotate credential').matches(':disabled')).toBe(true)
+  expect(intelButton(view.host, 'Retire and withdraw').matches(':disabled')).toBe(true)
+  expect(intelButton(view.host, 'Subscribe publication').matches(':disabled')).toBe(true)
+  expect(view.host.querySelector('form fieldset')?.matches(':disabled')).toBe(true)
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+  vi.mocked(apiFetch).mockResolvedValue([consumer])
+  act(() => intelButton(view!.host, 'Retry consumer access').click()); await settle()
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST' || init?.method === 'DELETE')).toBe(false)
+})
+
+it('does not restore a consumer confirmation when denied access is freshly recovered', async () => {
+  vi.mocked(apiFetch).mockResolvedValue([consumer])
+  view = await mountIntel(<PublicationConsumers teamId="team-1" publications={[publication]} />)
+  await open()
+  act(() => intelButton(view!.host, 'Retire and withdraw').click()); await settle()
+  vi.mocked(apiFetch).mockRejectedValue(new ApiError('Consumer access removed', 403, '/consumers'))
+  await act(async () => { await view!.client.invalidateQueries({ queryKey: ['publication-consumers', 'team-1'] }) }); await settle()
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+  vi.mocked(apiFetch).mockResolvedValue([consumer])
+  await act(async () => { await view!.client.invalidateQueries({ queryKey: ['publication-consumers', 'team-1'] }) }); await settle()
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST' || init?.method === 'DELETE')).toBe(false)
+})
+
+it('keeps another team consumer cache independent from a denied manager scope', async () => {
+  const held = deferred<unknown>()
+  let phase = 'seed'
+  vi.mocked(apiFetch).mockImplementation((path) => {
+    if (phase === 'held') return held.promise
+    if (phase === 'denied') return Promise.reject(new ApiError('Team manager access removed', 403, path))
+    return Promise.resolve([{ ...consumer, name: path.includes('/team-2/') ? 'Other team receiver' : consumer.name }])
+  })
+  let choose!: (id: string) => void
+  function Workspace() {
+    const [team, setTeam] = useState('team-1')
+    choose = setTeam
+    return <PublicationConsumers teamId={team} publications={[]} />
+  }
+  view = await mountIntel(<Workspace />)
+  await open()
+  act(() => choose('team-2')); await settle()
+  expect(view.host.textContent).toContain('Other team receiver')
+  act(() => choose('team-1')); await settle()
+  phase = 'denied'
+  await act(async () => { await view!.client.invalidateQueries({ queryKey: ['publication-consumers', 'team-1'] }) }); await settle()
+  phase = 'held'
+  act(() => choose('team-2')); await settle()
+  expect(view.host.textContent).toContain('Other team receiver')
+  expect(intelButton(view.host, 'Rotate credential').matches(':disabled')).toBe(false)
+})
+
 it('does not return a credential from a replaced session even while the workspace is mounted', async () => {
   const pending = deferred<unknown>()
   vi.mocked(apiFetch).mockImplementation((path) => path.endsWith('/rotate') ? pending.promise : Promise.resolve([consumer]))
@@ -54,8 +133,8 @@ it('disables subscriptions when a selected publication or consumer is no longer 
   expect(intelButton(view.host, 'Subscribe publication').disabled).toBe(true)
   act(() => update([publication]))
   expect(intelButton(view.host, 'Subscribe publication').disabled).toBe(false)
-  act(() => view!.client.setQueryData(['publication-consumers', 'team-1'], [{ ...consumer, retired_at: '2026-09-27T00:00:00Z' }]))
-  await settle()
+  vi.mocked(apiFetch).mockResolvedValue([{ ...consumer, retired_at: '2026-09-27T00:00:00Z' }])
+  await act(async () => { await view!.client.invalidateQueries({ queryKey: ['publication-consumers', 'team-1'] }) }); await settle()
   expect(intelButton(view.host, 'Subscribe publication').disabled).toBe(true)
 })
 

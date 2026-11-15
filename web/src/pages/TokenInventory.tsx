@@ -3,7 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetchWithResponse } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { accessibleQueryData } from '../api/queryData'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type { ApiToken, ApiTokenListResponse } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 import {
@@ -22,6 +24,14 @@ type RevocationNotice = {
   message: string
 }
 
+function tokenInventoryActionsPaused(query: { isFetching: boolean; isPlaceholderData: boolean; isError: boolean }, denied: boolean, lineageRefreshRequired: boolean) {
+  return query.isFetching || query.isPlaceholderData || query.isError || denied || lineageRefreshRequired
+}
+
+function selectedTokenForInventory(intent: { token: ApiToken; key: string } | undefined, key: string) {
+  return intent?.key === key ? intent.token : undefined
+}
+
 export function TokenInventory({
   isAdmin,
   canManage,
@@ -32,59 +42,78 @@ export function TokenInventory({
   secretNotice: string
 }) {
   const queryClient = useQueryClient()
+  const inventoryAccess = useQueryAccessScope(['tokens', 'inventory'])
   const [adminUserFilterDraft, setAdminUserFilterDraft] = useState('')
   const [adminUserFilter, setAdminUserFilter] = useState('')
   const [adminUserFilterError, setAdminUserFilterError] = useState('')
   const [page, setPage] = useState(1)
-  const [pendingRevocation, setPendingRevocation] = useState<ApiToken | null>(
-    null,
-  )
+  const inventoryKey = ['tokens', 'inventory', adminUserFilter, page]
+  const selectionKey = JSON.stringify(inventoryKey)
+  const captureSelection = (token: ApiToken) => inventoryAccess.captureResult()({ token, key: selectionKey })
+  const [pendingRevocation, setPendingRevocation] = useState<ReturnType<typeof captureSelection>>()
   const [revocationNotice, setRevocationNotice] = useState<RevocationNotice | null>(null)
   const [lineageRefreshRequired, setLineageRefreshRequired] = useState(false)
-  const tokensQuery = useQuery({
-    queryKey: ['tokens', 'inventory', adminUserFilter, page],
-    queryFn: () => {
-      const params = new URLSearchParams({
-        page: String(page),
-        page_size: String(TOKEN_PAGE_SIZE),
-      })
-      if (isAdmin && adminUserFilter.trim())
-        params.set('user_id', adminUserFilter.trim())
-      return loadTokenInventory(
-        params,
-        page,
-        TOKEN_PAGE_SIZE,
-        isAdmin ? adminUserFilter.trim() : '',
-      )
-    },
-    placeholderData: (previousData) => previousData,
+  const inventoryRead = inventoryAccess.queryOptions(() => {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(TOKEN_PAGE_SIZE),
+    })
+    if (isAdmin && adminUserFilter.trim())
+      params.set('user_id', adminUserFilter.trim())
+    return loadTokenInventory(
+      params,
+      page,
+      TOKEN_PAGE_SIZE,
+      isAdmin ? adminUserFilter.trim() : '',
+    )
   })
+  const tokensQuery = useQuery({
+    queryKey: inventoryKey,
+    ...inventoryRead,
+    placeholderData: (previous) => inventoryAccess.currentData(previous) === undefined ? undefined : previous,
+  })
+  const selectedToken = selectedTokenForInventory(inventoryAccess.currentData(pendingRevocation), selectionKey)
+  function canRevokeToken(tokenId: string) {
+    const state = queryClient.getQueryState(inventoryKey)
+    return canManage && !lineageRefreshRequired && state?.status === 'success' && state.fetchStatus !== 'fetching'
+      && selectedToken?.id === tokenId && !selectedToken.revoked_at && Boolean(inventoryAccess.currentData(pendingRevocation))
+  }
   const revokeToken = useMutation({
     mutationKey: ['tokens', 'revoke'],
     mutationFn: async (tokenId: string) => {
+      const current = inventoryAccess.currentData<ApiTokenListResponse>(queryClient.getQueryData(inventoryKey))
+      const token = current?.tokens.find((entry) => entry.id === tokenId)
+      if (!canRevokeToken(tokenId) || !token || token.revoked_at) throw new Error('Refresh the inventory and select the token again before revoking it.')
       const response = await apiFetchWithResponse<void>(`/tokens/${tokenId}`, {
         method: 'DELETE',
       })
       return parseTokenRevocationImpact(response.headers)
     },
-    onMutate: () => setRevocationNotice(null),
-    onSuccess: (impact, tokenId) => {
+    onMutate: () => {
+      setRevocationNotice(null)
+      const capture = inventoryAccess.captureResult()
+      return { capture, admission: capture(true) }
+    },
+    onSuccess: (impact, tokenId, context) => {
+      if (!context || !inventoryAccess.currentData(context.admission)) return
       const revokedAt = new Date().toISOString()
-      queryClient.setQueriesData<ApiTokenListResponse>(
+      queryClient.setQueriesData<Awaited<ReturnType<typeof inventoryRead.queryFn>>>(
         { queryKey: ['tokens', 'inventory'] },
-        (current) =>
-          current
-            ? {
-                ...current,
-                tokens: current.tokens.map((token) =>
+        (current) => {
+          const inventory = inventoryAccess.currentData(current)
+          return inventory
+            ? context.capture({
+                ...inventory,
+                tokens: inventory.tokens.map((token) =>
                   token.id === tokenId
                     ? { ...token, revoked_at: revokedAt }
                     : token,
                 ),
-              }
-            : current,
+              })
+            : current
+        },
       )
-      setPendingRevocation(null)
+      setPendingRevocation(undefined)
       const refreshRequired = (impact.revokedDescendantCount ?? 0) > 0
       if (refreshRequired) setLineageRefreshRequired(true)
       setRevocationNotice({
@@ -111,10 +140,11 @@ export function TokenInventory({
       })
     },
   })
+  const readable = accessibleQueryData(tokensQuery)
   const inventory =
-    tokensQuery.data === undefined
+    readable === undefined
       ? undefined
-      : normalizeTokenInventory(tokensQuery.data, page, TOKEN_PAGE_SIZE)
+      : normalizeTokenInventory(readable, page, TOKEN_PAGE_SIZE)
   const tokens = inventory?.tokens ?? []
   const legacyUnscopedTokens = tokens.filter(
     (token) => token.scopes.length === 0,
@@ -125,19 +155,19 @@ export function TokenInventory({
     1,
     Math.ceil((inventory?.total ?? 0) / TOKEN_PAGE_SIZE),
   )
-  const inventoryActionsUnavailable =
-    tokensQuery.isFetching ||
-    tokensQuery.isPlaceholderData ||
-    tokensQuery.isError ||
-    lineageRefreshRequired
+  const inventoryActionsUnavailable = tokenInventoryActionsPaused(tokensQuery, inventoryAccess.denied, lineageRefreshRequired)
 
   useEffect(() => {
     if (tokensQuery.data && page > pageCount) setPage(pageCount)
   }, [page, pageCount, tokensQuery.data])
 
   useEffect(() => {
-    setPendingRevocation(null)
+    setPendingRevocation(undefined)
   }, [adminUserFilter, canManage, page])
+
+  useEffect(() => {
+    if (tokensQuery.isError || !selectedToken) setPendingRevocation(undefined)
+  }, [tokensQuery.isError, selectedToken])
 
   const retryInventory = () => {
     const refresh = tokensQuery.refetch()
@@ -287,11 +317,11 @@ export function TokenInventory({
                   disabled={
                     Boolean(token.revoked_at) ||
                     revokeToken.isPending ||
-                    Boolean(pendingRevocation) ||
+                    Boolean(selectedToken) ||
                     inventoryActionsUnavailable
                   }
                   onRevoke={() => {
-                    if (canManage) setPendingRevocation(token)
+                    if (canManage && !inventoryActionsUnavailable) setPendingRevocation(captureSelection(token))
                   }}
                 />
               ))}
@@ -335,6 +365,7 @@ export function TokenInventory({
               </button>
             </div>
           )}
+          {inventoryAccess.denied && !tokensQuery.isError && <p role="status">Token inventory access must be verified again. <button type="button" onClick={retryInventory}>Retry token inventory</button></p>}
           {!tokensQuery.isLoading &&
             !tokensQuery.isError &&
             inventory?.tokens.length === 0 && (
@@ -348,15 +379,15 @@ export function TokenInventory({
       </section>
 
       <TokenRevocationDialog
-        token={pendingRevocation}
+        token={selectedToken ?? null}
         isAdmin={isAdmin}
         canManage={canManage}
         actionsUnavailable={inventoryActionsUnavailable}
         isConfirming={revokeToken.isPending}
         notice={revocationNotice}
-        onCancel={() => setPendingRevocation(null)}
+        onCancel={() => setPendingRevocation(undefined)}
         onConfirm={(tokenId) => {
-          if (canManage) revokeToken.mutate(tokenId)
+          if (canRevokeToken(tokenId)) revokeToken.mutate(tokenId)
         }}
       />
     </>

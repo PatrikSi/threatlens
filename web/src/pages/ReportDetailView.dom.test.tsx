@@ -35,6 +35,7 @@ it('keeps one editor across polling and resets editor/evidence state when the re
     isAdmin: false,
     currentUser: { data: { id: 'owner' } },
     detailActionPending: false,
+    detailReadAvailable: true,
     setEditorialDirty: vi.fn(),
     builderDraft: { confirmDiscard: vi.fn() },
     reportDetailQuery: { refetch: vi.fn() },

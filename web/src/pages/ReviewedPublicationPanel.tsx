@@ -4,6 +4,7 @@ import { ApiError, apiDownload, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { accessibleQueryData } from '../api/queryData'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type { ArticleExportFilters, ArticleExportTLPMarking } from '../types/exports'
 import type { IndicatorPublication, IndicatorPublicationPage, ReviewedPublicationPreview, ReviewedIndicator } from '../types/indicatorPublications'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
@@ -42,10 +43,24 @@ function PublicationTeamSelection({ filters }: { filters: ArticleExportFilters |
   </div>
 }
 
+function publicationReadState(denied: boolean, errors: {
+  preview: Error | null; publish: Error | null; history: Error | null; download: Error | null; withdraw: Error | null
+}, preview: { successful: boolean; scope: string | undefined; value: ReviewedPublicationPreview | undefined }, scope: string) {
+  const accessLost = denied || [errors.preview, errors.publish, errors.history]
+    .some((error) => error instanceof ApiError && [401, 403, 404].includes(error.status))
+    || [errors.download, errors.withdraw].some((error) => error instanceof ApiError && [401, 403].includes(error.status))
+  return {
+    accessLost,
+    currentPreview: !accessLost && preview.successful && preview.scope === scope ? preview.value : undefined,
+    error: errors.preview ?? errors.publish ?? errors.history ?? errors.download ?? errors.withdraw,
+  }
+}
+
 function PublicationWorkspace({ team, filters, writable }: {
   team: string; filters: ArticleExportFilters | null; writable: boolean
 }) {
   const client = useQueryClient()
+  const historyAccess = useQueryAccessScope(['reviewed-publications', team])
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const [format, setFormat] = useState<'stix' | 'misp'>('stix')
@@ -60,9 +75,9 @@ function PublicationWorkspace({ team, filters, writable }: {
   const preview = useMutation({
     mutationFn: async (input: { scope: string; filters: ArticleExportFilters }) => ({
       scope: input.scope,
-      value: await apiFetch<ReviewedPublicationPreview>(`${endpoint}/preview`, {
+      result: await historyAccess.read(() => apiFetch<ReviewedPublicationPreview>(`${endpoint}/preview`, {
         method: 'POST', body: JSON.stringify({ filters: input.filters }),
-      }),
+      })),
     }),
   })
   const publish = useMutation({
@@ -82,9 +97,9 @@ function PublicationWorkspace({ team, filters, writable }: {
   })
   const history = useQuery({
     queryKey: ['reviewed-publications', team, cursor],
-    queryFn: ({ signal }) => apiFetch<IndicatorPublicationPage>(
+    ...historyAccess.queryOptions(({ signal }) => apiFetch<IndicatorPublicationPage>(
       `${endpoint}?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { signal },
-    ),
+    )),
   })
   const download = useMutation({
     mutationFn: (id: string) => apiDownload(`${endpoint}/${id}/download`),
@@ -105,17 +120,19 @@ function PublicationWorkspace({ team, filters, writable }: {
   const [withdrawal, setWithdrawal] = useState<IndicatorPublication | null>(null)
   const latestMutations = useRef({ preview, publish, download, withdraw })
   latestMutations.current = { preview, publish, download, withdraw }
-  const accessLost = [preview.error, publish.error, history.error]
-    .some((error) => error instanceof ApiError && [401, 403, 404].includes(error.status))
-    || [download.error, withdraw.error].some((error) => error instanceof ApiError && [401, 403].includes(error.status))
-  const currentPreview = currentPublicationPreview(preview, scope, accessLost)
+  const { accessLost, currentPreview, error } = publicationReadState(historyAccess.denied, {
+    preview: preview.error, publish: publish.error, history: history.error, download: download.error, withdraw: withdraw.error,
+  }, {
+    successful: preview.isSuccess, scope: preview.data?.scope, value: historyAccess.currentData(preview.data?.result),
+  }, scope)
   const page = accessibleQueryData(history)
-  const error = preview.error ?? publish.error ?? history.error ?? download.error ?? withdraw.error
   useEffect(() => {
-    if (!accessLost) return
-    setApproved(false)
-    if (preview.isSuccess) preview.reset()
-  }, [accessLost, preview])
+    if (accessLost || !writable) {
+      setApproved(false)
+      setWithdrawal(null)
+    }
+    if (accessLost && preview.isSuccess) preview.reset()
+  }, [accessLost, writable, preview])
   function clearCompletedErrors() {
     // This closure captures the errors visible when recovery began. A later
     // refresh must never reset a newer request, result, or failure.
@@ -132,13 +149,13 @@ function PublicationWorkspace({ team, filters, writable }: {
     clearCompletedErrors()
   }
   function loadPreview() {
-    if (!filters) return
+    if (!filters || historyAccess.denied) return
     setEvidence(null)
     setApproved(false)
     preview.mutate({ scope, filters }, { onSuccess: clearCompletedErrors })
   }
   function save() {
-    if (!currentPreview || !filters) return
+    if (!currentPreview || !filters || !writable || !approved || publish.isPending || preview.isPending) return
     const body = { filters, preview_fingerprint: currentPreview.fingerprint, format, marking, misp_distribution: distribution }
     publish.mutate(body)
   }
@@ -146,7 +163,7 @@ function PublicationWorkspace({ team, filters, writable }: {
     <fieldset disabled={publish.isPending} className="space-y-3">
       <legend className="font-semibold">Review the current article filters</legend>
       <p className="text-sm">At most 100 articles and 250 approved indicators per publication. Stale reviews, examples and team suppressions are excluded. Evidence stays pinned to the reviewed revisions.</p>
-      <button type="button" className={TEAM_BUTTON} disabled={!filters || preview.isPending}
+      <button type="button" className={TEAM_BUTTON} disabled={!filters || preview.isPending || historyAccess.denied}
         onClick={loadPreview}>
         {preview.isPending ? 'Loading reviewed indicators…' : 'Preview reviewed indicators'}
       </button>
@@ -185,6 +202,7 @@ function PublicationWorkspace({ team, filters, writable }: {
       <h3 className="font-semibold">Publication history</h3>
       <p className="text-xs">Withdrawals are checked periodically and on download. Reimport updated artifacts to apply revoked/deleted indicators; a downloaded file cannot update itself.</p>
       <button className={TEAM_BUTTON} disabled={history.isFetching} onClick={() => void refresh()}>Refresh publications</button>
+      {historyAccess.denied && !history.isError && <p role="status">Verifying current publication access…</p>}
       {history.isPending && <p role="status">Loading publications…</p>}
       {page?.items.length === 0 && <p>No accessible reviewed publications on this page.</p>}
       {page?.items.map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm">
@@ -196,7 +214,7 @@ function PublicationWorkspace({ team, filters, writable }: {
         {writable && row.status !== 'withdrawn' && <button className={TEAM_BUTTON}
           disabled={withdraw.isPending} onClick={() => setWithdrawal(row)}>Withdraw publication</button>}
       </div>)}
-      {withdrawal && !accessLost && <div className="rounded border border-amber-500 p-3" role="group" aria-label="Confirm publication withdrawal">
+      {withdrawal && writable && !accessLost && <div className="rounded border border-amber-500 p-3" role="group" aria-label="Confirm publication withdrawal">
         <p>Withdraw all remaining indicators from this publication? This cannot be undone. Download and reimport the updated artifact to notify its consumers.</p>
         <button className={TEAM_BUTTON} disabled={withdraw.isPending} onClick={() => withdraw.mutate(withdrawal, {
           onSuccess: () => { if (mounted.current) setWithdrawal(null) },
@@ -228,13 +246,4 @@ function ReviewedIndicatorsTable({ preview, onReview }: {
       </tr>)}</tbody>
     </table>
   </div>
-}
-
-function currentPublicationPreview(
-  preview: { isSuccess: boolean; data?: { scope: string; value: ReviewedPublicationPreview } },
-  scope: string,
-  accessLost: boolean,
-): ReviewedPublicationPreview | undefined {
-  if (accessLost || !preview.isSuccess || preview.data?.scope !== scope) return undefined
-  return preview.data.value
 }

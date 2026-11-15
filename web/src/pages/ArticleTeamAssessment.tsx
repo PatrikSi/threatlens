@@ -44,37 +44,64 @@ function ArticleTeamAssessmentContent({ itemId, permissions, sessionUnavailable 
 
 type Action = { kind: 'generate' } | { kind: 'review'; huntId: string; status: 'accepted' | 'rejected'; note: string; version: number } | { kind: 'investigation'; huntId: string }
 
+function assessmentEditingPaused(data: TeamAssessmentResponse | undefined, writable: boolean, readFailed: boolean, busy: boolean) {
+  return !writable || !data?.can_generate || readFailed || Boolean(data?.assessment?.stale) || busy
+}
+
 export function AssessmentWorkspace({ itemId, teamId, canWrite, canCreate, verifyAccess = false }: { itemId: string; teamId: string; canWrite: boolean; canCreate: boolean; verifyAccess?: boolean }) {
   const client = useQueryClient()
   const draftKey = useMemo(() => ['team-assessment-drafts', itemId, teamId], [itemId, teamId])
   const { data: storedDrafts = {} } = useQuery<HuntReviewDrafts>({ queryKey: draftKey, queryFn: skipToken, initialData: {}, gcTime: Infinity })
   const setDrafts = (update: HuntReviewDrafts | ((current: HuntReviewDrafts) => HuntReviewDrafts)) => client.setQueryData<HuntReviewDrafts>(draftKey, (current) => typeof update === 'function' ? update(current ?? {}) : update)
   const [notice, setNotice] = useState('')
-  const { path, query, data, queryKey, baseQueryKey } = useAssessmentQuery(itemId, teamId, verifyAccess)
+  const { path, query, data, queryKey, baseQueryKey, access } = useAssessmentQuery(itemId, teamId, verifyAccess)
   const assessment = data?.assessment
   const drafts = assessment ? reconcileHuntDrafts(storedDrafts, assessment) : storedDrafts
   const dirty = Object.keys(drafts).length > 0
-  const [confirm, setConfirm] = useState<'generate' | 'reload' | null>(null)
+  const [confirm, setConfirm] = useState<{ kind: 'generate' | 'reload'; generation: number; version: number } | null>(null)
+  function requestConfirmation(kind: 'generate' | 'reload') {
+    const current = currentRead()
+    if (current) setConfirm({ kind, generation: access.generation, version: current.assessment?.version ?? 0 })
+  }
+  function currentRead() {
+    const state = client.getQueryState(queryKey)
+    return state?.status === 'error' || verifyAccess && !query.isFetchedAfterMount
+      ? undefined : access.currentData<TeamAssessmentResponse>(client.getQueryData(queryKey))
+  }
+  function canAct(action: Action) {
+    const current = currentRead()
+    const saved = current?.assessment
+    if (!current?.can_generate || !canWrite || ['queued', 'running'].includes(saved?.status ?? '')) return false
+    if (action.kind === 'generate') return current.ai_enabled && current.configured
+    if (saved?.stale) return false
+    const hunt = saved?.result?.hunts.find((entry) => entry.id === action.huntId)
+    return Boolean(hunt && (action.kind === 'review' ? action.version === saved?.version : canCreate && hunt.review_status === 'accepted' && !hunt.investigation_id))
+  }
   useEffect(() => {
     if (assessment) client.setQueryData<HuntReviewDrafts>(draftKey, (current) => current ? reconcileHuntDrafts(current, assessment) : current)
   }, [assessment, client, draftKey])
   const mutation = useMutation({
     onMutate: () => ({ submittedDrafts: client.getQueryData<HuntReviewDrafts>(draftKey) }),
     mutationFn: (action: Action) => {
-      const expectedVersion = action.kind === 'review' ? action.version : assessment?.version ?? 0
+      if (!canAct(action)) throw new Error('Refresh the assessment and verify access before continuing.')
+      const capture = access.captureResult()
+      const expectedVersion = action.kind === 'review' ? action.version : currentRead()?.assessment?.version ?? 0
       const suffix = action.kind === 'generate' ? '' : `/hunts/${encodeURIComponent(action.huntId)}${action.kind === 'investigation' ? '/investigation' : ''}`
       return apiFetch<TeamAssessmentResponse>(`${path}${suffix}`, {
         method: action.kind === 'review' ? 'PATCH' : 'POST',
         body: JSON.stringify({ team_id: teamId, expected_version: expectedVersion, ...(action.kind === 'review' ? { status: action.status, note: action.note.trim() } : {}) }),
-      })
+      }).then(capture)
     },
-    onSuccess: async (saved, action, context) => {
+    onSuccess: async (result, action, context) => {
+      const saved = access.currentData(result)
+      if (!saved) return
       await Promise.all([
         client.cancelQueries({ queryKey: baseQueryKey, exact: true }),
         client.cancelQueries({ queryKey, exact: true }),
       ])
-      client.setQueryData(queryKey, saved)
-      client.setQueryData(baseQueryKey, saved)
+      if (!access.currentData(result)) return
+      client.setQueryData(queryKey, result)
+      client.setQueryData(baseQueryKey, result)
       setDrafts((current) => settleHuntDrafts(current, context?.submittedDrafts ?? {}, action, saved.assessment))
       void client.invalidateQueries({ queryKey: ['team-hunts', teamId] })
       if (action.kind === 'investigation') void client.invalidateQueries({ queryKey: ['investigations'] })
@@ -89,23 +116,36 @@ export function AssessmentWorkspace({ itemId, teamId, canWrite, canCreate, verif
     // response can establish that retained notes are no longer readable.
     if (denied(query.error)) client.setQueryData(draftKey, {})
   }, [query.error, client, draftKey])
-  const readOnly = !canWrite || !data?.can_generate || query.isError || Boolean(assessment?.stale) || busy
+  useEffect(() => {
+    if (query.isError || access.denied || confirm && (confirm.generation !== access.generation || confirm.version !== (assessment?.version ?? 0))) setConfirm(null)
+  }, [query.isError, access.denied, access.generation, assessment?.version, confirm])
+  const readOnly = assessmentEditingPaused(data, canWrite, query.isError, busy)
   return <div className="space-y-3">
-    <ConfirmDialog open={confirm !== null} title="Discard unsaved hunt review notes?" description="Your notes have not been submitted. Continuing replaces them with the saved review state." confirmLabel="Discard changes" onCancel={() => setConfirm(null)} onConfirm={() => {
-      if (confirm === 'generate') mutation.mutate({ kind: 'generate' })
-      else { setDrafts({}); mutation.reset(); setNotice('Saved reviews reloaded.') }
-      setConfirm(null)
-    }} />
+    <ConfirmDialog
+      open={Boolean(confirm && confirm.generation === access.generation && !query.isError && !access.denied)}
+      title="Discard unsaved hunt review notes?"
+      description="Your notes have not been submitted. Continuing replaces them with the saved review state."
+      confirmLabel="Discard changes"
+      onCancel={() => setConfirm(null)}
+      onConfirm={() => {
+        const current = currentRead()
+        if (!confirm || confirm.generation !== access.generation || !current || confirm.version !== (current.assessment?.version ?? 0)) return
+        if (confirm.kind === 'generate') { if (canAct({ kind: 'generate' })) mutation.mutate({ kind: 'generate' }) }
+        else { setDrafts({}); mutation.reset(); setNotice('Saved reviews reloaded.') }
+        setConfirm(null)
+      }}
+    />
     <Link className="text-sm font-semibold text-cyan underline" to={`/teams?team=${encodeURIComponent(teamId)}&panel=ai-context`}>View team AI context</Link>
     {(query.isLoading || verifyAccess && !query.isFetchedAfterMount) && <p role="status">Loading team assessment…</p>}
     {query.isError && <p role="alert">{resolveApiErrorMessage(query.error, 'Team assessment could not be refreshed.')} <button className={TEAM_BUTTON} onClick={() => { mutation.reset(); void query.refetch() }}>Retry assessment</button></p>}
+    {!data && !query.isError && access.denied && <p role="alert">Assessment access must be verified again. <button className={TEAM_BUTTON} onClick={() => void query.refetch()}>Retry assessment</button></p>}
     {mutation.isError && <p role="alert">{resolveApiErrorMessage(mutation.error, 'The assessment action failed. Review notes are preserved.')} <button className={TEAM_BUTTON} onClick={() => { mutation.reset(); void query.refetch() }}>Refresh assessment</button></p>}
     {notice && <p role="status">{notice}</p>}
     {data && !hidden && <>
       <AssessmentStatus data={data} canWrite={canWrite} />
       <button className={TEAM_BUTTON}
         disabled={!data.can_generate || !data.ai_enabled || !data.configured || !canWrite || query.isError || busy || mutation.isPending}
-        onClick={() => dirty ? setConfirm('generate') : mutation.mutate({ kind: 'generate' })}>
+        onClick={() => { if (canAct({ kind: 'generate' })) { if (dirty) requestConfirmation('generate'); else mutation.mutate({ kind: 'generate' }) } }}>
         {mutation.isPending && mutation.variables?.kind === 'generate' ? 'Queueing assessment…'
           : assessment?.status === 'error' ? 'Retry team assessment'
             : assessment ? 'Regenerate team assessment' : 'Generate team assessment'}
@@ -114,7 +154,7 @@ export function AssessmentWorkspace({ itemId, teamId, canWrite, canCreate, verif
         onNoteChange={(hunt, note) => setDrafts((current) => updateHuntDraft(current, assessment, hunt, note))}
         onReview={(hunt, status) => mutation.mutate({ kind: 'review', huntId: hunt.id, status, note: drafts[hunt.id]?.note ?? hunt.review_note ?? '', version: drafts[hunt.id]?.version ?? assessment.version })}
         onCreate={(hunt) => mutation.mutate({ kind: 'investigation', huntId: hunt.id })}
-        onReload={() => setConfirm('reload')} />}
+        onReload={() => requestConfirmation('reload')} />}
 
     </>}
   </div>

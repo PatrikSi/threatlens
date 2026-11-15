@@ -8,14 +8,17 @@ import { deferred, intelButton, mountIntel, settle } from './articleIntelligence
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 vi.mock('../api/client', async (original) => ({ ...(await original<object>()), apiFetch: vi.fn(), apiDownload: vi.fn() }))
-vi.mock('../hooks/useCurrentUser', () => ({ useCurrentUser: () => ({ isError: false, data: { access: { permissions: ['read:items', 'read:teams', 'write:teams'] } } }) }))
+const userAccess = vi.hoisted(() => ({ permissions: ['read:items', 'read:teams', 'write:teams'] }))
+vi.mock('../hooks/useCurrentUser', () => ({ useCurrentUser: () => ({ isError: false, data: { access: { permissions: userAccess.permissions } } }) }))
 const preview = { fingerprint: 'exact-revision', matched_articles: 1, excluded_or_unreviewed: 2,
   indicators: [{ item_id: 'item', ioc_id: 'ioc', type: 'domain', value: 'evil.net', title: 'Article', assessment_version: 1, source_revision: 2, extraction_revision: 3, expires_at: null, evidence_count: 2 }] }
 let view: Awaited<ReturnType<typeof mountIntel>> | undefined
 let changeFilters: ((filters: ArticleExportFilters) => void) | undefined
+let remountWorkspace: (() => void) | undefined
 let currentFilters: ArticleExportFilters
 let refresh: ReturnType<typeof deferred<typeof preview>> | undefined
 beforeEach(() => {
+  userAccess.permissions = ['read:items', 'read:teams', 'write:teams']
   refresh = undefined
   vi.mocked(apiFetch).mockImplementation((path) => {
     if (path.startsWith('/teams?')) return Promise.resolve({ items: [{ id: 'team', name: 'SOC' }], total: 1, page: 1, page_size: 50 })
@@ -30,8 +33,10 @@ async function open() {
     is_starred: null, has_article_text: null, since: null, until: null, date_basis: 'first_seen_at', sort: 'first_seen_desc' }
   function Workspace() {
     const [filters, setFilters] = useState(currentFilters)
+    const [revision, setRevision] = useState(0)
     changeFilters = setFilters
-    return <ReviewedPublicationPanel filters={filters} />
+    remountWorkspace = () => setRevision((current) => current + 1)
+    return <ReviewedPublicationPanel key={revision} filters={filters} />
   }
   view = await mountIntel(<Workspace />)
   act(() => intelButton(view!.host, 'Reviewed team publications ▸').click())
@@ -44,6 +49,155 @@ async function open() {
 }
 
 describe('reviewed publication approval', () => {
+  it('does not let an older in-flight sibling preview restore denied publication controls', async () => {
+    const history = deferred<object>()
+    let phase = 'seed'
+    const implementation = vi.mocked(apiFetch).getMockImplementation()!
+    vi.mocked(apiFetch).mockImplementation((path, init) => {
+      if (!path.includes('/indicator-publications?')) return implementation(path, init)
+      if (phase === 'denied') return Promise.reject(new ApiError('Team history access removed', 403, path))
+      if (phase === 'held') return history.promise
+      return Promise.resolve({ items: [], has_more: false, next_cursor: null })
+    })
+    await open()
+    refresh = deferred()
+    act(() => intelButton(view!.host, 'Preview reviewed indicators').click()); await settle()
+    phase = 'denied'
+    await act(async () => { await view!.client.refetchQueries({ queryKey: ['reviewed-publications', 'team'] }) }); await settle()
+    phase = 'held'
+    act(() => intelButton(view!.host, 'Refresh publications').click()); await settle()
+    expect(view!.host.textContent).not.toContain('Publication consumers')
+    expect(view!.host.textContent).not.toContain('Approve reviewed publication')
+    await act(async () => { history.resolve({ items: [], has_more: false, next_cursor: null }); await Promise.resolve() }); await settle()
+    expect(view!.host.textContent).toContain('Publication consumers')
+    await act(async () => { refresh!.resolve(preview); await Promise.resolve() }); await settle()
+    expect(view!.host.textContent).not.toContain('evil.net')
+    expect(view!.host.textContent).not.toContain('Approve reviewed publication')
+    refresh = undefined
+    act(() => intelButton(view!.host, 'Preview reviewed indicators').click()); await settle()
+    expect(view!.host.textContent).toContain('evil.net')
+  })
+
+  it.each(['first page', 'same-key outage', 'remount'])('keeps denied publication history fenced through %s', async (entry) => {
+    const held = deferred<object>()
+    const first = { id: 'private-first-publication', format: 'stix', status: 'active', revision: 1,
+      withdrawn_count: 0, indicator_count: 1, created_at: '2026-09-12T00:00:00Z' }
+    let phase = 'seed'
+    const implementation = vi.mocked(apiFetch).getMockImplementation()!
+    vi.mocked(apiFetch).mockImplementation((path, init) => {
+      if (!path.includes('/indicator-publications?')) return implementation(path, init)
+      if (phase === 'denied' || phase === 'outage') return Promise.reject(new ApiError('History unavailable', phase === 'denied' ? 403 : 503, path))
+      if (phase === 'held') return held.promise
+      const second = path.includes('cursor=second')
+      return Promise.resolve({ items: [{ ...first, id: second ? 'private-second-publication' : first.id }],
+        has_more: !second, next_cursor: second ? null : 'second' })
+    })
+    await open()
+    act(() => intelButton(view!.host, 'Next publications').click()); await settle()
+    expect(view!.host.textContent).toContain('private-second-publication')
+    phase = 'denied'
+    await act(async () => { await view!.client.refetchQueries({ queryKey: ['reviewed-publications', 'team', 'second'], exact: true }) }); await settle()
+    expect(view!.host.textContent).not.toContain('private-second-publication')
+    phase = entry === 'same-key outage' ? 'outage' : 'held'
+    if (entry === 'first page') act(() => intelButton(view!.host, 'First page').click())
+    else if (entry === 'same-key outage') act(() => intelButton(view!.host, 'Refresh publications').click())
+    else {
+      act(() => remountWorkspace!())
+      act(() => intelButton(view!.host, 'Reviewed team publications ▸').click()); await settle()
+      const select = view!.host.querySelector('select')!
+      act(() => { select.value = 'team'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+    }
+    await settle()
+    expect(view!.host.textContent).not.toContain('private-first-publication')
+    expect(view!.host.textContent).not.toContain('private-second-publication')
+    expect(view!.host.textContent).not.toContain('Publication consumers')
+    expect(view!.host.textContent).not.toContain('Approve reviewed publication')
+    if (entry === 'same-key outage') {
+      phase = 'held'
+      act(() => intelButton(view!.host, 'Refresh publications').click()); await settle()
+      expect(view!.host.textContent).not.toContain('private-second-publication')
+    }
+    await act(async () => { held.resolve({ items: [{ ...first, id: 'freshly-authorized-publication' }], has_more: false, next_cursor: null }); await Promise.resolve() }); await settle()
+    expect(view!.host.textContent).toContain('freshly-authorized-publication')
+    expect(view!.host.textContent).toContain('Publication consumers')
+  })
+
+  it('keeps another team cached history independent from the denied team', async () => {
+    const held = deferred<object>()
+    const publication = { format: 'stix', status: 'active', revision: 1,
+      withdrawn_count: 0, indicator_count: 1, created_at: '2026-09-12T00:00:00Z' }
+    let phase = 'seed'
+    const implementation = vi.mocked(apiFetch).getMockImplementation()!
+    vi.mocked(apiFetch).mockImplementation((path, init) => {
+      if (path.startsWith('/teams?')) return Promise.resolve({ items: [{ id: 'team', name: 'SOC' }, { id: 'other-team', name: 'Other SOC' }], total: 2, page: 1, page_size: 50 })
+      if (!path.includes('/indicator-publications?')) return implementation(path, init)
+      if (phase === 'held') return held.promise
+      if (phase === 'denied') return Promise.reject(new ApiError('Team access removed', 403, path))
+      return Promise.resolve({ items: [{ ...publication, id: path.startsWith('/teams/team/') ? 'team-private-publication' : 'other-team-publication' }], has_more: false, next_cursor: null })
+    })
+    await open()
+    const choose = async (id: string) => {
+      const select = view!.host.querySelector('select')!
+      act(() => { select.value = id; select.dispatchEvent(new Event('change', { bubbles: true })) }); await settle()
+    }
+    await choose('other-team')
+    expect(view!.host.textContent).toContain('other-team-publication')
+    await choose('team')
+    phase = 'denied'
+    await act(async () => { await view!.client.refetchQueries({ queryKey: ['reviewed-publications', 'team'] }) }); await settle()
+    phase = 'held'
+    await choose('other-team')
+    expect(view!.host.textContent).toContain('other-team-publication')
+    expect(view!.host.textContent).toContain('Publication consumers')
+  })
+
+  it('keeps publication review available when only consumer administration is denied', async () => {
+    const implementation = vi.mocked(apiFetch).getMockImplementation()!
+    vi.mocked(apiFetch).mockImplementation((path, init) => path.endsWith('/publication-consumers')
+      ? Promise.reject(new ApiError('Consumer manager access required', 403, path)) : implementation(path, init))
+    await open()
+    act(() => intelButton(view!.host, 'Publication consumers').click()); await settle()
+    expect(view!.host.textContent).toContain('Consumer manager access required')
+    expect(view!.host.textContent).toContain('evil.net')
+    expect(view!.host.textContent).toContain('Approve reviewed publication')
+    expect(view!.host.textContent).not.toContain('Register consumer')
+  })
+
+  it.each(['write permission', 'team access'])('retires an open withdrawal confirmation after losing %s', async (loss) => {
+    const publication = { id: 'retained-publication', format: 'stix', status: 'active', revision: 1,
+      withdrawn_count: 0, indicator_count: 1, created_at: '2026-09-12T00:00:00Z' }
+    let denied = false
+    const implementation = vi.mocked(apiFetch).getMockImplementation()!
+    vi.mocked(apiFetch).mockImplementation((path, init) => path.includes('/indicator-publications?')
+      ? denied ? Promise.reject(new ApiError('Team access removed', 403, path))
+        : Promise.resolve({ items: [publication], has_more: false, next_cursor: null })
+      : implementation(path, init))
+    await open()
+    act(() => intelButton(view!.host, 'Withdraw publication').click())
+    expect(view!.host.textContent).toContain('Confirm withdrawal')
+    if (loss === 'write permission') {
+      userAccess.permissions = ['read:items', 'read:teams']
+      act(() => changeFilters!({ ...currentFilters }))
+    } else {
+      denied = true
+      await act(async () => { await view!.client.invalidateQueries({ queryKey: ['reviewed-publications', 'team'] }) })
+      await settle()
+    }
+    expect(view!.host.textContent).not.toContain('Confirm withdrawal')
+    userAccess.permissions = ['read:items', 'read:teams', 'write:teams']
+    denied = false
+    act(() => changeFilters!({ ...currentFilters }))
+    act(() => intelButton(view!.host, 'Refresh publications').click())
+    await settle()
+    expect(view!.host.textContent).not.toContain('Confirm withdrawal')
+    expect(vi.mocked(apiFetch).mock.calls.some(([path]) => path.endsWith('/withdraw'))).toBe(false)
+    act(() => intelButton(view!.host, 'Withdraw publication').click())
+    act(() => intelButton(view!.host, 'Confirm withdrawal').click())
+    await settle()
+    expect(vi.mocked(apiFetch).mock.calls.filter(([path]) => path.endsWith('/withdraw'))).toHaveLength(1)
+    expect(view!.host.textContent).not.toContain('Confirm withdrawal')
+  })
+
   it('hides an approved preview after the team history confirms lost access', async () => {
     await open()
     act(() => (view!.host.querySelector('input[type="checkbox"]') as HTMLInputElement).click())

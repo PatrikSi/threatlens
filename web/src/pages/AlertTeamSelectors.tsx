@@ -5,6 +5,7 @@ import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { accessibleQueryData } from '../api/queryData'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type { TeamMemberPage, TeamPage } from '../types/teams'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
@@ -20,11 +21,11 @@ export function AlertQueueScopePicker({ value, onChange, disabled = false, allow
   const user = useCurrentUser()
   const [page, setPage] = useState(1)
   const canRead = hasRequiredPermissions(user.data?.access?.permissions ?? [], ['read:teams'])
+  const access = useQueryAccessScope(['teams', 'list', false])
   const query = useQuery({
     queryKey: ['teams', 'list', false, page, 50],
-    queryFn: ({ signal }) => apiFetch<TeamPage>(`/teams?page=${page}&page_size=50`, { signal }),
+    ...access.queryOptions(({ signal }) => apiFetch<TeamPage>(`/teams?page=${page}&page_size=50`, { signal }), 30_000),
     enabled: canRead,
-    staleTime: 30_000,
   })
   const data = accessibleQueryData(query)
   const teams = data?.items ?? []
@@ -65,12 +66,12 @@ export function AlertAssigneePicker({ teamId, value, onChange, disabled }: {
 }) {
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
+  const access = useQueryAccessScope(['teams', teamId, 'members'])
   const query = useQuery({
     queryKey: ['teams', teamId, 'members', page, search],
-    queryFn: ({ signal }) => apiFetch<TeamMemberPage>(
+    ...access.queryOptions(({ signal }) => apiFetch<TeamMemberPage>(
       `/teams/${encodeURIComponent(teamId)}/members?${new URLSearchParams({ page: String(page), page_size: '50', q: search })}`, { signal },
-    ),
-    staleTime: 30_000,
+    ), 30_000),
   })
   const data = accessibleQueryData(query)
   const members = data?.items ?? []
@@ -83,7 +84,7 @@ export function AlertAssigneePicker({ teamId, value, onChange, disabled }: {
       </label>
       <label className="block text-xs font-semibold">
         Assignee
-        <select className={selectClassName} value={value} disabled={disabled || query.isLoading || query.isError}
+        <select className={selectClassName} value={value} disabled={disabled || access.denied || query.isLoading || query.isError}
           onChange={(event) => onChange(event.target.value)}>
           <option value="">Unassigned</option>
           {value && !members.some((member) => member.id === value) && <option value={value}>Selected analyst ({value.slice(0, 8)})</option>}

@@ -21,6 +21,7 @@ function render(report: ReportDetail = markdownReport()) {
     canAuthor: false,
     currentUser: { data: { id: 'reader' } },
     detailActionPending: false,
+    detailReadAvailable: true,
     builderDraft: { confirmDiscard: vi.fn() },
     setEditorialDirty: vi.fn(),
     reportDetailQuery: { refetch: vi.fn() },

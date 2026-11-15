@@ -9,9 +9,8 @@ import { validateExportFilterDraft } from './exportPageModel'
 
 export function ExportPage() {
   const controller = useExportPageController()
-  const { capabilitiesQuery, previewQuery, exportMutation, format, canExport, blockingReason, exportError, notice } =
+  const { capabilitiesQuery, capabilities, preview, exportMutation, format, canExport, blockingReason, exportError, notice } =
     controller
-  const capabilities = capabilitiesQuery.data
   const selectedFormat = capabilities?.formats.find((entry) => entry.id === format)
 
   return (
@@ -43,11 +42,16 @@ export function ExportPage() {
           </button>
         </div>
       )}
+      {capabilitiesQuery.isSuccess && !capabilities && <div role={controller.previewQuery.isError ? 'alert' : 'status'} className="rounded-lg border border-slate/20 p-4 text-sm dark:border-white/10">
+        {controller.previewQuery.isError && <p>{resolveApiErrorMessage(controller.previewQuery.error, 'The export preview could not be loaded')}</p>}
+        <p>Reload export options to verify current access.</p>
+        <button type="button" className="mt-3 rounded border px-3 py-1.5 text-xs font-semibold"
+          disabled={capabilitiesQuery.isFetching} onClick={() => void capabilitiesQuery.refetch()}>Reload export options</button>
+      </div>}
+      {(capabilities || capabilitiesQuery.isSuccess) && <ExportSummary controller={controller} />}
 
       {capabilities && (
         <>
-          <ExportSummary controller={controller} />
-
           <div className="grid items-start gap-3 sm:gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(390px,0.72fr)]">
             <div className="order-2 xl:order-1">
               <ExportFilterPanel capabilities={capabilities} controller={controller} />
@@ -65,7 +69,7 @@ export function ExportPage() {
                 {!exportError && !notice && blockingReason && <p id="export-blocking-reason">{blockingReason}</p>}
                 {!exportError && !notice && !blockingReason && (
                   <p>
-                    {previewQuery.data?.total_matches.toLocaleString()} articles ready for {selectedFormat?.label ?? 'export'}.
+                    {preview?.total_matches.toLocaleString()} articles ready for {selectedFormat?.label ?? 'export'}.
                   </p>
                 )}
               </div>
@@ -100,7 +104,7 @@ export function ExportPage() {
 }
 
 function ExportSummary({ controller }: { controller: ReturnType<typeof useExportPageController> }) {
-  const preview = controller.previewQuery.data
+  const preview = controller.preview
   const stats = [
     { label: 'Matching', value: preview?.total_matches },
     { label: 'With article text', value: preview?.articles_with_text },

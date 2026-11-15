@@ -4,6 +4,7 @@ import { apiFetch } from '../api/client'
 import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type {
   Feed,
   NotificationWebhook,
@@ -35,10 +36,11 @@ export function TeamIntegrationConfiguration({
   unavailable: boolean
   onChanged: () => void
 }) {
+  const access = useQueryAccessScope(['teams', 'integration-configuration', base])
   const query = useQuery({
     queryKey: ['teams', 'integration-configuration', base],
-    queryFn: ({ signal }) =>
-      apiFetch<NotificationWebhook>(`${base}/configuration`, { signal }),
+    ...access.queryOptions(({ signal }) =>
+      apiFetch<NotificationWebhook>(`${base}/configuration`, { signal })),
     enabled: !unavailable,
   })
   const data = accessibleQueryData(query)
@@ -66,7 +68,7 @@ export function TeamIntegrationConfiguration({
             key={base}
             base={base}
             saved={data}
-            disabled={unavailable || query.isError}
+            disabled={unavailable || access.denied || query.isError}
             onChanged={() => {
               onChanged()
               void query.refetch()

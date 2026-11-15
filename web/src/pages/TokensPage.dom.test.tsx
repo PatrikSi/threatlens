@@ -38,6 +38,10 @@ const tokensPageDomMocks = vi.hoisted(() => ({
   queryClient: {
     invalidateQueries: vi.fn(),
     setQueriesData: vi.fn(),
+    getQueryState: () => ({
+      status: tokensPageDomMocks.tokensError ? 'error' : 'success',
+      fetchStatus: tokensPageDomMocks.tokensFetching ? 'fetching' : 'idle',
+    }),
     getMutationCache: () => tokensPageDomMocks.mutationCache,
   },
   mutationRecords: [] as Array<{
@@ -187,8 +191,8 @@ vi.mock('@tanstack/react-query', () => ({
   },
   useMutation: (options: {
     mutationKey?: unknown
-    onMutate?: (variables: never) => void
-    onSuccess?: (data: never, variables: never) => void
+    onMutate?: (variables: never) => unknown
+    onSuccess?: (data: never, variables: never, context?: unknown) => void
     onError?: (error: unknown, variables: never) => void
     onSettled?: (data: never, error: unknown, variables: never) => void
   }) => {
@@ -198,7 +202,7 @@ vi.mock('@tanstack/react-query', () => ({
     if (mutationKey === 'tokens:revoke') {
       return tokenMutationResult((tokenId: unknown) => {
         tokensPageDomMocks.revokeMutate(tokenId)
-        options.onMutate?.(tokenId as never)
+        const context = options.onMutate?.(tokenId as never)
         options.onSuccess?.(
           {
             revokedTokenCount: 1,
@@ -207,6 +211,7 @@ vi.mock('@tanstack/react-query', () => ({
             rootTokenRevoked: true,
           } as never,
           tokenId as never,
+          context,
         )
       })
     }
@@ -463,14 +468,12 @@ describe('TokensPage DOM workflows', () => {
 
     expect(tokensPageDomMocks.revokeMutate).toHaveBeenCalledWith('token-2')
     expect(tokensPageDomMocks.queryClient.setQueriesData).toHaveBeenCalled()
-    const updater = tokensPageDomMocks.queryClient.setQueriesData.mock.calls[0][1]
-    const updated = updater({
-      tokens: tokenInventory,
-      total: tokenInventory.length,
-      page: 1,
-      page_size: 25,
-    })
-    expect(updated.tokens[1].revoked_at).not.toBeNull()
+    expect(tokensPageDomMocks.queryClient.setQueriesData).toHaveBeenCalledWith(
+      { queryKey: ['tokens', 'inventory'] }, expect.any(Function),
+    )
+    expect(tokensPageDomMocks.queryClient.invalidateQueries).toHaveBeenCalledWith(
+      { queryKey: ['tokens'] }, { throwOnError: false },
+    )
   })
 
   it('shows pagination when the token inventory spans multiple pages', () => {

@@ -15,14 +15,17 @@ const exportPageDomMocks = vi.hoisted(() => ({
   revokeObjectURL: vi.fn(),
 }))
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async (original) => ({
+  ...(await original<object>()),
   apiFetch: exportPageDomMocks.apiFetch,
   apiDownload: exportPageDomMocks.apiDownload,
 }))
 
 import { ExportPage } from './ExportPage'
+import { ApiError } from '../api/client'
 import { triggerBrowserDownload } from './exportPageModel'
 import { invalidateSession } from '../api/sessionLifecycle'
+import { deferred } from './articleIntelligenceTestSupport'
 
 const CAPABILITIES = {
   formats: [
@@ -200,6 +203,202 @@ afterEach(async () => {
 })
 
 describe('ExportPage', () => {
+  it('keeps an old preview hidden after capabilities recover until the preview is freshly authorized', async () => {
+    const view = renderPage()
+    await waitForPreview(view)
+    const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => path === '/exports/capabilities'
+      ? Promise.reject(new ApiError('Export access removed', 403, path)) : fallback(path, options))
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['exports', 'capabilities'] }) })
+    const held = deferred<typeof PREVIEW>()
+    let requested = false
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path !== '/exports/preview') return fallback(path, options)
+      requested = true
+      return held.promise
+    })
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['exports', 'capabilities'] }) })
+    await act(async () => { await vi.waitFor(() => expect(requested).toBe(true)) })
+    expect(view.textContent).not.toContain('Critical VPN vulnerability')
+    expect([...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Generate CSV')?.disabled).toBe(true)
+    await act(async () => { held.resolve({ ...PREVIEW, items: [{ ...PREVIEW.items[0], title: 'Freshly authorized article' }] }); await Promise.resolve() })
+    await act(async () => { await vi.waitFor(() => expect(view.textContent).toContain('Freshly authorized article')) })
+  })
+
+  it('retains a capabilities denial through an outage without restoring private option labels', async () => {
+    const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
+    const capabilities = { ...CAPABILITIES, feeds: [{ id: 'feed-1', name: 'Private export feed' }],
+      tags: [{ id: 'tag-1', name: 'Private export tag' }] }
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => path === '/exports/capabilities'
+      ? Promise.resolve(capabilities) : fallback(path, options))
+    const view = renderPage()
+    await waitForPreview(view)
+    expect(view.textContent).toContain('Private export feed')
+    expect(view.textContent).toContain('Private export tag')
+    for (const status of [403, 503]) {
+      exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => path === '/exports/capabilities'
+        ? Promise.reject(new ApiError('Export options unavailable', status, path)) : fallback(path, options))
+      await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['exports', 'capabilities'] }) })
+      expect(view.textContent).not.toContain('Private export feed')
+      expect(view.textContent).not.toContain('Private export tag')
+    }
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => path === '/exports/capabilities'
+      ? Promise.resolve({ ...capabilities, feeds: [{ id: 'feed-1', name: 'Fresh authorized feed' }] }) : fallback(path, options))
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['exports', 'capabilities'] }) })
+    await act(async () => { await vi.waitFor(() => expect(view.textContent).toContain('Fresh authorized feed')) })
+  })
+
+  it('does not restore a denied preview through keepPreviousData when filters change', async () => {
+    const view = renderPage()
+    await waitForPreview(view)
+    const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => path === '/exports/preview'
+      ? Promise.reject(new ApiError('Preview access removed', 403, path)) : fallback(path, options))
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['exports', 'preview'] }) })
+    const held = deferred<typeof PREVIEW>()
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => path === '/exports/preview'
+      ? held.promise : fallback(path, options))
+    // The shared export denial also retires option metadata. A fresh metadata
+    // read can restore filter controls, but cannot restore the old preview.
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['exports', 'capabilities'] }) })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    act(() => setInputValue(view.querySelector<HTMLInputElement>('#export-search')!, 'new-filters'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(450) })
+    expect(exportPageDomMocks.apiFetch.mock.calls.some(([path, options]) => path === '/exports/preview'
+      && JSON.parse(String(options?.body)).filters.q === 'new-filters')).toBe(true)
+    vi.useRealTimers()
+    expect(view.textContent).not.toContain('Critical VPN vulnerability')
+    expect(view.querySelector('[aria-label="Export match summary"]')?.textContent).not.toContain('Matching2')
+    expect([...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Generate CSV')?.disabled).toBe(true)
+    await act(async () => { held.resolve({ ...PREVIEW, items: [{ ...PREVIEW.items[0], title: 'Freshly authorized article' }] }); await Promise.resolve() })
+    await act(async () => { await vi.waitFor(() => expect(view.textContent).toContain('Freshly authorized article')) })
+  })
+
+  it.each(['preview', 'jobs'])('retains a %s denial through a same-key outage retry', async (kind) => {
+    const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
+    const ready = { ...BACKGROUND_JOB, status: 'ready', filename: 'private-saved-export.csv', download_available: true }
+    const match = (path: string) => kind === 'preview' ? path === '/exports/preview' : path.startsWith('/exports/jobs?')
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => kind === 'jobs' && match(path)
+      ? Promise.resolve({ items: [ready], has_more: false }) : fallback(path, options))
+    const view = renderPage()
+    await waitForPreview(view)
+    const privateText = kind === 'preview' ? 'Critical VPN vulnerability' : 'private-saved-export.csv'
+    await act(async () => { await vi.waitFor(() => expect(view.textContent).toContain(privateText)) })
+    for (const status of [403, 503]) {
+      exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => match(path)
+        ? Promise.reject(new ApiError('Read unavailable', status, path)) : fallback(path, options))
+      await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['exports', kind] }) })
+      expect(view.textContent).not.toContain(privateText)
+    }
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => match(path)
+      ? Promise.resolve(kind === 'preview' ? { ...PREVIEW, items: [{ ...PREVIEW.items[0], title: 'Freshly authorized article' }] }
+        : { items: [{ ...ready, filename: 'freshly-authorized.csv' }], has_more: false }) : fallback(path, options))
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['exports', kind] }) })
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['exports', 'capabilities'] }) })
+    await act(async () => { await vi.waitFor(() => expect(view.textContent).toContain(kind === 'preview' ? 'Freshly authorized article' : 'freshly-authorized.csv')) })
+  })
+
+  it('does not show a cached previous jobs page before a fresh authorized read', async () => {
+    const held = deferred<unknown>()
+    const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
+    let phase = 'seed'
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (!path.startsWith('/exports/jobs?')) return fallback(path, options)
+      if (phase === 'denied') return Promise.reject(new ApiError('Jobs access removed', 403, path))
+      if (phase === 'held') return held.promise
+      const second = path.includes('offset=25')
+      return Promise.resolve({ items: [{ ...BACKGROUND_JOB, status: 'ready', download_available: true,
+        filename: second ? 'private-second.csv' : 'private-first.csv' }], has_more: !second })
+    })
+    const view = renderPage()
+    await waitForPreview(view)
+    act(() => [...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Next jobs')!.click())
+    await act(async () => { await vi.waitFor(() => expect(view.textContent).toContain('private-second.csv')) })
+    phase = 'denied'
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['exports', 'jobs', 1], exact: true }) })
+    phase = 'held'
+    act(() => [...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Previous jobs')!.click())
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 15)) })
+    expect(view.textContent).not.toContain('private-first.csv')
+    expect([...view.querySelectorAll<HTMLButtonElement>('button')].some((button) => button.textContent === 'Download export')).toBe(false)
+    await act(async () => { held.resolve({ items: [{ ...BACKGROUND_JOB, filename: 'freshly-authorized.csv' }], has_more: false }); await Promise.resolve() })
+    await act(async () => { await vi.waitFor(() => expect(view.textContent).toContain('freshly-authorized.csv')) })
+  })
+
+  it.each([401, 403, 404])('hides retained preview rows and counts after a %s refresh', async (status) => {
+    const view = renderPage()
+    await waitForPreview(view)
+    const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => path === '/exports/preview'
+      ? Promise.reject(new ApiError('Article access removed', status, path)) : fallback(path, options))
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['exports', 'preview'] }) })
+    await act(async () => { await vi.waitFor(() => expect(view.textContent).toContain('Article access removed')) })
+    expect(view.textContent).not.toContain('Critical VPN vulnerability')
+    const summary = view.querySelector('[aria-label="Export match summary"]')!
+    expect(summary.textContent).not.toContain('2')
+    const generate = [...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Generate CSV')
+    expect(generate === undefined || generate.disabled).toBe(true)
+  })
+
+  it('preserves preview context through an outage while pausing generation', async () => {
+    const view = renderPage()
+    await waitForPreview(view)
+    const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => path === '/exports/preview'
+      ? Promise.reject(new ApiError('Preview temporarily unavailable', 503, path)) : fallback(path, options))
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['exports', 'preview'] }) })
+    await act(async () => { await vi.waitFor(() => expect(view.textContent).toContain('Preview temporarily unavailable')) })
+    expect(view.textContent).toContain('Critical VPN vulnerability')
+    expect([...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Generate CSV')?.disabled).toBe(true)
+  })
+
+  it.each([403, 503])('pauses exports when capabilities refresh fails with %s', async (status) => {
+    const view = renderPage()
+    await waitForPreview(view)
+    const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => path === '/exports/capabilities'
+      ? Promise.reject(new ApiError('Export options unavailable', status, path)) : fallback(path, options))
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['exports', 'capabilities'] }) })
+    await act(async () => { await vi.waitFor(() => expect(view.textContent).toContain('Export options unavailable')) })
+    if (status === 403) {
+      expect(view.textContent).not.toContain('CERT Advisories')
+      expect(view.querySelector('#export-search')).toBeNull()
+    } else {
+      expect(view.textContent).toContain('CERT Advisories')
+      expect(view.querySelector('#export-search')).not.toBeNull()
+    }
+    const generate = [...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Generate CSV')
+    const queue = [...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Generate in background')
+    expect(generate === undefined || generate.disabled).toBe(true)
+    expect(queue === undefined || queue.disabled).toBe(true)
+    act(() => { generate?.click(); queue?.click() })
+    expect(exportPageDomMocks.apiDownload).not.toHaveBeenCalled()
+    expect(exportPageDomMocks.apiFetch.mock.calls.some(([path]) => path === '/exports/jobs')).toBe(false)
+  })
+
+  it.each([403, 503])('handles retained background jobs after a %s refresh', async (status) => {
+    const ready = { ...BACKGROUND_JOB, status: 'ready', filename: 'private-report.csv', file_size: 1024, download_available: true }
+    const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => path.startsWith('/exports/jobs?')
+      ? Promise.resolve({ items: [ready], has_more: false }) : fallback(path, options))
+    const view = renderPage()
+    await waitForPreview(view)
+    await act(async () => { await vi.waitFor(() => expect(view.textContent).toContain('private-report.csv')) })
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => path.startsWith('/exports/jobs?')
+      ? Promise.reject(new ApiError('Export jobs unavailable', status, path)) : fallback(path, options))
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['exports', 'jobs'] }) })
+    await act(async () => { await vi.waitFor(() => expect(view.textContent).toContain('Export jobs unavailable')) })
+    if (status === 403) expect(view.textContent).not.toContain('private-report.csv')
+    else expect(view.textContent).toContain('private-report.csv')
+    const download = [...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Download export')
+    const remove = [...view.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Delete export')
+    expect(download === undefined || download.disabled).toBe(true)
+    expect(remove === undefined || remove.disabled).toBe(true)
+    act(() => { download?.click(); remove?.click() })
+    expect(exportPageDomMocks.apiDownload).not.toHaveBeenCalled()
+    expect(exportPageDomMocks.apiFetch.mock.calls.some(([path]) => path.endsWith('/cancel'))).toBe(false)
+  })
+
   it('cleans up the temporary download anchor and URL when the browser click fails', () => {
     vi.useFakeTimers()
     exportPageDomMocks.anchorClick.mockImplementationOnce(() => {

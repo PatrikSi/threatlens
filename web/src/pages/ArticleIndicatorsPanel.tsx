@@ -5,6 +5,7 @@ import { apiFetch } from '../api/client'
 import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type { Indicator, IndicatorPage } from '../types/indicators'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import { AssessmentTeamPicker } from './AssessmentTeamPicker'
@@ -69,23 +70,26 @@ function IndicatorList({
   unavailable: boolean
 }) {
   const [page, setPage] = useState(1)
+  const access = useQueryAccessScope(['item-indicators', itemId, teamId])
   const [selected, setSelected] = useState<{
     indicator: Indicator
     baseline: IndicatorPage
+    generation: number
   } | null>(null)
   const query = useQuery({
     queryKey: ['item-indicators', itemId, teamId, page],
-    queryFn: ({ signal }) =>
+    ...access.queryOptions(({ signal }) =>
       apiFetch<IndicatorPage>(
         `/items/${itemId}/indicators?page=${page}&page_size=20${teamId ? `&team_id=${teamId}` : ''}`,
         { signal },
-      ),
+      )),
     retry: false,
   })
-  const data = accessibleQueryData(query)
+  const data = query.data
   return (
     <div className="space-y-3">
       {query.isPending && <p role="status">Loading indicators…</p>}
+      {!data && !query.isError && access.denied && <p role="alert">Indicator access must be verified again. <button className={BUTTON} onClick={() => void query.refetch()}>Retry indicators</button></p>}
       {query.isError && (
         <p role="alert">
           {resolveApiErrorMessage(
@@ -155,7 +159,9 @@ function IndicatorList({
                 <button
                   className={`${BUTTON} mt-2`}
                   disabled={unavailable || query.isError}
-                  onClick={() => setSelected({ indicator, baseline: data })}
+                  onClick={() => {
+                    if (!unavailable && !query.isError && !access.denied) setSelected({ indicator, baseline: data, generation: access.generation })
+                  }}
                 >
                   {data.can_review
                     ? 'Review indicator'
@@ -202,18 +208,17 @@ function IndicatorList({
               </Link>
             )}
           </div>
-          {selected && (
-            <IndicatorReviewDialog
-              itemId={itemId}
-              teamId={teamId}
-              indicator={selected.indicator}
-              baseline={selected.baseline}
-              writable={data.can_review && !unavailable && !query.isError}
-              onClose={() => setSelected(null)}
-            />
-          )}
         </>
       )}
+      {selected && <IndicatorReviewDialog
+        itemId={itemId}
+        teamId={teamId}
+        indicator={selected.indicator}
+        baseline={selected.baseline}
+        sourceAvailable={Boolean(data) && selected.generation === access.generation}
+        writable={Boolean(data?.can_review) && !unavailable && !query.isError && selected.generation === access.generation}
+        onClose={() => setSelected(null)}
+      />}
     </div>
   )
 }

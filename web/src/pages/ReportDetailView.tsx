@@ -41,7 +41,15 @@ export function ReportDetailView({
         canManage={canManage}
       />
 
-      <ReportEditorialPanel key={`editorial:${report.id}`} report={report} canManage={canManage} canReview={controller.canAuthor} onDirtyChange={controller.setEditorialDirty} discard={controller.builderDraft.confirmDiscard} onRefresh={() => { void controller.reportDetailQuery.refetch() }} />
+      <ReportEditorialPanel
+        key={`editorial:${report.id}`}
+        report={report}
+        canManage={canManage && controller.detailReadAvailable}
+        canReview={controller.canAuthor && controller.detailReadAvailable}
+        onDirtyChange={controller.setEditorialDirty}
+        discard={controller.builderDraft.confirmDiscard}
+        onRefresh={() => { void controller.reportDetailQuery.refetch() }}
+      />
       {running && (
         <GenerationStatus
           status={report.status}
@@ -139,7 +147,7 @@ function ReportActions({
   running: boolean
   canManage: boolean
 }) {
-  const disabled = controller.detailActionPending
+  const disabled = controller.detailActionPending || !controller.detailReadAvailable
 
   return (
     <div className="flex flex-wrap gap-1.5" aria-busy={disabled}>

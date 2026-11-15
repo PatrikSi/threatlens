@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
-import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
 import { DialogSurface } from '../components/ConfirmDialog'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type {
   Indicator,
   IndicatorHistoryPage,
@@ -34,12 +34,17 @@ function initialDraft(indicator: Indicator) {
   }
 }
 
+function displayedReviewDraft(draft: ReturnType<typeof initialDraft>, readable: boolean, dirty: boolean): ReturnType<typeof initialDraft> {
+  return readable || dirty ? draft : { verdict: 'unreviewed', reason: '', expiry: '' }
+}
+
 export function IndicatorReviewDialog({
   itemId,
   teamId,
   indicator,
   baseline,
   writable,
+  sourceAvailable = true,
   onClose,
 }: {
   itemId: string
@@ -47,9 +52,12 @@ export function IndicatorReviewDialog({
   indicator: Indicator
   baseline: IndicatorPage
   writable: boolean
+  sourceAvailable?: boolean
   onClose: () => void
 }) {
   const client = useQueryClient()
+  const access = useQueryAccessScope(['item-indicators', itemId, teamId])
+  const [baselineAccess] = useState(() => access.captureResult()(true))
   const [draft, setDraft] = useState(() => initialDraft(indicator))
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyPage, setHistoryPage] = useState(1)
@@ -62,18 +70,28 @@ export function IndicatorReviewDialog({
   )
   const history = useQuery({
     queryKey: ['indicator-history', itemId, indicator.id, teamId, historyPage],
-    queryFn: ({ signal }) =>
+    ...access.queryOptions(({ signal }) =>
       apiFetch<IndicatorHistoryPage>(
         `${path}/history?team_id=${teamId}&page=${historyPage}&page_size=10`,
         { signal },
-      ),
+      )),
     enabled: historyOpen,
     retry: false,
   })
-  const historyData = accessibleQueryData(history)
+  const historyData = history.data
+  const baselineCurrent = Boolean(access.currentData(baselineAccess))
+  const readable = sourceAvailable && baselineCurrent
+  const displayedDraft = displayedReviewDraft(draft, readable, dirty)
+  function canSave() {
+    const historyState = client.getQueryState(['indicator-history', itemId, indicator.id, teamId, historyPage])
+    const listState = client.getQueryState(['item-indicators', itemId, teamId, baseline.page])
+    return writable && sourceAvailable && Boolean(access.currentData(baselineAccess)) && historyState?.status !== 'error' && listState?.status !== 'error'
+  }
   const save = useMutation({
-    mutationFn: () =>
-      apiFetch(`${path}?team_id=${teamId}`, {
+    mutationFn: () => {
+      if (!canSave()) throw new Error('Refresh the indicators and reopen this review before saving.')
+      const capture = access.captureResult()
+      return apiFetch(`${path}?team_id=${teamId}`, {
         method: 'PATCH',
         body: JSON.stringify({
           expected_version: indicator.assessment?.version ?? 0,
@@ -85,13 +103,14 @@ export function IndicatorReviewDialog({
             ? new Date(`${draft.expiry}:00Z`).toISOString()
             : null,
         }),
-      }),
-    onSuccess: () => {
+      }).then(capture)
+    },
+    onSuccess: (result) => {
       void client.invalidateQueries({ queryKey: ['item-indicators', itemId] })
       void client.invalidateQueries({
         queryKey: ['indicator-history', itemId, indicator.id],
       })
-      onClose()
+      if (access.currentData(result) !== undefined) onClose()
     },
   })
   const close = () => {
@@ -107,16 +126,17 @@ export function IndicatorReviewDialog({
       <DialogSurface
         open
         title="Review indicator for this team"
-        description={`Source revision ${baseline.source_revision}, extraction revision ${baseline.extraction_revision}. This verdict belongs to the selected team.`}
+        description={readable ? `Source revision ${baseline.source_revision}, extraction revision ${baseline.extraction_revision}. This verdict belongs to the selected team.` : 'Refresh the indicators and reopen this review to verify the saved evidence. Your unsaved notes are preserved.'}
         onClose={close}
         describeBody={false}
         panelClassName="max-w-3xl"
       >
-        <p className="mb-3 break-all font-mono text-sm">
+        {readable && <><p className="mb-3 break-all font-mono text-sm">
           {indicator.type}: {indicator.value}
         </p>
         <IndicatorEvidence indicator={indicator} />
-        {indicator.assessment && !indicator.assessment.current && (
+        </>}
+        {readable && indicator.assessment && !indicator.assessment.current && (
           <p role="status" className="mt-2">
             The saved verdict is expired or belongs to older evidence. Saving
             reviews the revision shown here.
@@ -133,14 +153,14 @@ export function IndicatorReviewDialog({
           </p>
         )}
         <fieldset
-          disabled={!writable || save.isPending}
+          disabled={!writable || !readable || history.isError || save.isPending}
           className="mt-3 space-y-3"
         >
           <label className="block text-sm">
             Analyst verdict
             <select
               className={INPUT}
-              value={draft.verdict}
+              value={displayedDraft.verdict}
               onChange={(event) =>
                 setDraft({
                   ...draft,
@@ -161,7 +181,7 @@ export function IndicatorReviewDialog({
               className={INPUT}
               maxLength={2000}
               rows={3}
-              value={draft.reason}
+              value={displayedDraft.reason}
               onChange={(event) =>
                 setDraft({ ...draft, reason: event.target.value })
               }
@@ -172,7 +192,7 @@ export function IndicatorReviewDialog({
             <input
               className={INPUT}
               type="datetime-local"
-              value={draft.expiry}
+              value={displayedDraft.expiry}
               onChange={(event) =>
                 setDraft({ ...draft, expiry: event.target.value })
               }
@@ -201,6 +221,7 @@ export function IndicatorReviewDialog({
           {history.isPending && historyOpen && (
             <p role="status">Loading history…</p>
           )}
+          {historyOpen && !historyData && !history.isError && access.denied && <p role="alert">Review history access must be verified again. <button className={BUTTON} onClick={() => void history.refetch()}>Retry history</button></p>}
           {history.isError && (
             <p role="alert">
               {resolveApiErrorMessage(

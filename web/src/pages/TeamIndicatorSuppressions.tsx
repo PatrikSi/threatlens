@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
-import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type {
   IndicatorHistoryPage,
   IndicatorSuppression,
@@ -38,6 +38,26 @@ function draftFrom(rule: IndicatorSuppression | null) {
   }
 }
 
+function suppressionEditorState(input: {
+  data: IndicatorSuppressionPage | undefined
+  writable: boolean
+  readFailed: boolean
+  baselineCurrent: boolean
+  pending: boolean
+  dirty: boolean
+  baseline: IndicatorSuppression | null
+  expiry: string
+}) {
+  const canManage = Boolean(input.data?.can_manage)
+  return {
+    visible: (canManage || Boolean(input.baseline)) && (input.baselineCurrent || input.dirty),
+    disabled: !input.writable || !canManage || input.readFailed || !input.baselineCurrent || input.pending,
+    expiryInvalid: Boolean(input.expiry && (
+      !Number.isFinite(Date.parse(`${input.expiry}:00Z`)) || Date.parse(`${input.expiry}:00Z`) <= Date.now()
+    )),
+  }
+}
+
 export function TeamIndicatorSuppressions({
   teamId,
   writable,
@@ -46,6 +66,8 @@ export function TeamIndicatorSuppressions({
   writable: boolean
 }) {
   const [page, setPage] = useState(1)
+  const access = useQueryAccessScope(['indicator-suppressions', teamId])
+  const [baselineAccess, setBaselineAccess] = useState(() => access.captureResult()(true))
   const [baseline, setBaseline] = useState<IndicatorSuppression | null>(null)
   const [draft, setDraft] = useState(() => draftFrom(null))
   const [notice, setNotice] = useState('')
@@ -53,21 +75,31 @@ export function TeamIndicatorSuppressions({
   const base = `/teams/${teamId}/indicator-suppressions`
   const query = useQuery({
     queryKey: ['indicator-suppressions', teamId, page],
-    queryFn: ({ signal }) =>
+    ...access.queryOptions(({ signal }) =>
       apiFetch<IndicatorSuppressionPage>(`${base}?page=${page}&page_size=20`, {
         signal,
-      }),
+      })),
     refetchInterval: 30_000,
   })
-  const data = accessibleQueryData(query)
+  const data = query.data
+  const baselineCurrent = Boolean(access.currentData(baselineAccess))
+  function currentRead() {
+    const key = ['indicator-suppressions', teamId, page]
+    return client.getQueryState(key)?.status === 'error' ? undefined : access.currentData<IndicatorSuppressionPage>(client.getQueryData(key))
+  }
   const dirty = JSON.stringify(draft) !== JSON.stringify(draftFrom(baseline))
   const discard = useUnsavedChangesWarning(
     dirty,
     'Discard unsaved indicator suppression changes?',
   )
   const save = useMutation({
-    mutationFn: () =>
-      apiFetch<IndicatorSuppression>(
+    mutationFn: () => {
+      const current = currentRead()
+      if (!writable || !current?.can_manage || !access.currentData(baselineAccess) || baseline && current.items.some((rule) => rule.id === baseline.id && rule.version !== baseline.version)) {
+        throw new Error('Refresh suppressions and select the rule again before saving.')
+      }
+      const capture = access.captureResult()
+      return apiFetch<IndicatorSuppression>(
         `${base}${baseline ? `/${baseline.id}` : ''}`,
         {
           method: baseline ? 'PATCH' : 'POST',
@@ -82,8 +114,11 @@ export function TeamIndicatorSuppressions({
               : null,
           }),
         },
-      ),
-    onSuccess: (saved) => {
+      ).then(capture)
+    },
+    onSuccess: (result) => {
+      const saved = access.currentData(result)
+      if (!saved) return
       setBaseline(saved)
       setDraft(draftFrom(saved))
       setNotice('Team suppression saved.')
@@ -96,22 +131,27 @@ export function TeamIndicatorSuppressions({
       })
     },
   })
-  const select = (rule: IndicatorSuppression | null) =>
+  const select = (rule: IndicatorSuppression | null) => {
+    const selected = access.captureResult()(rule)
+    const selectionAccess = access.captureResult()(true)
+    if (!currentRead()) return
     discard(() => {
+      if (access.currentData(selected) === undefined || !currentRead()) return
       setBaseline(rule)
+      setBaselineAccess(selectionAccess)
       setDraft(draftFrom(rule))
       setNotice('')
       save.reset()
     })
+  }
   const current = data?.items.find((rule) => rule.id === baseline?.id)
   const changedElsewhere = Boolean(
     current && current.version !== baseline?.version,
   )
-  const expiryInvalid = Boolean(
-    draft.expiry &&
-      (!Number.isFinite(Date.parse(`${draft.expiry}:00Z`)) ||
-        Date.parse(`${draft.expiry}:00Z`) <= Date.now()),
-  )
+  const editor = suppressionEditorState({
+    data, writable, readFailed: query.isError, baselineCurrent, pending: save.isPending,
+    dirty, baseline, expiry: draft.expiry,
+  })
   return (
     <section aria-label="Team indicator suppressions" className="space-y-3">
       <h2 className="font-semibold">Indicator suppressions</h2>
@@ -122,6 +162,7 @@ export function TeamIndicatorSuppressions({
       </p>
       {discard.discardDialog}
       {query.isPending && <p role="status">Loading suppressions…</p>}
+      {!data && !query.isError && access.denied && <p role="alert">Suppression access must be verified again. Your draft is preserved. <button className={BUTTON} onClick={() => void query.refetch()}>Retry suppressions</button></p>}
       {query.isError && (
         <p role="alert">
           {resolveApiErrorMessage(
@@ -161,7 +202,7 @@ export function TeamIndicatorSuppressions({
               <p className="whitespace-pre-wrap break-words">{rule.reason}</p>
               <button
                 className={BUTTON}
-                disabled={save.isPending}
+                disabled={save.isPending || query.isError}
                 onClick={() => select(rule)}
               >
                 {data.can_manage ? 'Edit suppression' : 'Inspect suppression'}
@@ -194,13 +235,14 @@ export function TeamIndicatorSuppressions({
           {data.can_manage && (
             <button
               className={BUTTON}
-              disabled={save.isPending}
+              disabled={save.isPending || query.isError}
               onClick={() => select(null)}
             >
               New suppression
             </button>
           )}
-          {(data.can_manage || baseline) && (
+          {!baselineCurrent && !dirty && <p role="status">Access changed after this selection. Select a suppression again to load its verified saved state.</p>}
+          {editor.visible && (
             <div className="space-y-3 border-t border-slate/20 pt-3">
               <h3 className="font-semibold">
                 {baseline ? 'Selected suppression' : 'Create suppression'}
@@ -212,6 +254,7 @@ export function TeamIndicatorSuppressions({
                   preserving your changes.
                 </p>
               )}
+              {!access.currentData(baselineAccess) && <p role="status">Access changed after this draft was opened. Your notes are preserved. Select the suppression again after refreshing before saving.</p>}
               {notice && <p role="status">{notice}</p>}
               {save.isError && (
                 <p role="alert">
@@ -222,12 +265,7 @@ export function TeamIndicatorSuppressions({
                 </p>
               )}
               <fieldset
-                disabled={
-                  !writable ||
-                  !data.can_manage ||
-                  query.isError ||
-                  save.isPending
-                }
+                disabled={editor.disabled}
                 className="space-y-3"
               >
                 <label className="block text-sm">
@@ -292,7 +330,7 @@ export function TeamIndicatorSuppressions({
                   />
                   Suppression active
                 </label>
-                {expiryInvalid && (
+                {editor.expiryInvalid && (
                   <p role="alert">
                     Choose a future UTC expiry or leave it empty.
                   </p>
@@ -303,7 +341,7 @@ export function TeamIndicatorSuppressions({
                     !dirty ||
                     !draft.value.trim() ||
                     !draft.reason.trim() ||
-                    expiryInvalid ||
+                    editor.expiryInvalid ||
                     changedElsewhere
                   }
                   onClick={() => save.mutate()}
@@ -315,6 +353,7 @@ export function TeamIndicatorSuppressions({
                 <SuppressionHistory
                   key={baseline.id}
                   base={base}
+                  teamId={teamId}
                   ruleId={baseline.id}
                 />
               )}
@@ -329,22 +368,25 @@ export function TeamIndicatorSuppressions({
 function SuppressionHistory({
   base,
   ruleId,
+  teamId,
 }: {
   base: string
   ruleId: string
+  teamId: string
 }) {
+  const access = useQueryAccessScope(['indicator-suppressions', teamId])
   const [open, setOpen] = useState(false)
   const [page, setPage] = useState(1)
   const query = useQuery({
     queryKey: ['suppression-history', ruleId, page],
-    queryFn: ({ signal }) =>
+    ...access.queryOptions(({ signal }) =>
       apiFetch<IndicatorHistoryPage>(
         `${base}/${ruleId}/history?page=${page}&page_size=10`,
         { signal },
-      ),
+      )),
     enabled: open,
   })
-  const data = accessibleQueryData(query)
+  const data = query.data
   return (
     <details
       open={open}

@@ -48,7 +48,12 @@ export function ReportLibrary({ controller }: { controller: Pick<ReportingContro
       {library.filterError && <p role="alert" className="p-3 text-sm text-red-700 dark:text-red-300">{library.filterError}</p>}
       {controller.reportsQuery.isLoading && <p role="status" className="p-4 text-sm text-slate dark:text-slate-300">Loading reports...</p>}
       {controller.reportsQuery.isError && <p role="alert" className="p-4 text-sm text-red-700 dark:text-red-300">{resolveApiErrorMessage(controller.reportsQuery.error, 'Reports could not be loaded')}</p>}
-      {!controller.reportsQuery.isLoading && !controller.reportsQuery.isError && !library.filterError && !reports.length && <p className="p-4 text-sm text-slate dark:text-slate-300">No reports match this scope. Clear the filters to check other reports available to your account.</p>}
+      {library.accessDenied && !controller.reportsQuery.isError && <p role="status" className="p-4 text-sm text-slate dark:text-slate-300">Verifying current report access…</p>}
+      {!library.accessDenied && !controller.reportsQuery.isLoading && !controller.reportsQuery.isError && !library.filterError && !reports.length && (
+        <p className="p-4 text-sm text-slate dark:text-slate-300">
+          No reports match this scope. Clear the filters to check other reports available to your account.
+        </p>
+      )}
       {reports.length > 0 && (
         <>
           <div className="hidden overflow-x-auto md:block">

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 
 import { apiDownload, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { accessibleQueryData } from '../api/queryData'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { useExportJobs } from './useExportJobs'
 import type {
   ArticleExportCapabilities,
@@ -25,6 +27,7 @@ import {
 
 export function useExportPageController() {
   const jobs = useExportJobs()
+  const exportAccess = useQueryAccessScope(['exports'])
   const [filterDraft, setFilterDraft] = useState(createDefaultExportFilterDraft)
   const [format, setFormatState] = useState<ArticleExportFormat>('csv')
   const [options, setOptions] = useState<ArticleExportOptions>(() => createDefaultExportOptions('csv'))
@@ -43,23 +46,27 @@ export function useExportPageController() {
 
   const capabilitiesQuery = useQuery({
     queryKey: ['exports', 'capabilities'],
-    queryFn: ({ signal }) => apiFetch<ArticleExportCapabilities>('/exports/capabilities', { signal }),
-    staleTime: 5 * 60_000,
+    ...exportAccess.queryOptions(({ signal }) => apiFetch<ArticleExportCapabilities>('/exports/capabilities', { signal }), 5 * 60_000),
   })
+  const capabilities = accessibleQueryData(capabilitiesQuery)
 
   const validation = useMemo(() => validateExportFilterDraft(filterDraft), [filterDraft])
   const debouncedFilters = useDebouncedValue(validation.filters, 450)
   const previewQuery = useQuery({
     queryKey: ['exports', 'preview', debouncedFilters],
-    queryFn: ({ signal }) =>
+    ...exportAccess.queryOptions(({ signal }) =>
       apiFetch<ArticleExportPreview>('/exports/preview', {
         method: 'POST',
         body: JSON.stringify({ filters: debouncedFilters }),
         signal,
-      }),
-    enabled: debouncedFilters !== null && capabilitiesQuery.isSuccess,
-    placeholderData: keepPreviousData,
+      })),
+    enabled: debouncedFilters !== null && capabilitiesQuery.isSuccess && Boolean(capabilities),
+    // Reject retired cache envelopes before TanStack marks them as a successful
+    // placeholder. Selecting that placeholder to undefined alternates its
+    // pending/success snapshots and can repeatedly rerender the observer.
+    placeholderData: (previous) => exportAccess.currentData(previous) === undefined ? undefined : previous,
   })
+  const preview = capabilities ? accessibleQueryData(previewQuery) : undefined
 
   const exportMutation = useMutation({
     mutationFn: async (request: ArticleExportRequest) => {
@@ -89,7 +96,6 @@ export function useExportPageController() {
   })
 
   useEffect(() => {
-    const capabilities = capabilitiesQuery.data
     if (!capabilities) {
       return
     }
@@ -109,17 +115,19 @@ export function useExportPageController() {
         ? current
         : next
     })
-  }, [capabilitiesQuery.data])
+  }, [capabilities])
 
   const previewIsCurrent = validation.filters === debouncedFilters
-  const blockingReason = validation.errors.length
-    ? validation.errors[0]
-    : !previewIsCurrent
-      ? 'Wait for the matching article preview to update.'
-      : previewQuery.isError
-        ? 'The matching article preview must load before an export can be generated.'
-        : exportBlockingReason(previewQuery.data, format, validation.errors)
-  const canExport = !blockingReason && !previewQuery.isFetching && !exportMutation.isPending && !jobs.createMutation.isPending
+  const blockingReason = capabilitiesQuery.isError || exportAccess.denied
+    ? 'Export options must load before an export can be generated.'
+    : validation.errors.length
+      ? validation.errors[0]
+      : !previewIsCurrent
+        ? 'Wait for the matching article preview to update.'
+        : previewQuery.isError || exportAccess.denied
+          ? 'The matching article preview must load before an export can be generated.'
+          : exportBlockingReason(preview, format, validation.errors)
+  const canExport = Boolean(capabilities) && !blockingReason && !previewQuery.isFetching && !exportMutation.isPending && !jobs.createMutation.isPending
   const exportError = exportMutation.isError
     ? resolveApiErrorMessage(exportMutation.error, 'The article export could not be generated')
     : null
@@ -149,7 +157,9 @@ export function useExportPageController() {
 
   return {
     capabilitiesQuery,
+    capabilities,
     previewQuery,
+    preview,
     exportMutation,
     jobs,
     filterDraft,

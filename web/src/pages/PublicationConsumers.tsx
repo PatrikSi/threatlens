@@ -5,6 +5,7 @@ import { resolveApiErrorMessage } from '../api/errors'
 import { accessibleQueryData } from '../api/queryData'
 import { captureSessionLease } from '../api/sessionLifecycle'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type { IndicatorPublication } from '../types/indicatorPublications'
 import { createSecureRequestId } from '../utils/secureRandomId'
 import { TEAM_BUTTON } from './teamPresentation'
@@ -36,52 +37,74 @@ export function PublicationConsumers({ teamId, publications }: { teamId: string;
 
 function ConsumerManager({ teamId, publications }: { teamId: string; publications: IndicatorPublication[] }) {
   const client = useQueryClient()
+  const access = useQueryAccessScope(['publication-consumers', teamId])
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const [name, setName] = useState('')
   const creation = useRef<{ name: string; id: string } | null>(null)
-  const [secret, setSecret] = useState<string | null>(null)
+  const [secretData, setSecretData] = useState<{ generation: number; value: string } | null>(null)
+  const secret = access.currentData(secretData ?? undefined)
   const [consumerId, setConsumerId] = useState('')
   const [publicationId, setPublicationId] = useState('')
-  const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
+  const [confirmationData, setConfirmationData] = useState<{ generation: number; value: Confirmation } | null>(null)
+  const confirmation = access.currentData(confirmationData ?? undefined)
+  function setConfirmation(value: Confirmation | null) {
+    setConfirmationData(value ? { generation: access.generation, value } : null)
+  }
   const endpoint = `/teams/${teamId}/publication-consumers`
   const consumers = useQuery({
     queryKey: ['publication-consumers', teamId], retry: false,
-    queryFn: ({ signal }) => apiFetch<Consumer[]>(endpoint, { signal }),
+    ...access.queryOptions(async ({ signal }) => {
+      try {
+        return await apiFetch<Consumer[]>(endpoint, { signal })
+      } catch (error) {
+        if (mounted.current) setConfirmation(null)
+        throw error
+      }
+    }),
   })
   const action = useMutation({
     mutationFn: async (input: Command) => {
       const lease = captureSessionLease()
-      const response = await apiFetch<Consumer & { token?: string } | undefined>(endpoint + input.path, {
-        method: input.method,
-        ...(input.body ? { body: JSON.stringify(input.body) } : {}),
+      return access.read(async () => {
+        const response = await apiFetch<Consumer & { token?: string } | undefined>(endpoint + input.path, {
+          method: input.method,
+          ...(input.body ? { body: JSON.stringify(input.body) } : {}),
+        })
+        lease.assertCurrent()
+        return response?.token
       })
-      lease.assertCurrent()
-      return response?.token
     },
-    onSuccess: (token) => {
+    onSuccess: (response) => {
       void client.invalidateQueries({ queryKey: ['publication-consumers', teamId] })
       if (!mounted.current) return
-      if (token) { setSecret(token); creation.current = null }
+      const token = access.currentData(response)
+      if (token) { setSecretData({ generation: response.generation, value: token }); creation.current = null }
       setConfirmation(null)
     },
   })
-  const accessLost = action.error instanceof ApiError && [401, 403, 404].includes(action.error.status)
+  const accessLost = access.denied || action.error instanceof ApiError && [401, 403, 404].includes(action.error.status)
   const values = accessLost ? undefined : accessibleQueryData(consumers)
-  const blocked = action.isPending || !values
+  const blocked = action.isPending || consumers.isError || !values
+  useEffect(() => {
+    if (access.denied) {
+      setSecretData(null)
+      setConfirmationData(null)
+    }
+  }, [access.denied])
   const alreadyRegistered = action.error instanceof ApiError && action.error.code === 'consumer_already_registered'
   const eligibleConsumers = values?.filter((row) => !row.revoked_at && !row.retired_at) ?? []
   const currentPublications = publications.filter((row) => row.status !== 'withdrawn')
   const canSubscribe = eligibleConsumers.some((row) => row.id === consumerId)
     && currentPublications.some((row) => row.id === publicationId)
   function refreshAccess() {
-    setSecret(null)
+    setSecretData(null)
     setConfirmation(null)
     action.reset()
     void consumers.refetch()
   }
   function confirmAction() {
-    if (!confirmation) return
+    if (!confirmation || blocked) return
     const { row, operation } = confirmation
     action.mutate({
       path: `/${row.id}${operation === 'revoke' ? '' : `/${operation}`}`,
@@ -91,6 +114,7 @@ function ConsumerManager({ teamId, publications }: { teamId: string; publication
   return <div className="space-y-3">
     <p className="text-sm">Receiver credentials can read opaque publication IDs and acknowledge changes. Configure a separate current scoped API credential for evidence downloads. Custodian access loss permanently withdraws that consumer’s subscriptions.</p>
     {consumers.isPending && <p role="status">Loading consumers…</p>}
+    {action.isPending && !confirmation && <p role="status">Updating consumer…</p>}
     {(consumers.error || accessLost) && <p role="alert">
       {resolveApiErrorMessage(consumers.error ?? action.error, 'Consumer administration requires current team-manager and article access.')}
       {' '}<button type="button" className={TEAM_BUTTON} onClick={refreshAccess}>Retry consumer access</button>
@@ -100,10 +124,11 @@ function ConsumerManager({ teamId, publications }: { teamId: string; publication
         <p>Copy this receiver token now. It is shown once; rotation invalidates the previous token.</p>
         <code className="break-all select-all">{secret}</code>
         <br />
-        <button type="button" className={TEAM_BUTTON} onClick={() => { setSecret(null); action.reset() }}>I have stored the token</button>
+        <button type="button" className={TEAM_BUTTON} onClick={() => { setSecretData(null); action.reset() }}>I have stored the token</button>
       </div>}
       <form onSubmit={(event) => {
         event.preventDefault()
+        if (blocked || secret) return
         const label = name.trim()
         if (!creation.current || creation.current.name !== label) creation.current = { name: label, id: createSecureRequestId() }
         action.mutate({ path: '', method: 'POST', body: { name: label, idempotency_key: creation.current.id } })
@@ -130,7 +155,7 @@ function ConsumerManager({ teamId, publications }: { teamId: string; publication
           <button type="button" className={TEAM_BUTTON} disabled={blocked || !row.retired_at}
             onClick={() => setConfirmation({ row, operation: 'archive' })}>Archive acknowledged consumer</button>
           <button type="button" className={TEAM_BUTTON} disabled={blocked || !!secret}
-            onClick={() => action.mutate({ path: `/${row.id}/rotate`, method: 'POST' })}>Rotate credential</button>
+            onClick={() => { if (!blocked && !secret) action.mutate({ path: `/${row.id}/rotate`, method: 'POST' }) }}>Rotate credential</button>
           <button type="button" className={TEAM_BUTTON} disabled={blocked || !!row.revoked_at}
             onClick={() => setConfirmation({ row, operation: 'revoke' })}>Revoke credential</button>
         </div>
@@ -147,14 +172,16 @@ function ConsumerManager({ teamId, publications }: { teamId: string; publication
           <option value="">Select publication on this page</option>
           {currentPublications.map((row) => <option key={row.id} value={row.id}>{row.format} · revision {row.revision} · {new Date(row.created_at).toLocaleString()}</option>)}
         </select></label>
-        <button type="button" className={TEAM_BUTTON} disabled={!canSubscribe} onClick={() => action.mutate({ path: `/${consumerId}/subscriptions`, method: 'POST', body: { publication_id: publicationId } })}>Subscribe publication</button>
+        <button type="button" className={TEAM_BUTTON} disabled={!canSubscribe} onClick={() => {
+          if (!blocked && canSubscribe) action.mutate({ path: `/${consumerId}/subscriptions`, method: 'POST', body: { publication_id: publicationId } })
+        }}>Subscribe publication</button>
       </fieldset>
       {action.isSuccess && !secret && <p role="status">Consumer updated.</p>}
     </>}
     {action.error && !accessLost && !confirmation && <p role="alert">{resolveApiErrorMessage(action.error, 'Consumer update failed. Retry with current access.')}</p>}
-    <ConfirmDialog open={!!confirmation && !!values} title={confirmation ? `${CONFIRMATION_COPY[confirmation.operation][0]}: ${confirmation.row.name}` : ''}
+    <ConfirmDialog open={!!confirmation && !!values && !consumers.isError} title={confirmation ? `${CONFIRMATION_COPY[confirmation.operation][0]}: ${confirmation.row.name}` : ''}
       description={confirmation ? CONFIRMATION_COPY[confirmation.operation][1] : ''}
-      confirmLabel="Confirm consumer change" isConfirming={action.isPending} onConfirm={confirmAction} onCancel={() => setConfirmation(null)}>
+      confirmLabel="Confirm consumer change" isConfirming={action.isPending} confirmDisabled={blocked} onConfirm={confirmAction} onCancel={() => setConfirmation(null)}>
       {action.error && !accessLost && <p role="alert">{resolveApiErrorMessage(action.error, 'Consumer update failed. Retry with current access.')}</p>}
     </ConfirmDialog>
   </div>

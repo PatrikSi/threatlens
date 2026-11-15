@@ -143,11 +143,12 @@ describe('team destination lifecycle', () => {
       created_at: '2026-09-27T00:00:00Z',
       updated_at: '2026-09-27T00:00:00Z',
     }
+    let latestSaved = saved
     const pending = deferred<object>()
     vi.mocked(apiFetch).mockImplementation((path, options) =>
       options?.method === 'PUT'
         ? pending.promise
-        : Promise.resolve(path === '/feeds' || path === '/notifications/template-variables' ? [] : saved),
+        : Promise.resolve(path === '/feeds' || path === '/notifications/template-variables' ? [] : latestSaved),
     )
     view = await mountIntel(
       <TeamIntegrationConfiguration
@@ -157,12 +158,11 @@ describe('team destination lifecycle', () => {
       />,
     )
     edit(field('Destination name'), 'Unsaved edit')
-    act(() =>
-      view!.client.setQueryData(
-        ['teams', 'integration-configuration', '/teams/team/integrations/dest'],
-        { ...saved, ownership_revision: 3, name: 'Changed remotely' },
-      ),
-    )
+    latestSaved = { ...saved, ownership_revision: 3, name: 'Changed remotely' }
+    await act(async () => {
+      await view!.client.invalidateQueries({ queryKey: ['teams', 'integration-configuration', '/teams/team/integrations/dest'] })
+    })
+    await settle()
     expect(field('Destination name').value).toBe('Unsaved edit')
     act(() => intelButton(view!.host, 'Save team destination').click())
     await settle()

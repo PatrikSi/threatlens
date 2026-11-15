@@ -4,12 +4,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiDownload, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { captureSessionLease } from '../api/sessionLifecycle'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type { ArticleExportJob, ArticleExportJobList, ArticleExportJobRequest, ArticleExportRequest } from '../types/exports'
 import { createSecureRequestId } from '../utils/secureRandomId'
 import { defaultExportFilename, triggerBrowserDownload } from './exportPageModel'
 
 export function useExportJobs() {
   const client = useQueryClient()
+  const access = useQueryAccessScope(['exports'])
   const [page, setPage] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
   const [preparationError, setPreparationError] = useState<string | null>(null)
@@ -26,8 +28,8 @@ export function useExportJobs() {
 
   const jobsQuery = useQuery({
     queryKey: ['exports', 'jobs', page],
-    queryFn: ({ signal }) => apiFetch<ArticleExportJobList>(`/exports/jobs?limit=25&offset=${page * 25}`, { signal }),
-    refetchInterval: (query) => query.state.data?.items.some((job) => ['queued', 'running'].includes(job.status)) ? 5_000 : 30_000,
+    ...access.queryOptions(({ signal }) => apiFetch<ArticleExportJobList>(`/exports/jobs?limit=25&offset=${page * 25}`, { signal })),
+    refetchInterval: (query) => access.currentData(query.state.data)?.items.some((job) => ['queued', 'running'].includes(job.status)) ? 5_000 : 30_000,
   })
   const refresh = () => client.invalidateQueries({ queryKey: ['exports', 'jobs'] })
   const createMutation = useMutation({
@@ -91,7 +93,7 @@ export function useExportJobs() {
 
   const error = createMutation.error ?? cancelMutation.error ?? downloadMutation.error
   return {
-    page, setPage, jobsQuery, createMutation, cancelMutation, downloadMutation, queueExport,
+    page, setPage, jobsQuery, createMutation, cancelMutation, downloadMutation, queueExport, accessDenied: access.denied,
     notice, error: preparationError ?? (error ? resolveApiErrorMessage(error, 'The background export request could not be completed') : null),
   }
 }

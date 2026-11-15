@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
+import { accessibleQueryData } from '../api/queryData'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type { ReportLibraryPage, ReportListItem } from '../types/api'
 
 export const REPORT_LIBRARY_PAGE_SIZE = 25
@@ -32,6 +34,7 @@ export function reportLibraryPath(filters: ReportLibraryFilters, cursor: string 
 
 export function useReportLibrary() {
   const queryClient = useQueryClient()
+  const access = useQueryAccessScope(['reports', 'library'])
   const [navigation, setNavigation] = useState<{ index: number; cursors: Array<string | null> }>({ index: 0, cursors: [null] })
   const [filters, setFilters] = useState<ReportLibraryFilters>(EMPTY_FILTERS)
   const page = navigation.index + 1
@@ -40,29 +43,30 @@ export function useReportLibrary() {
   const path = reportLibraryPath(filters, navigation.cursors[navigation.index])
   const query = useQuery({
     queryKey: ['reports', 'library', path],
-    queryFn: ({ signal }) => apiFetch<ReportLibraryPage>(path, { signal }),
+    ...access.queryOptions(({ signal }) => apiFetch<ReportLibraryPage>(path, { signal })),
     enabled: !filterError,
     refetchInterval: 10_000,
   })
   useEffect(() => {
-    if (query.isSuccess && !query.isFetching && query.data.items.length === 0 && page > 1) {
+    if (query.isSuccess && !query.isFetching && query.data?.items.length === 0 && page > 1) {
       setNavigation((current) => ({ ...current, index: Math.max(0, current.index - 1) }))
     }
   }, [query.isSuccess, query.isFetching, query.data, page])
-  const reports = filterError ? [] : query.data?.items ?? []
+  const data = accessibleQueryData(query)
+  const reports = filterError ? [] : data?.items ?? []
   const reset = () => setNavigation({ index: 0, cursors: [null] })
   return {
-    query, page, filters, filterError, reports,
-    hasNextPage: Boolean(query.data?.next_cursor),
+    query, page, filters, filterError, reports, accessDenied: access.denied,
+    hasNextPage: Boolean(data?.next_cursor),
     first: reports.length ? navigation.index * REPORT_LIBRARY_PAGE_SIZE + 1 : 0,
     last: navigation.index * REPORT_LIBRARY_PAGE_SIZE + reports.length,
-    asOf: query.data?.as_of,
+    asOf: data?.as_of,
     setPage: (next: number) => {
       if (query.isFetching) return
       if (next === page - 1 && page > 1) setNavigation((current) => ({ ...current, index: current.index - 1 }))
-      else if (next === page + 1 && query.data?.next_cursor) {
-        const current = query.data.current_cursor
-        const following = query.data.next_cursor
+      else if (next === page + 1 && data?.next_cursor) {
+        const current = data.current_cursor
+        const following = data.next_cursor
         setNavigation((previous) => ({ index: previous.index + 1,
           cursors: [...previous.cursors.slice(0, previous.index), current, following] }))
       }

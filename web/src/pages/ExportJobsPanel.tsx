@@ -1,9 +1,11 @@
 import { resolveApiErrorMessage } from '../api/errors'
+import { accessibleQueryData } from '../api/queryData'
 import type { ExportJobsController } from './useExportJobs'
 
 export function ExportJobsPanel({ controller }: { controller: ExportJobsController }) {
   const { jobsQuery, page, setPage, cancelMutation, downloadMutation } = controller
-  const jobs = jobsQuery.data?.items ?? []
+  const data = accessibleQueryData(jobsQuery)
+  const jobs = data?.items ?? []
   return (
     <section aria-labelledby="background-export-heading" className="rounded-lg border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex items-start justify-between gap-3">
@@ -17,8 +19,9 @@ export function ExportJobsPanel({ controller }: { controller: ExportJobsControll
       {controller.error && <p role="alert" className="mt-3 text-sm text-red-700 dark:text-red-300">{controller.error}</p>}
       {controller.createMutation.isError && <p className="mt-1 text-sm">Check the job list before starting another export. Retrying the same background request reuses its operation key.</p>}
       {jobsQuery.isError && <p role="alert" className="mt-3 text-sm text-red-700 dark:text-red-300">{resolveApiErrorMessage(jobsQuery.error, 'Background export status could not be loaded. Refresh to retry.')}</p>}
+      {controller.accessDenied && !jobsQuery.isError && <p role="status" className="mt-3 text-sm">Verifying current background export access…</p>}
       {jobsQuery.isLoading && <p role="status" className="mt-3 text-sm">Loading background exports...</p>}
-      {jobsQuery.isSuccess && jobs.length === 0 && <p className="mt-3 text-sm">No background exports on this page.</p>}
+      {jobsQuery.isSuccess && data && jobs.length === 0 && <p className="mt-3 text-sm">No background exports on this page.</p>}
       <ul className="mt-3 space-y-3">
         {jobs.map((job) => (
           <li key={job.id} className="rounded border border-slate/20 p-3 dark:border-white/10">
@@ -37,7 +40,7 @@ export function ExportJobsPanel({ controller }: { controller: ExportJobsControll
                   <button
                     type="button"
                     className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
-                    disabled={downloadMutation.isPending}
+                    disabled={downloadMutation.isPending || jobsQuery.isError}
                     onClick={() => downloadMutation.mutate(job)}
                   >
                     {downloadMutation.isPending && downloadMutation.variables?.id === job.id ? 'Downloading...' : 'Download export'}
@@ -47,7 +50,7 @@ export function ExportJobsPanel({ controller }: { controller: ExportJobsControll
                   <button
                     type="button"
                     className="rounded border px-3 py-2 text-sm disabled:opacity-50"
-                    disabled={cancelMutation.isPending}
+                    disabled={cancelMutation.isPending || jobsQuery.isError}
                     onClick={() => cancelMutation.mutate(job.id)}
                   >
                     {cancelMutation.isPending && cancelMutation.variables === job.id ? 'Cancelling...' : job.status === 'ready' ? 'Delete export' : 'Cancel export'}
@@ -61,7 +64,7 @@ export function ExportJobsPanel({ controller }: { controller: ExportJobsControll
       <nav aria-label="Background export pages" className="mt-3 flex items-center justify-between gap-3 text-sm">
         <button type="button" className="rounded border px-3 py-1.5 disabled:opacity-50" disabled={page === 0 || jobsQuery.isFetching} onClick={() => setPage(page - 1)}>Previous jobs</button>
         <span>Page {page + 1}</span>
-        <button type="button" className="rounded border px-3 py-1.5 disabled:opacity-50" disabled={!jobsQuery.data?.has_more || jobsQuery.isFetching} onClick={() => setPage(page + 1)}>Next jobs</button>
+        <button type="button" className="rounded border px-3 py-1.5 disabled:opacity-50" disabled={!data?.has_more || jobsQuery.isFetching} onClick={() => setPage(page + 1)}>Next jobs</button>
       </nav>
     </section>
   )

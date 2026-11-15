@@ -57,6 +57,9 @@ function ReportingContent({ controller }: { controller: ReportingController }) {
       />
     )
   }
+  if (controller.detailSelected) {
+    return <PageError message="Report access must be verified again before its saved content is shown." onRetry={() => void controller.reportDetailQuery.refetch()} />
+  }
 
   return (
     <div className="space-y-3 sm:space-y-4">

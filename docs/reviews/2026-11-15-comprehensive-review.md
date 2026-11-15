@@ -356,6 +356,47 @@ receivers and explicit ASGI 2.4 scopes. All 18 scratch/transport/policy-lifetime
 cases pass afterward, and Ruff passes. This is test-client compatibility; the
 production transfer deadline and cleanup implementation are unchanged.
 
+### N09 — cached private reads and stale action admission
+
+Confirmed access-loss regressions now retire cached report previews, report
+details and libraries, export contexts, publication metadata, indicator reviews,
+team assessments, suppression rules, team selectors and token inventory.
+Resource generations belong to the existing session QueryClient. A later
+ordinary outage cannot restore a response from before a denied read; only a
+new authorized read can establish a current baseline. Mutation results capture
+their original admission and cannot grant read access on completion. Ordinary
+outages retain useful readable context while actions requiring that context
+pause. Existing analyst drafts and independent permission families are retained.
+
+Changed source comprises `web/src/hooks/useQueryAccessScope.ts` and the paired
+page controllers, renderers and regression cases staged in the N09 increment.
+Independent source reviews cover the frozen implementation; root's current
+serial Vitest runs pass all 154 report/export/assessment/team controls and all
+70 token/report controls (overlapping tests are not added together). Evidence is
+retained in `ui-core-stable-precommit` and `ui-token-stable-precommit` under the
+private November review directory. Their log SHA-256 values are respectively
+`c214be6a244591c8130a1a2343d2eae2a5186eba42c6e7edfa05bb835c11ab69`
+and `735fd5b13ee9cddbada917fc860e56ff860dc75e02275dcec78549c380794644`.
+These are synthetic DOM/cache tests, with no browser or deployed-platform claim.
+
+The closed inventory of 72 query consumer files identifies further configuration,
+IAM, feed and integration families requiring the same review. Those remain open;
+this increment does not establish complete UI or release readiness. Dashboard
+controls currently pass 84 cases, while additional extraction and late-result
+controls have reproduced separate defects being fixed in subsequent increments.
+
+### Complete backend validation remains open
+
+A reused test database contaminated a later broad run: six OIDC audit assertions
+selected old rows, and two retention assertions had persistent scan state. The
+same eight unchanged cases pass on a newly created isolated database. The
+private runner now creates a fresh database per check, matching CI's normal
+fixture lifecycle. The next fresh-database broad run reached approximately 78%
+before its sampled process-group RSS exceeded the review runner's 1 GiB limit;
+it also displayed one failure before termination. No full pass or coverage gate
+is claimed. The next step is bounded fresh-database shards with complete failure
+reporting and combined coverage, followed by the remaining release checks.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

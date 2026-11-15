@@ -27,7 +27,97 @@ function reviewedResponse(): TeamAssessmentResponse {
   return next
 }
 
+async function waitForAssessmentError(message: string, status: number) {
+  await vi.waitFor(() => {
+    expect((view!.client.getQueryState(['team-assessments', 'item-1', 'team-1'])?.error as ApiError)?.status).toBe(status)
+    expect(view!.host.querySelector('[role="alert"]')?.textContent).toContain(message)
+  })
+}
+
 describe('team assessment asynchronous lifecycle', () => {
+  it('regenerates a stale assessment while keeping stale hunt reviews disabled', async () => {
+    const stale = structuredClone(assessmentFixture)
+    stale.assessment!.stale = true
+    const pending = deferred<TeamAssessmentResponse>()
+    vi.mocked(apiFetch).mockImplementation((_path, init) => init?.method === 'POST' ? pending.promise : Promise.resolve(stale))
+    view = await mountIntel(<AssessmentWorkspace itemId="item-1" teamId="team-1" canWrite canCreate />)
+    expect(intelButton(view.host, 'Regenerate team assessment').disabled).toBe(false)
+    expect(intelButton(view.host, 'Accept suggestion').matches(':disabled')).toBe(true)
+    expect(intelButton(view.host, 'Reject suggestion').matches(':disabled')).toBe(true)
+    act(() => intelButton(view!.host, 'Regenerate team assessment').click())
+    await settle()
+    await vi.waitFor(() => {
+      const requests = vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')
+      expect(requests).toHaveLength(1)
+      expect(requests[0][0]).toBe('/items/item-1/team-assessment')
+      expect(JSON.parse(String(requests[0][1]?.body))).toEqual({ team_id: 'team-1', expected_version: 1 })
+    })
+    expect(intelButton(view.host, 'Queueing assessment…').disabled).toBe(true)
+    await act(async () => pending.resolve({ ...stale, assessment: { ...stale.assessment!, version: 2, status: 'queued', stale: false } }))
+    await settle()
+    expect(view.host.textContent).toContain('Team assessment queued.')
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
+  })
+
+  it('does not restore denied normal assessment context during a later outage', async () => {
+    view = await mountIntel(<AssessmentWorkspace itemId="item-1" teamId="team-1" canWrite canCreate />)
+    expect(view.host.textContent).toContain('Review unusual services')
+    editIntel(view.host, 'Review note', 'Unsaved review before read denial')
+    vi.mocked(apiFetch).mockRejectedValue(new ApiError('Assessment access removed', 403, '/items/item-1/team-assessment'))
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['team-assessments', 'item-1', 'team-1'] }) })
+    await settle()
+    await waitForAssessmentError('Assessment access removed', 403)
+    expect(view.host.textContent).not.toContain('Review unusual services')
+    expect(view.client.getQueryData(['team-assessment-drafts', 'item-1', 'team-1'])).toEqual({})
+    vi.mocked(apiFetch).mockRejectedValue(new ApiError('Assessment service unavailable', 503, '/items/item-1/team-assessment'))
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['team-assessments', 'item-1', 'team-1'] }) })
+    await settle()
+    await waitForAssessmentError('Assessment service unavailable', 503)
+    expect(view.host.textContent).not.toContain('Review unusual services')
+    vi.mocked(apiFetch).mockResolvedValue(assessmentFixture)
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['team-assessments', 'item-1', 'team-1'] }) })
+    await settle()
+    expect(view.host.textContent).toContain('Review unusual services')
+  })
+
+  it('retires assessment confirmation after denied reads recover', async () => {
+    view = await mountIntel(<AssessmentWorkspace itemId="item-1" teamId="team-1" canWrite canCreate />)
+    editIntel(view.host, 'Review note', 'Pending note')
+    await settle()
+    act(() => intelButton(view!.host, 'Regenerate team assessment').click())
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+    vi.mocked(apiFetch).mockRejectedValue(new ApiError('Assessment access removed', 403, '/items/item-1/team-assessment'))
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['team-assessments', 'item-1', 'team-1'] }) })
+    await settle()
+    await waitForAssessmentError('Assessment access removed', 403)
+    vi.mocked(apiFetch).mockResolvedValue(assessmentFixture)
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['team-assessments', 'item-1', 'team-1'] }) })
+    await settle()
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+  })
+
+  it('does not let a pending review write restore a subsequently denied read', async () => {
+    const pending = deferred<TeamAssessmentResponse>()
+    let readDenied = false
+    vi.mocked(apiFetch).mockImplementation((_path, init) => init?.method === 'PATCH'
+      ? pending.promise : readDenied ? Promise.reject(new ApiError('Assessment access removed', 403, '/items/item-1/team-assessment')) : Promise.resolve(assessmentFixture))
+    view = await mountIntel(<AssessmentWorkspace itemId="item-1" teamId="team-1" canWrite canCreate />)
+    editIntel(view.host, 'Review note', 'Submitted before access changed')
+    await settle()
+    act(() => intelButton(view!.host, 'Accept suggestion').click())
+    await settle()
+    readDenied = true
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['team-assessments', 'item-1', 'team-1'] }) })
+    await settle()
+    await waitForAssessmentError('Assessment access removed', 403)
+    await act(async () => pending.resolve(reviewedResponse()))
+    await settle()
+    expect((view.client.getQueryState(['team-assessments', 'item-1', 'team-1'])?.error as ApiError)?.status).toBe(403)
+    expect(view.host.textContent).not.toContain('Review unusual services')
+    expect(view.host.textContent).not.toContain('Hunt review saved.')
+  })
+
   it('pins review state, disables pending editing and creates investigations only after acceptance', async () => {
     const pending = deferred<TeamAssessmentResponse>()
     vi.mocked(apiFetch).mockImplementation((path, init) => init?.method ? pending.promise : Promise.resolve(assessmentFixture))
@@ -64,7 +154,7 @@ describe('team assessment asynchronous lifecycle', () => {
     expect(intelButton(view.host, 'Create team investigation').disabled).toBe(false)
     await act(async () => refresh.resolve(assessmentFixture))
     await settle()
-    expect(view.client.getQueryData<TeamAssessmentResponse>(['team-assessments', 'item-1', 'team-1'])?.assessment?.version).toBe(2)
+    expect(intelField(view.host, 'Review note').value).toBe('Checked required logs.')
     expect(intelButton(view.host, 'Create team investigation').disabled).toBe(false)
   })
 
@@ -104,7 +194,8 @@ describe('team assessment asynchronous lifecycle', () => {
     window.dispatchEvent(unload)
     expect(unload.defaultPrevented).toBe(true)
     const changed = reviewedResponse()
-    act(() => view!.client.setQueryData(['team-assessments', 'item-1', 'team-1'], changed))
+    vi.mocked(apiFetch).mockResolvedValue(changed)
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['team-assessments', 'item-1', 'team-1'] }) })
     act(() => display(true))
     await settle()
     expect(intelField(view.host, 'Review note').value).toBe('Unsubmitted analyst note')
@@ -159,7 +250,8 @@ describe('team assessment asynchronous lifecycle', () => {
     changed.assessment!.version = 2
     if (change === 'review') changed.assessment!.result!.hunts[0].review_note = 'Another analyst updated this review'
     else changed.assessment!.result!.hunts[0].evidence[0].quote = 'Different retained evidence'
-    act(() => view!.client.setQueryData(['team-assessments', 'item-1', 'team-1'], changed))
+    vi.mocked(apiFetch).mockResolvedValue(changed)
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['team-assessments', 'item-1', 'team-1'] }) })
     await settle()
     expect(intelField(view.host, 'Review note').value).toBe('My pending review')
     expect(intelButton(view.host, 'Accept suggestion').disabled).toBe(true)
@@ -184,7 +276,8 @@ describe('team assessment asynchronous lifecycle', () => {
     const regenerated = structuredClone(assessmentFixture)
     regenerated.assessment!.version = 2
     regenerated.assessment!.result!.hunts = []
-    act(() => view!.client.setQueryData(['team-assessments', 'item-1', 'team-1'], regenerated))
+    vi.mocked(apiFetch).mockResolvedValue(regenerated)
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['team-assessments', 'item-1', 'team-1'] }) })
     await settle()
     const retained = intelField(view.host, 'Retained note for hunt hunt-1')
     expect(retained.readOnly).toBe(true)
@@ -213,8 +306,13 @@ describe('team assessment asynchronous lifecycle', () => {
     await settle()
     expect(view.host.textContent).toContain('Cloud-team-specific assessment')
     expect(view.host.textContent).not.toContain('Team assessment queued.')
-    expect(view.client.getQueryData<TeamAssessmentResponse>(['team-assessments', 'item-1', 'team-1'])?.assessment?.status).toBe('queued')
-    expect(view.client.getQueryData<TeamAssessmentResponse>(['team-assessments', 'item-1', 'team-2'])?.assessment?.status).toBe('ready')
+    await act(async () => { await view!.router.navigate('/?assessment_team=team-1') })
+    await settle()
+    expect(view.host.textContent).toContain('Team assessment queued.')
+    await act(async () => { await view!.router.navigate('/?assessment_team=team-2') })
+    await settle()
+    expect(view.host.textContent).toContain('Cloud-team-specific assessment')
+    expect(view.host.textContent).not.toContain('Team assessment queued.')
   })
 
   it('preserves drafts through session verification outages and hides revoked team results', async () => {
@@ -259,7 +357,7 @@ describe('team assessment asynchronous lifecycle', () => {
     expect(view.client.getQueryData(['team-assessment-drafts', 'item-1', 'team-1'])).toMatchObject({
       'hunt-1': { note: 'Keep this review after write permission changes' },
     })
-    expect(view.client.getQueryData<TeamAssessmentResponse>(['team-assessments', 'item-1', 'team-1'])?.can_generate).toBe(false)
+    expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => !init?.method).length).toBeGreaterThan(1)
     act(() => intelButton(view!.host, 'Refresh assessment').click())
     await settle()
     expect(intelField(view.host, 'Review note').value).toBe('Keep this review after write permission changes')

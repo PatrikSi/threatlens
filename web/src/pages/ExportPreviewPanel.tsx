@@ -4,8 +4,7 @@ import { formatDateTime } from '../utils/datetime'
 import type { ExportPageController } from './useExportPageController'
 
 export function ExportPreviewPanel({ controller }: { controller: ExportPageController }) {
-  const { previewQuery } = controller
-  const preview = previewQuery.data
+  const { previewQuery, preview } = controller
 
   return (
     <section className="rounded-lg border border-slate/20 bg-white/80 dark:border-cyan-900/40 dark:bg-[#041612]/90">

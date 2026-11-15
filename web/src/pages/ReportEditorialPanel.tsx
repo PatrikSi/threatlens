@@ -4,6 +4,7 @@ import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { captureSessionLease } from '../api/sessionLifecycle'
 import type { ConfirmDiscardChanges } from '../hooks/useUnsavedChangesWarning'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type { ReportDetail } from '../types/api'
 const INPUT = 'mt-1 block w-full rounded border border-slate/30 bg-white p-2 text-sm dark:bg-[#072019]'
 const BUTTON = 'rounded border border-slate/30 px-3 py-2 text-xs font-semibold disabled:opacity-50'
@@ -24,6 +25,13 @@ export function ReportEditorialPanel({ report, canManage, canReview, onRefresh, 
   report: ReportDetail; canManage: boolean; canReview: boolean; onRefresh: () => void; onDirtyChange: (dirty: boolean) => void; discard: ConfirmDiscardChanges
 }) {
   const queryClient = useQueryClient()
+  const access = useQueryAccessScope(['reports', 'detail', report.id])
+  const detailKey = ['reports', 'detail', report.id]
+  function currentRead() {
+    const state = queryClient.getQueryState(detailKey)
+    // Standalone editors receive their verified report from their parent.
+    return !access.denied && (!state || state.status !== 'error' && Boolean(access.currentData<ReportDetail>(queryClient.getQueryData(detailKey))))
+  }
   const [draft, setDraft] = useState<Draft | null>(null)
   const [baseline, setBaseline] = useState('')
   const [note, setNote] = useState('')
@@ -34,24 +42,30 @@ export function ReportEditorialPanel({ report, canManage, canReview, onRefresh, 
   useEffect(() => { onDirtyChange(dirty || Boolean(note)); return () => onDirtyChange(false) }, [dirty, note, onDirtyChange])
   const mutation = useMutation({
     mutationFn: async (command: { action: Action } | { draft: Draft }) => {
+      if (!currentRead() || ('draft' in command ? !canManage || report.publication_status !== 'draft' : !(['submit', 'publish'].includes(command.action) ? canManage : canReview))) {
+        throw new Error('Refresh the report and verify access before saving this revision.')
+      }
       const lease = captureSessionLease()
       await queryClient.cancelQueries({ queryKey: ['reports', 'detail', report.id], exact: true })
       lease.assertCurrent()
+      if (!currentRead()) throw new Error('Refresh the report and verify access before saving this revision.')
+      const capture = access.captureResult()
       const updated = await apiFetch<ReportDetail>(`/reports/${report.id}/${'draft' in command ? 'draft' : 'editorial'}`, {
         method: 'draft' in command ? 'PUT' : 'POST',
         body: JSON.stringify('draft' in command ? command.draft : { action: command.action, expected_version: report.editorial_version, note: note.trim() || null }),
       })
       lease.assertCurrent()
-      return { updated, lease }
+      return { updated: capture(updated), lease }
     },
     onSuccess: async ({ updated, lease }) => {
       lease.assertCurrent()
-      if (!mounted.current) return
+      const saved = access.currentData(updated)
+      if (!mounted.current || !saved) return
       await queryClient.cancelQueries({ queryKey: ['reports', 'detail', report.id], exact: true })
       lease.assertCurrent()
-      if (!mounted.current) return
-      queryClient.setQueryData<ReportDetail>(['reports', 'detail', report.id], (current) =>
-        (current?.editorial_version ?? 0) > (updated.editorial_version ?? 0) ? current : updated)
+      if (!mounted.current || !access.currentData(updated)) return
+      queryClient.setQueryData<typeof updated>(detailKey, (current) =>
+        (access.currentData(current)?.editorial_version ?? 0) > (saved.editorial_version ?? 0) ? current : updated)
       void queryClient.invalidateQueries({ queryKey: ['reports', 'library'] })
       setDraft(null); setNote(''); setMessage('Report revision saved.')
     },
@@ -61,10 +75,11 @@ export function ReportEditorialPanel({ report, canManage, canReview, onRefresh, 
   const staleDraft = draft !== null && draft.expected_version !== report.editorial_version
   const { paused: draftPaused, disabled: draftDisabled } = draftEditorState(canManage, state, mutation.isPending)
   function startEdit() {
+    if (!canManage || !currentRead() || mutation.isPending) return
     const snapshot = editableDraft(report)
     setDraft(snapshot); setBaseline(JSON.stringify(snapshot)); setMessage(null); mutation.reset()
   }
-  function act(action: Action) { if (!mutation.isPending) { setMessage(null); mutation.mutate({ action }) } }
+  function act(action: Action) { if (!mutation.isPending && currentRead()) { setMessage(null); mutation.mutate({ action }) } }
   return (
     <section aria-label="Report review and publication" className="rounded-lg border border-slate/20 bg-white/85 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <h2 className="font-display text-lg">Review and publication · <span className="capitalize">{state}</span></h2>

@@ -11,7 +11,7 @@ import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { ReportEditorialPanel } from './ReportEditorialPanel'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-vi.mock('../api/client', () => ({ apiFetch: vi.fn() }))
+vi.mock('../api/client', async (original) => ({ ...(await original<object>()), apiFetch: vi.fn() }))
 let root: Root | undefined
 let client: QueryClient
 let container: HTMLDivElement

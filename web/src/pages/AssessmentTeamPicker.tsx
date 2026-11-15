@@ -3,15 +3,16 @@ import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { accessibleQueryData } from '../api/queryData'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import type { TeamPage } from '../types/teams'
 import { TEAM_BUTTON } from './teamPresentation'
 
 export function AssessmentTeamPicker({ value, onChange, label = 'Assessment team', emptyLabel = 'Select a team' }: { value: string; onChange: (teamId: string) => void; label?: string; emptyLabel?: string }) {
   const [page, setPage] = useState(1)
+  const access = useQueryAccessScope(['teams', 'list', false])
   const query = useQuery({
     queryKey: ['teams', 'list', false, page, 50],
-    queryFn: ({ signal }) => apiFetch<TeamPage>(`/teams?page=${page}&page_size=50`, { signal }),
-    staleTime: 30_000,
+    ...access.queryOptions(({ signal }) => apiFetch<TeamPage>(`/teams?page=${page}&page_size=50`, { signal }), 30_000),
   })
   const data = accessibleQueryData(query)
   const teams = data?.items ?? []

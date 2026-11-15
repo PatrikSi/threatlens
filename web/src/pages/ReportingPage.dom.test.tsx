@@ -6,7 +6,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ReportDetail, ReportSchedule, ReportTemplate } from '../types/api'
+import type { ReportDetail, ReportPreview, ReportSchedule, ReportTemplate } from '../types/api'
 
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -193,6 +193,50 @@ const REPORT_TEMPLATE: ReportTemplate = {
   updated_at: '2026-08-17T08:00:00Z',
 }
 
+const REPORT_PREVIEW: ReportPreview = {
+  total_matches: 1, articles_with_text: 1, items_with_iocs: 1,
+  items: [{
+    id: 'private-report-source', title: 'Private report preview article', url: 'https://example.invalid/private',
+    feed_name: 'Private preview feed', published_at: null, first_seen_at: '2026-11-15T00:00:00Z',
+    classification: 'vulnerability', ai_relevance_score: null, ai_relevance_label: null, tags: [],
+    is_read: false, is_starred: false, has_article_text: true, ioc_count: 1,
+    estimated_tokens: 100, selected: true, exclusion_reason: null,
+  }],
+  estimate: {
+    context_window_tokens: 8192, reserved_output_tokens: 1024, safety_margin_tokens: 400,
+    usable_input_tokens: 6768, estimated_source_tokens: 100, estimated_fixed_prompt_tokens: 200,
+    estimated_batches: 1, estimated_model_calls: 1, selected_source_count: 1, omitted_source_count: 0,
+    coverage_percent: 100, warnings: ['Private preview estimate warning'],
+  },
+}
+
+async function renderPreviewBuilder() {
+  reportingPageMocks.routeReportId = undefined
+  reportingPageMocks.apiFetch.mockImplementation((path: string) => {
+    if (path === '/reports/capabilities') return Promise.resolve({ ...CAPABILITIES, reporting_enabled: true })
+    if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
+    if (path.startsWith('/reports/library?')) return Promise.reject(new ApiError('Report library unavailable to this author', 403, path))
+    if (path === '/reports/preview') return Promise.resolve(REPORT_PREVIEW)
+    return Promise.reject(new Error(`Unexpected API path: ${path}`))
+  })
+  const view = renderPage()
+  await vi.waitFor(async () => {
+    await act(async () => { await new Promise((done) => setTimeout(done, 15)) })
+    expect(view.textContent).toContain('Private report preview article')
+    expect(button(view, 'Generate report').disabled).toBe(false)
+  })
+  return view
+}
+
+async function rejectPreview(view: HTMLDivElement, status: number) {
+  const fallback = reportingPageMocks.apiFetch.getMockImplementation()!
+  reportingPageMocks.apiFetch.mockImplementation((path: string) => path === '/reports/preview'
+    ? Promise.reject(new ApiError(`Preview rejected ${status}`, status, path)) : fallback(path))
+  await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['reports', 'preview'] }) })
+  await act(async () => { await new Promise((done) => setTimeout(done, 15)) })
+  await vi.waitFor(() => expect(view.textContent).toContain(`Preview rejected ${status}`))
+}
+
 function reportSchedule(id: string, name: string): ReportSchedule {
   return {
     id,
@@ -340,6 +384,103 @@ afterEach(async () => {
 })
 
 describe('ReportingPage detail actions', () => {
+  it('keeps denied report previews private through a later advisory outage', async () => {
+    const view = await renderPreviewBuilder()
+    await rejectPreview(view, 403)
+    expect(view.textContent).not.toContain('Private report preview article')
+    expect(view.textContent).not.toContain('Private preview estimate warning')
+    expect(button(view, 'Generate report').disabled).toBe(true)
+    await rejectPreview(view, 503)
+    expect(view.textContent).not.toContain('Private report preview article')
+    expect(view.textContent).not.toContain('Private preview estimate warning')
+    expect(button(view, 'Generate report').disabled).toBe(true)
+    expect(reportingPageMocks.apiFetch.mock.calls.some(([path]) => path === '/reports')).toBe(false)
+    reportingPageMocks.apiFetch.mockImplementation((path: string) => path === '/reports/preview'
+      ? Promise.resolve({ ...REPORT_PREVIEW, items: [{ ...REPORT_PREVIEW.items[0], title: 'Fresh report preview article' }] })
+      : path === '/reports/templates' ? Promise.resolve([REPORT_TEMPLATE])
+        : path === '/reports/capabilities' ? Promise.resolve({ ...CAPABILITIES, reporting_enabled: true })
+          : Promise.reject(new ApiError('Report library unavailable to this author', 403, path)))
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['reports', 'preview'] }) })
+    await vi.waitFor(() => expect(view.textContent).toContain('Fresh report preview article'))
+    expect(button(view, 'Generate report').disabled).toBe(false)
+  })
+
+  it('keeps report preview outages advisory before any access denial and preserves the draft', async () => {
+    const view = await renderPreviewBuilder()
+    const title = [...view.querySelectorAll('label')].find((label) => label.textContent?.trim() === 'Report title')?.control as HTMLInputElement
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(title, 'My unsaved reporting draft')
+      title.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await rejectPreview(view, 503)
+    expect(view.textContent).toContain('Private report preview article')
+    expect(view.textContent).toContain('You can retry the estimate or let the server validate')
+    expect(title.value).toBe('My unsaved reporting draft')
+    expect(button(view, 'Generate report').disabled).toBe(false)
+  })
+
+  it('does not resume report generation when a denied preview becomes an advisory outage', async () => {
+    const view = await renderPreviewBuilder()
+    await rejectPreview(view, 403)
+    expect(button(view, 'Generate report').disabled).toBe(true)
+    await rejectPreview(view, 503)
+    expect(button(view, 'Generate report').disabled).toBe(true)
+    expect(reportingPageMocks.apiFetch.mock.calls.some(([path]) => path === '/reports')).toBe(false)
+  })
+
+  it('does not restore denied report detail during a later outage', async () => {
+    const view = renderPage()
+    await waitForReport(view)
+    reportingPageMocks.apiFetch.mockRejectedValue(new ApiError('Report access removed', 403, '/reports/report-1'))
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['reports', 'detail', 'report-1'] }) })
+    await act(async () => { await new Promise((done) => setTimeout(done, 15)) })
+    await vi.waitFor(() => {
+      expect((queryClient!.getQueryState(['reports', 'detail', 'report-1'])?.error as ApiError)?.status).toBe(403)
+      expect(view.querySelector('[role="alert"]')?.textContent).toContain('Report access removed')
+    })
+    expect(view.textContent).not.toContain('A concise summary.')
+    reportingPageMocks.apiFetch.mockRejectedValue(new ApiError('Report service unavailable', 503, '/reports/report-1'))
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['reports', 'detail', 'report-1'] }) })
+    await act(async () => { await new Promise((done) => setTimeout(done, 15)) })
+    await vi.waitFor(() => {
+      expect((queryClient!.getQueryState(['reports', 'detail', 'report-1'])?.error as ApiError)?.status).toBe(503)
+      expect(view.querySelector('[role="alert"]')?.textContent).toContain('Report service unavailable')
+    })
+    expect(view.textContent).not.toContain('Weekly threat landscape')
+    expect(view.textContent).not.toContain('A concise summary.')
+    expect([...view.querySelectorAll('button')].some((entry) => entry.textContent?.trim() === 'Delete')).toBe(false)
+    reportingPageMocks.apiFetch.mockResolvedValue(reportDetail())
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['reports', 'detail', 'report-1'] }) })
+    await act(async () => { await new Promise((done) => setTimeout(done, 15)) })
+    expect(view.textContent).toContain('Weekly threat landscape')
+  })
+
+  it('pauses report actions while retaining readable detail during an ordinary outage', async () => {
+    const fetch = reportingPageMocks.apiFetch.getMockImplementation()!
+    reportingPageMocks.apiFetch.mockImplementation((path: string) => path === '/reports/report-1'
+      ? Promise.resolve({ ...reportDetail(), publication_status: 'draft', editorial_version: 1, review_required: true }) : fetch(path))
+    const view = renderPage()
+    await waitForReport(view)
+    act(() => button(view, 'Edit draft').click())
+    const titleInput = [...view.querySelectorAll('label')].find((label) => label.textContent?.startsWith('Report title'))?.control as HTMLInputElement
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(titleInput, 'My unsaved report title')
+      titleInput.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    reportingPageMocks.apiFetch.mockRejectedValue(new ApiError('Report service unavailable', 503, '/reports/report-1'))
+    await act(async () => { await queryClient!.invalidateQueries({ queryKey: ['reports', 'detail', 'report-1'] }) })
+    await act(async () => { await new Promise((done) => setTimeout(done, 15)) })
+    await vi.waitFor(() => {
+      expect((queryClient!.getQueryState(['reports', 'detail', 'report-1'])?.error as ApiError)?.status).toBe(503)
+      expect(view.querySelector('[role="alert"]')?.textContent).toContain('Report service unavailable')
+    })
+    expect(view.textContent).toContain('Weekly threat landscape')
+    expect(titleInput.value).toBe('My unsaved report title')
+    expect(titleInput.matches(':disabled')).toBe(true)
+    expect(button(view, 'Delete').disabled).toBe(true)
+    for (const format of ['Markdown', 'HTML', 'PDF']) expect(button(view, format).disabled).toBe(true)
+  })
+
   it('lets a viewer with additive report write access use the report builder', async () => {
     reportingPageMocks.routeReportId = undefined
     reportingPageMocks.userRole = 'viewer'

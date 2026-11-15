@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { ApiError, apiDownload, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useQueryAccessScope } from '../hooks/useQueryAccessScope'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import type {
   ReportCapabilities,
@@ -52,6 +53,10 @@ export type ReportingFeedback = {
 
 type ReportDownloadFormat = 'markdown' | 'html' | 'pdf'
 
+function reportPreviewNeedsVerification(generation: number, denied: boolean, preview: ReportPreview | undefined) {
+  return denied || generation > 0 && preview === undefined
+}
+
 export function useReportingController() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -60,8 +65,8 @@ export function useReportingController() {
   viewKeyRef.current = location.key
   const { reportId: routeReportId } = useParams<{ reportId?: string }>()
   const currentUser = useCurrentUser()
-  const isAdmin = currentUser.data?.role === 'admin'
-  const canAuthor = hasRequiredPermissions(
+  const isAdmin = !currentUser.isError && currentUser.data?.role === 'admin'
+  const canAuthor = !currentUser.isError && hasRequiredPermissions(
     currentUser.data?.access?.permissions ?? [],
     ['write:reports'],
   )
@@ -122,15 +127,29 @@ export function useReportingController() {
     enabled: isAdmin,
     staleTime: 30_000,
   })
+  const detailAccess = useQueryAccessScope(['reports', 'detail', routeReportId ?? ''])
+  const reportDetailKey = ['reports', 'detail', routeReportId]
   const reportDetailQuery = useQuery({
-    queryKey: ['reports', 'detail', routeReportId],
-    queryFn: ({ signal }) => apiFetch<ReportDetail>(`/reports/${routeReportId}`, { signal }),
+    queryKey: reportDetailKey,
+    ...detailAccess.queryOptions(({ signal }) => apiFetch<ReportDetail>(`/reports/${routeReportId}`, { signal })),
     enabled: Boolean(routeReportId),
     refetchInterval: (query) => {
-      const status = (query.state.data as ReportDetail | undefined)?.status
+      const status = detailAccess.currentData(query.state.data)?.status
       return status === 'queued' || status === 'running' ? 3000 : false
     },
   })
+  function currentDetail(reportId: string) {
+    if (routeReportId !== reportId || currentUser.isError || queryClient.getQueryState(reportDetailKey)?.status === 'error') return undefined
+    const report = detailAccess.currentData<ReportDetail>(queryClient.getQueryData(reportDetailKey))
+    return report?.id === reportId ? report : undefined
+  }
+  function assertDetailAction(reportId: string, write: boolean) {
+    const report = currentDetail(reportId)
+    if (!report || write && (!canAuthor || !isAdmin && report.owner_user_id !== currentUser.data?.id)) {
+      throw new Error('Refresh this report and verify access before continuing.')
+    }
+    return detailAccess.captureResult()(true)
+  }
 
   const validation = useMemo(
     () => validateReportBuilder(filterDraft, prompt, sections),
@@ -141,26 +160,35 @@ export function useReportingController() {
     [excludedItemIds, prompt, sections, validation.filters],
   )
   const debouncedPreviewPayload = useDebouncedValue(previewPayload, 500)
+  const previewAccess = useQueryAccessScope(['reports', 'preview'])
+  const previewKey = ['reports', 'preview', debouncedPreviewPayload]
   const previewQuery = useQuery({
-    queryKey: ['reports', 'preview', debouncedPreviewPayload],
-    queryFn: ({ signal }) => apiFetch<ReportPreview>('/reports/preview', {
+    queryKey: previewKey,
+    ...previewAccess.queryOptions(({ signal }) => apiFetch<ReportPreview>('/reports/preview', {
       method: 'POST',
       body: JSON.stringify(debouncedPreviewPayload),
       signal,
       timeoutMs: REPORT_PREVIEW_TIMEOUT_MS,
-    }),
+    })),
     enabled: Boolean(
       debouncedPreviewPayload &&
       capabilitiesQuery.data?.reporting_enabled &&
       capabilitiesQuery.data?.ai_configured &&
       canAuthor,
     ),
-    placeholderData: keepPreviousData,
+    placeholderData: (previous) => previewAccess.currentData(previous) === undefined ? undefined : previous,
     retry: shouldRetryReportPreview,
   })
+  const previewAdmission = previewAccess.captureResult()(true)
+  const previewAccessUnverified = reportPreviewNeedsVerification(previewAccess.generation, previewAccess.denied, previewQuery.data)
+  function previewAllowsCreation() {
+    const current = previewAccess.currentData<ReportPreview>(queryClient.getQueryData(previewKey))
+    return Boolean(previewAccess.currentData(previewAdmission)) && (previewAccess.generation === 0 || Boolean(current))
+  }
 
   const createReportMutation = useMutation({
     mutationFn: async () => {
+      if (!canAuthor || !previewAllowsCreation() || createBlockedReason) throw new Error('Verify the current report estimate and access before generating.')
       if (!validation.filters) throw new Error('Report filters are invalid.')
       const body = JSON.stringify({
         template_id: selectedTemplateId || null,
@@ -204,10 +232,11 @@ export function useReportingController() {
   })
 
   const retryMutation = useMutation({
-    mutationFn: (reportId: string) => {
+    mutationFn: async (reportId: string) => {
+      const permission = assertDetailAction(reportId, true)
       const path = `/reports/${reportId}/retry`
       const requestScope = reportingRequestScope(requestOwnerId, 'report:retry', reportId)
-      return coalesceReportingRequest(
+      const result = await coalesceReportingRequest(
         requestScope,
         () => idempotentReportingFetch(
           path,
@@ -216,33 +245,38 @@ export function useReportingController() {
           (value) => requireReportQueueResponse(value, path, reportId),
         ),
       )
+      return { result, permission }
     },
     onMutate: () => { setFeedback(null); return viewKeyRef.current },
-    onSuccess: (result, _reportId, viewKey) => {
+    onSuccess: ({ result, permission }, reportId, viewKey) => {
       void queryClient.invalidateQueries({ queryKey: ['reports'] })
-      if (!mountedRef.current || viewKeyRef.current !== viewKey) return
+      if (!mountedRef.current || viewKeyRef.current !== viewKey || selectedReportIdRef.current !== reportId || !detailAccess.currentData(permission)) return
       setFeedback(reportQueueFeedback('retry', result.status))
       navigate(`/reporting/${result.report_id}`)
     },
-    onError: (error, _reportId, viewKey) => {
-      if (!mountedRef.current || viewKeyRef.current !== viewKey) return
+    onError: (error, reportId, viewKey) => {
+      if (!mountedRef.current || viewKeyRef.current !== viewKey || selectedReportIdRef.current !== reportId) return
       setFeedback({ kind: 'error', message: resolveReportQueueError(error) })
     },
   })
   const deleteMutation = useMutation({
-    mutationFn: (reportId: string) => coalesceReportingRequest(
-      reportingRequestScope(requestOwnerId, 'report:delete', reportId),
-      () => apiFetch<void>(`/reports/${reportId}`, { method: 'DELETE' }),
-    ),
+    mutationFn: async (reportId: string) => {
+      const permission = assertDetailAction(reportId, true)
+      await coalesceReportingRequest(
+        reportingRequestScope(requestOwnerId, 'report:delete', reportId),
+        () => apiFetch<void>(`/reports/${reportId}`, { method: 'DELETE' }),
+      )
+      return permission
+    },
     onMutate: () => { setFeedback(null); return viewKeyRef.current },
-    onSuccess: (_result, _reportId, viewKey) => {
+    onSuccess: (permission, reportId, viewKey) => {
       void queryClient.invalidateQueries({ queryKey: ['reports', 'library'] })
-      if (!mountedRef.current || viewKeyRef.current !== viewKey) return
+      if (!mountedRef.current || viewKeyRef.current !== viewKey || selectedReportIdRef.current !== reportId || !detailAccess.currentData(permission)) return
       setFeedback({ kind: 'success', message: 'Report deleted.' })
       navigate('/reporting')
     },
-    onError: (error, _reportId, viewKey) => {
-      if (!mountedRef.current || viewKeyRef.current !== viewKey) return
+    onError: (error, reportId, viewKey) => {
+      if (!mountedRef.current || viewKeyRef.current !== viewKey || selectedReportIdRef.current !== reportId) return
       setActionError(setFeedback, error, 'The report could not be deleted')
     },
   })
@@ -613,6 +647,7 @@ export function useReportingController() {
       reportId: string
       format: ReportDownloadFormat
     }) => {
+      const permission = assertDetailAction(reportId, false)
       if (!mountedRef.current || selectedReportIdRef.current !== reportId) {
         throw new ReportDownloadCanceledError()
       }
@@ -629,6 +664,8 @@ export function useReportingController() {
           controller.signal.aborted
           || !mountedRef.current
           || selectedReportIdRef.current !== reportId
+          || !detailAccess.currentData(permission)
+          || !currentDetail(reportId)
         ) {
           throw new ReportDownloadCanceledError()
         }
@@ -673,7 +710,7 @@ export function useReportingController() {
   })
 
   const previewIsCurrent = previewPayload === debouncedPreviewPayload
-  const previewErrorBlocksCreate = previewQuery.isError && reportPreviewErrorBlocksCreation(previewQuery.error)
+  const previewErrorBlocksCreate = previewAccessUnverified || previewQuery.isError && reportPreviewErrorBlocksCreation(previewQuery.error)
   const previewErrorMessage = previewQuery.isError
     ? resolveApiErrorMessage(
         previewQuery.error,
@@ -681,7 +718,8 @@ export function useReportingController() {
         { retryGuidance: previewErrorBlocksCreate ? undefined : 'You can retry the estimate or let the server validate the report when it is generated.' },
       )
     : null
-  const createBlockedReason = builderDraft.templateUnavailable ? 'Select an available template before generating this report.' : resolveReportCreateBlockedReason({
+  const createBlockedReason = builderDraft.templateUnavailable ? 'Select an available template before generating this report.'
+    : previewAccessUnverified ? 'Refresh the report estimate and verify access before generating.' : resolveReportCreateBlockedReason({
     canAuthor,
     reportingEnabled: Boolean(capabilitiesQuery.data?.reporting_enabled),
     aiConfigured: Boolean(capabilitiesQuery.data?.ai_configured),
@@ -714,6 +752,8 @@ export function useReportingController() {
     reportLibrary,
     schedulesQuery,
     reportDetailQuery,
+    detailSelected: Boolean(routeReportId),
+    detailReadAvailable: Boolean(routeReportId && currentDetail(routeReportId)),
     previewQuery,
     previewErrorBlocksCreate,
     previewErrorMessage,
