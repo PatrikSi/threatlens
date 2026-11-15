@@ -5,6 +5,8 @@ import json
 import socket
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -384,6 +386,14 @@ def _load_jwks(metadata: OIDCMetadata) -> KeySet:
         raise OIDCProtocolError("OIDC JWKS response is invalid") from exc
 
 
+@contextmanager
+def _oidc_redirect_request_context(url: str) -> Iterator[None]:
+    # Discovery redirects retain OIDC's HTTPS and credential policy; the shared
+    # fetch transport also serves RSS and intentionally permits ordinary HTTP.
+    validate_oidc_endpoint_url(url, field_name="OIDC redirect target")
+    yield
+
+
 def _fetch_json(
     method: str,
     url: str,
@@ -406,6 +416,9 @@ def _fetch_json(
         **(headers or {}),
     }
     try:
+        # Recheck current policy even for provider URLs saved under an older
+        # transport opt-in, before sending codes, credentials or metadata reads.
+        validate_oidc_endpoint_url(url, field_name="OIDC endpoint")
         with outbound_deadline(settings.oidc_total_timeout_seconds), build_safe_http_client(
             timeout=timeout,
             headers=request_headers,
@@ -421,6 +434,7 @@ def _fetch_json(
                     url,
                     allow_private_network=settings.allow_private_network_oidc,
                     max_redirects=min(settings.outbound_max_redirects, 3),
+                    request_context=_oidc_redirect_request_context,
                 )
             else:
                 request = client.build_request(method.upper(), url, data=data)

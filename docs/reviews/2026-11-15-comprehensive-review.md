@@ -81,6 +81,27 @@ unrelated installed versions differ from the old lock (`markdown-it-py`,
 dependency qualification. A separate exact-candidate environment and broader
 final checks remain pending.
 
+### N02 — OIDC transport-policy enforcement (P1)
+
+Discovery used the generic RSS-capable redirect transport without reapplying
+OIDC's HTTPS and embedded-credential policy to each hop. An HTTPS discovery
+response could redirect to public HTTP even when insecure OIDC was disabled.
+Previously saved HTTP endpoints also bypassed the current policy on fetch.
+
+`oidc_client.py` now validates the initial URL before creating a network client,
+and validates every discovery redirect through the transport's existing
+pre-request context. Explicit insecure/private development compatibility is
+preserved; token POSTs and authenticated user-info requests still do not follow
+redirects. Generic RSS fetching and response cleanup remain unchanged.
+
+The actual redirect loop with HTTPX MockTransport reproduces seven failures and
+eight passing controls before correction. All fifteen new cases and all 29
+existing OIDC unit cases pass afterward. These tests use deterministic DNS
+validation doubles and no sockets; they are not a live IdP or TLS campaign.
+The resilience reviewer independently inspected the changed paths, exception
+redaction and cleanup and found no additional defect; final committed-byte
+confirmation is still required after the remaining fixes.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,
