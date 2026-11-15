@@ -923,9 +923,35 @@ Independent final fixture source proof:
 The final full run on these exact fixture bytes remains running. Native image
 builds, packaged inventory/notice checks and isolated HTTP qualification follow.
 
+### N32 — inherited Alpine security updates
+
+Actual native scanning found ten fixable web-image entries: one CRITICAL and nine
+HIGH findings across Brotli, curl/libcurl, X11, XSLT, musl and zlib. The refreshed
+nginx tag plus the old five-package upgrade list left these inherited packages
+unpatched. Backend image `596072…` passes its fixable HIGH/CRITICAL scan.
+
+The web build now upgrades all installed packages from its configured release
+repositories, retaining the existing TIFF minimum. The release guide explains
+why a short allowlist is insufficient and links the authoritative Alpine package
+manager documentation. Independent exact two-source review:
+`e11af21cd702144e9ecce9b7baa8559930177f89e5347b6ef2b48a8a8b045283`.
+
+A candidate built from the tracked application plus the recorded uncommitted
+Dockerfile patch passes its actual-image scan with zero fixable HIGH/CRITICAL
+entries (log `88607820c368095f8a2d07424c1bd755b881d752bc9f9feb283785cc2e370faf`).
+Both non-root web startup/index-HTTP/restart cases pass, including the read-only
+filesystem with bounded tmpfs; exact-owned resources are removed (log
+`cd0b749375d4ac89b53c4fa4740e9fe20ec3758f4788a9012f8b00ac0ca17291`).
+That candidate is qualified as a patch test rather than an exact committed-revision
+image. The fixed image must now be rebuilt from the committed Dockerfile, then
+rescanned and its final OS inventory, notices and API/proxy runtime rechecked.
+Application source is unchanged from the passing 1,718-case full suite.
+
 ## Next executable steps
 
-Finish independent source reviews and the current registry/advisory inventory,
-record confirmed findings with reproductions, implement disjoint fixes with
-regression checks, and commit coherent tested increments. Reconcile final-source
-independent reviews and report any unavailable validation as a remaining gate.
+Build the fixed web image from the committed source, verify its actual scan and
+refreshed packaged inventory/notices, and exercise the isolated API/nginx/SDK
+instance. Reconcile the final revision with independent reviews and actual gate
+receipts, then remove only owned disposable resources. Browser and ARM CI,
+current capacity campaigns and full production-topology qualification remain
+unexecuted; no version bump, push, merge or deployment is included.
