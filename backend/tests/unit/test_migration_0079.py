@@ -602,6 +602,34 @@ def test_alert_capture_recovery_is_bounded_and_cached(monkeypatch):
     assert calls == first_calls
 
 
+def test_alert_capture_recovery_does_not_materialize_all_subsets(monkeypatch):
+    spec = importlib.util.spec_from_file_location(
+        "migration_0079_lazy_capture",
+        _BACKEND_DIR / "alembic/versions/0079_metric_captured_taint.py",
+    )
+    assert spec is not None and spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    label = uuid.uuid4()
+    generated = 0
+
+    def guarded_candidates(_labels):
+        nonlocal generated
+        for _ in range(80):
+            generated += 1
+            yield {label}
+        raise AssertionError("Capture search eagerly materialized excess candidates")
+
+    monkeypatch.setattr(migration, "_nonempty_subsets", guarded_candidates)
+    assert migration._matching_alert_capture(
+        policy_cohort_key="f" * 64,
+        label_ids={label, uuid.uuid4()},
+        maximum_revision=1_000_000,
+        cache={},
+    ) is None
+    assert generated < 80
+
+
 def _insert_labels(connection, label_ids: list[uuid.UUID]) -> None:
     for index, label_id in enumerate(label_ids):
         connection.execute(

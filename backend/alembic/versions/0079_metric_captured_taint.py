@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from collections import defaultdict
-from itertools import combinations
+from itertools import chain, combinations
 
 import sqlalchemy as sa
 from alembic import op
@@ -569,11 +569,13 @@ def _matching_alert_capture(
         revisions.append(maximum_revision)
     matches: list[tuple[int, set[uuid.UUID]]] = []
     attempts = 0
-    candidates = [set(ordered_labels)]
-    candidates.extend(
-        candidate
-        for candidate in _nonempty_subsets(set(ordered_labels))
-        if len(candidate) != len(ordered_labels)
+    candidates = chain(
+        (set(ordered_labels),),
+        (
+            candidate
+            for candidate in _nonempty_subsets(set(ordered_labels))
+            if len(candidate) != len(ordered_labels)
+        ),
     )
     for candidate in candidates:
         for candidate_revision in revisions:

@@ -413,6 +413,29 @@ reporting and combined coverage, followed by the remaining release checks.
 
 ## Next executable steps
 
+### N10 — bounded migration search must also bound allocation
+
+The fresh backend run's failing ordinal identifies migration 0079's existing
+20-label bounded-search test. Source review finds exponential allocation before
+the 4,096 hash-attempt budget: the migration eagerly extended a list with every
+nonempty subset. A new guarded-generator regression fails before the fix without
+requiring an out-of-memory event. Lazy `itertools.chain` now preserves the exact
+candidate order and quarantine, ambiguity and cache behavior while stopping
+candidate generation with the search budget. Changed files are
+`backend/alembic/versions/0079_metric_captured_taint.py` and
+`backend/tests/unit/test_migration_0079.py`.
+
+All three cases in that complete test file pass on a fresh isolated PostgreSQL
+database, including upgrade/downgrade controls; Ruff passes. Before/after logs
+are `migration-0079-subset-materialization-before` (one failure) and
+`migration-0079-lazy-subsets-after` (three passes, log SHA-256
+`eaf4a628e50dce42984391813aeb2d488fa7426df26ad20ca1440c5929f4dc8a`).
+Independent review of the exact two-file freeze reports no remaining finding
+within this change's scope (proof SHA-256
+`9168e96f17c7fe943318e23137ed9a075eab347761cec1ff0ba9febc00b327d7`).
+This is a confirmed production migration fix; complete sharded suite and combined
+coverage validation remain in progress. The first 943-case shard passes.
+
 Finish independent source reviews and the current registry/advisory inventory,
 record confirmed findings with reproductions, implement disjoint fixes with
 regression checks, and commit coherent tested increments. Reconcile final-source
