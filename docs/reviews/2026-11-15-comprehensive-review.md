@@ -858,6 +858,26 @@ is still running. Independent exact package/lock/Dockerfile pre-native proof:
 `e83d87e9f95fd19429f5a753294c7cce03263e2d08b67855824de768901471b5`.
 No application version bump, publication or deployment is included.
 
+### N29 — unhandled runner errors and non-vacuous report lifecycle controls
+
+The third full run reports 1,718 passing assertions in JSON but exits 1. This is
+a failed gate. Installed Vitest's JSON reporter omits unhandled errors from that
+JSON success calculation; the normal CLI still rejects them. A fourth diagnostic
+run with default/JSON reporters and a separate error observer captures two actual
+unhandled `Previous report failed` rejections from composed lifecycle fixtures.
+No error-ignore option or exit-code override is used.
+
+Those fixtures returned malformed generic arrays for report-library pages and
+could crash their route before starting the deferred mutation. They now provide
+typed contract-shaped responses, prove canonical admission and exactly one pending
+HTTP write before changing routes, and require live current-view content with no
+route error boundary afterward. Both delete/retry completion and failure cases
+exercise their actual original mutation. All six focused cases pass with CLI 0
+and an empty unhandled-error list (log
+`a35de3c0dcb996a1ee2949a4c366f3d9ad472006fa59ad9a423513e8f2cce4cd`).
+The primary reviewer independently reviewed the separate agent's fixture changes.
+Current whole-project types and lint pass; the final full pipeline remains open.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,
