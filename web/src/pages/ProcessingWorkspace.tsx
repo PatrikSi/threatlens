@@ -7,7 +7,7 @@ import { useProcessingWorkspace, type ProcessingWorkspaceController } from './us
 
 export function ProcessingWorkspace() {
   const controller = useProcessingWorkspace()
-  const { scope, rows, selected, staleSelection, workQuery, busy, canRead, canWrite } = controller
+  const { scope, rows, workQuery, busy, canRead, canWrite } = controller
   if (controller.user.isLoading) return <p role="status" className="p-4">Checking processing access...</p>
   if (!canRead) return <p role="alert" className="p-4">Processing work requires permission to read operations and articles.</p>
   const available = !processingAccessError(workQuery.error) && !controller.workAccessDenied
@@ -30,16 +30,7 @@ export function ProcessingWorkspace() {
         {workQuery.isLoading && <p role="status">Loading processing work...</p>}
         {controller.workAccessDenied && !workQuery.isError && <p role="status">Processing access must be verified again. Refresh processing to retry.</p>}
         {available && workQuery.isSuccess && rows.length === 0 && <p className="py-4 text-sm">No incomplete processing matches this scope.</p>}
-        {available && rows.length > 0 && <>
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <p role="status">{selected.length} selected on this page</p>
-            <button type="button" className="min-h-11 rounded border px-3 py-2 disabled:opacity-50" disabled={!canWrite || busy || workQuery.isError || !rows.some((row) => row.can_retry)} onClick={controller.selectPage}>Select eligible on this page</button>
-            <button type="button" className="min-h-11 rounded border px-3 py-2 disabled:opacity-50" disabled={busy || !selected.length} onClick={controller.clearSelection}>Clear selection</button>
-            <button type="button" className="min-h-11 rounded bg-ink px-3 py-2 font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
-              disabled={!canWrite || busy || !selected.length || staleSelection || workQuery.isError} onClick={controller.openReview}>Review selected recovery</button>
-          </div>
-          {staleSelection && <p role="status" className="text-sm">Selected work changed or is no longer eligible. Clear the selection and review the latest records before retrying.</p>}
-        </>}
+        <ProcessingSelectionActions controller={controller} available={available} />
       </section>
       {available && rows.length > 0 && <ProcessingWorkTable controller={controller} />}
       {available && workQuery.data && <nav aria-label="Processing work pages" className="flex items-center justify-between gap-3 p-3 text-sm">
@@ -52,6 +43,23 @@ export function ProcessingWorkspace() {
       <ProcessingRecoveryRuns controller={controller} />
       <ProcessingRecoveryDialogs controller={controller} />
     </div>
+  )
+}
+
+function ProcessingSelectionActions({ controller, available }: { controller: ProcessingWorkspaceController; available: boolean }) {
+  const { rows, selected, staleSelection, workQuery, busy, canWrite } = controller
+  if (!available || rows.length === 0) return null
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <p role="status">{selected.length} selected on this page</p>
+        <button type="button" className="min-h-11 rounded border px-3 py-2 disabled:opacity-50" disabled={!canWrite || busy || workQuery.isError || !rows.some((row) => row.can_retry)} onClick={controller.selectPage}>Select eligible on this page</button>
+        <button type="button" className="min-h-11 rounded border px-3 py-2 disabled:opacity-50" disabled={busy || !selected.length} onClick={controller.clearSelection}>Clear selection</button>
+        <button type="button" className="min-h-11 rounded bg-ink px-3 py-2 font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+          disabled={!canWrite || busy || !selected.length || staleSelection || workQuery.isError} onClick={controller.openReview}>Review selected recovery</button>
+      </div>
+      {staleSelection && <p role="status" className="text-sm">Selected work changed or is no longer eligible. Clear the selection and review the latest records before retrying.</p>}
+    </>
   )
 }
 

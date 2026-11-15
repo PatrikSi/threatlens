@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import { ChevronDown, Eye, Play, Save, ShieldCheck } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 
 import { ApiError } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
@@ -416,22 +416,23 @@ function LifecyclePolicyEditor({
       && draft.options[safeguard.key] === false
     ))
     .map((safeguard) => safeguard.label)
+  const actionsBlocked = editorLocked || authorityBlocked
   const controlsDisabled = lifecycleControlsDisabled(
     canWrite,
     busy,
-    editorLocked || authorityBlocked,
+    actionsBlocked,
   )
   const previewDisabled = lifecyclePreviewDisabled({
     busy,
     validationError,
-    blocked: editorLocked || authorityBlocked,
+    blocked: actionsBlocked,
   })
   const saveDisabled = lifecycleSaveDisabled({
     canWrite,
     busy,
     dirty,
     validationError,
-    blocked: editorLocked || authorityBlocked,
+    blocked: actionsBlocked,
     destructiveChange,
     previewFreshForDraft,
   })
@@ -440,7 +441,7 @@ function LifecyclePolicyEditor({
     policyEnabled: target.policy.enabled,
     previewCurrent,
     busy,
-    blocked: editorLocked || authorityBlocked,
+    blocked: actionsBlocked,
   })
   const actionGuidance = lifecycleActionGuidance({
     destructiveChange,
@@ -457,13 +458,7 @@ function LifecyclePolicyEditor({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="font-semibold">Policy configuration</h3>
-              {!savedAvailable && <p role="status" className="mt-1 text-sm">Saved policy access is unavailable. Your unsaved local draft is kept.</p>}
-              {savedAvailable && <>
-                <p className="mt-0.5 text-xs text-slate dark:text-slate-400">{target.cutoff_description}</p>
-                <p className="mt-0.5 text-[0.6875rem] text-slate dark:text-slate-400">
-                  Last changed {formatDateTime(target.policy.configuration_updated_at)} by {target.policy.updated_by ?? 'system bootstrap'} · {target.policy.next_run_at ? `next run ${formatDateTime(target.policy.next_run_at)}` : 'no next run scheduled'}
-                </p>
-              </>}
+              <LifecyclePolicyProvenance target={target} savedAvailable={savedAvailable} />
             </div>
             <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm font-semibold md:min-h-0">
               <input
@@ -475,91 +470,7 @@ function LifecyclePolicyEditor({
               Automated cleanup enabled
             </label>
           </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <NumberField label="Retain for (days)" value={draft.retention_days} min={target.min_retention_days} max={target.max_retention_days} disabled={controlsDisabled} onChange={(value) => setDraft((current) => ({ ...current, retention_days: value }))} />
-            <SelectField
-              label="Schedule"
-              value={draft.schedule_cadence}
-              disabled={controlsDisabled}
-              onChange={(value) => setDraft((current) => ({
-                ...current,
-                schedule_cadence: value as LifecyclePolicyDraft['schedule_cadence'],
-                schedule_weekday: value === 'weekly'
-                  ? current.schedule_weekday ?? 0
-                  : null,
-              }))}
-              options={[['daily', 'Daily'], ['weekly', 'Weekly']]}
-            />
-            {draft.schedule_cadence === 'weekly' ? (
-              <SelectField
-                label="Weekday"
-                value={String(draft.schedule_weekday ?? 0)}
-                disabled={controlsDisabled}
-                onChange={(value) => setDraft((current) => ({
-                  ...current,
-                  schedule_weekday: Number(value),
-                }))}
-                options={LIFECYCLE_WEEKDAYS.map(
-                  (label, index) => [String(index), label],
-                )}
-              />
-            ) : (
-              <NumberField
-                label="Hour (UTC)"
-                value={draft.schedule_hour_utc}
-                min={0}
-                max={23}
-                disabled={controlsDisabled}
-                onChange={(value) => setDraft((current) => ({
-                  ...current,
-                  schedule_hour_utc: value,
-                }))}
-              />
-            )}
-            {draft.schedule_cadence === 'weekly' && (
-              <NumberField
-                label="Hour (UTC)"
-                value={draft.schedule_hour_utc}
-                min={0}
-                max={23}
-                disabled={controlsDisabled}
-                onChange={(value) => setDraft((current) => ({
-                  ...current,
-                  schedule_hour_utc: value,
-                }))}
-              />
-            )}
-            <NumberField label="Maximum per run" value={draft.max_records_per_run} min={100} max={100000} disabled={controlsDisabled} onChange={(value) => setDraft((current) => ({ ...current, max_records_per_run: value }))} />
-          </div>
-          {target.safeguards.length > 0 && (
-            <fieldset className="mt-3">
-              <legend className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-400">
-                <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" /> Safeguards
-              </legend>
-              <div className="mt-1.5 grid gap-x-4 gap-y-1 sm:grid-cols-2">
-                {target.safeguards.map((safeguard) => (
-                  <label key={safeguard.key} className="flex min-h-11 items-start gap-2 rounded px-1 py-1.5 text-sm md:min-h-0">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5"
-                      checked={
-                        draft.options[safeguard.key] ?? safeguard.default_enabled
-                      }
-                      disabled={controlsDisabled}
-                      onChange={(event) => setDraft((current) => ({
-                        ...current,
-                        options: {
-                          ...current.options,
-                          [safeguard.key]: event.target.checked,
-                        },
-                      }))}
-                    />
-                    <span><span className="font-semibold">{safeguard.label}</span><span className="block text-xs text-slate dark:text-slate-400">{safeguard.description}</span></span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          )}
+          <LifecyclePolicyFields target={target} draft={draft} disabled={controlsDisabled} setDraft={setDraft} />
         </div>
         <PreviewPanel
           preview={visiblePreview}
@@ -719,6 +630,117 @@ function LifecyclePolicyEditor({
         />
       )}
     </div>
+  )
+}
+
+function LifecyclePolicyProvenance({ target, savedAvailable }: { target: LifecycleTarget; savedAvailable: boolean }) {
+  return (
+    <>
+      {!savedAvailable && <p role="status" className="mt-1 text-sm">Saved policy access is unavailable. Your unsaved local draft is kept.</p>}
+      {savedAvailable && <>
+        <p className="mt-0.5 text-xs text-slate dark:text-slate-400">{target.cutoff_description}</p>
+        <p className="mt-0.5 text-[0.6875rem] text-slate dark:text-slate-400">
+          Last changed {formatDateTime(target.policy.configuration_updated_at)} by {target.policy.updated_by ?? 'system bootstrap'} · {target.policy.next_run_at ? `next run ${formatDateTime(target.policy.next_run_at)}` : 'no next run scheduled'}
+        </p>
+      </>}
+    </>
+  )
+}
+
+function LifecyclePolicyFields({ target, draft, disabled, setDraft }: {
+  target: LifecycleTarget
+  draft: LifecyclePolicyDraft
+  disabled: boolean
+  setDraft: Dispatch<SetStateAction<LifecyclePolicyDraft>>
+}) {
+  return (
+    <>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <NumberField label="Retain for (days)" value={draft.retention_days} min={target.min_retention_days} max={target.max_retention_days} disabled={disabled} onChange={(value) => setDraft((current) => ({ ...current, retention_days: value }))} />
+        <SelectField
+          label="Schedule"
+          value={draft.schedule_cadence}
+          disabled={disabled}
+          onChange={(value) => setDraft((current) => ({
+            ...current,
+            schedule_cadence: value as LifecyclePolicyDraft['schedule_cadence'],
+            schedule_weekday: value === 'weekly'
+              ? current.schedule_weekday ?? 0
+              : null,
+          }))}
+          options={[['daily', 'Daily'], ['weekly', 'Weekly']]}
+        />
+        {draft.schedule_cadence === 'weekly' ? (
+          <SelectField
+            label="Weekday"
+            value={String(draft.schedule_weekday ?? 0)}
+            disabled={disabled}
+            onChange={(value) => setDraft((current) => ({
+              ...current,
+              schedule_weekday: Number(value),
+            }))}
+            options={LIFECYCLE_WEEKDAYS.map(
+              (label, index) => [String(index), label],
+            )}
+          />
+        ) : (
+          <NumberField
+            label="Hour (UTC)"
+            value={draft.schedule_hour_utc}
+            min={0}
+            max={23}
+            disabled={disabled}
+            onChange={(value) => setDraft((current) => ({
+              ...current,
+              schedule_hour_utc: value,
+            }))}
+          />
+        )}
+        {draft.schedule_cadence === 'weekly' && (
+          <NumberField
+            label="Hour (UTC)"
+            value={draft.schedule_hour_utc}
+            min={0}
+            max={23}
+            disabled={disabled}
+            onChange={(value) => setDraft((current) => ({
+              ...current,
+              schedule_hour_utc: value,
+            }))}
+          />
+        )}
+        <NumberField label="Maximum per run" value={draft.max_records_per_run} min={100} max={100000} disabled={disabled} onChange={(value) => setDraft((current) => ({ ...current, max_records_per_run: value }))} />
+      </div>
+      {target.safeguards.length > 0 && (
+        <fieldset className="mt-3">
+          <legend className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-400">
+            <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" /> Safeguards
+          </legend>
+          <div className="mt-1.5 grid gap-x-4 gap-y-1 sm:grid-cols-2">
+            {target.safeguards.map((safeguard) => (
+              <label key={safeguard.key} className="flex min-h-11 items-start gap-2 rounded px-1 py-1.5 text-sm md:min-h-0">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={
+                    draft.options[safeguard.key] ?? safeguard.default_enabled
+                  }
+                  disabled={disabled}
+                  onChange={(event) => setDraft((current) => ({
+                    ...current,
+                    options: {
+                      ...current.options,
+                      [safeguard.key]: event.target.checked,
+                    },
+                  }))}
+                />
+                <span><span className="font-semibold">{safeguard.label}</span><span className="block text-xs text-slate dark:text-slate-400">{safeguard.description}</span></span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+    </>
   )
 }
 

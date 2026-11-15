@@ -76,12 +76,13 @@ describe('save completion draft isolation', () => {
 
   it('does not dispatch remaining feed batch requests under a replacement session', async () => {
     const releases: Array<() => void> = []
+    const batch = Array.from({ length: 8 }, (_, i) => ({ ...feed, id: `batch-${i}` }))
     vi.mocked(apiFetch).mockImplementation((path, init) => init?.method === 'POST'
       ? new Promise((resolve) => { releases.push(() => resolve({} as never)) })
-      : Promise.resolve(path === '/feeds' ? [feed] : {}) as never)
+      : Promise.resolve(path === '/feeds' ? batch : {}) as never)
     const get = mount(useFeedsPageController)
     await settle()
-    act(() => get().bulkRefreshFeeds.mutate(Array.from({ length: 8 }, (_, i) => ({ ...feed, id: `batch-${i}` }))))
+    act(() => get().bulkRefreshFeeds.mutate(batch))
     await settle()
     expect(releases).toHaveLength(5)
     act(() => invalidateSession())

@@ -601,6 +601,27 @@ three final hashes (proof
 `04f9f29638ed5475da8d1ba146afbdc76f21f562a7fb3858aa320fcfc8564395`).
 Final whole-project checks remain pending.
 
+### N18 — quality-gate cleanup and stronger fixture evidence
+
+Operational error/selection presentation and lifecycle target membership now use
+small helpers that meet the existing complexity/type rules. No threshold or
+suppression changes are used. All 49 related cases pass again after extraction
+(log `9cb213124ed38b54164563fb6941dc358f0716372fbffd59a7558e7630f2a42d`),
+with independent exact-source review
+`ac245e0f94e4780b61dc4b4f359e54cb63beeebf171b4d881cf7959c1420f1f0`.
+The tagging controller's single oversized physical line is wrapped only;
+independent whitespace-equivalence proof is
+`752950fa6448b1d70f96f13b0090c63e3a704c7b9ebb748d975b5b8681687252`.
+
+The feed session-fencing fixture now actually returns the eight batch targets
+from its canonical inventory, preserving both original five-request assertions
+and the replacement-session failure. The actual batched denial/alternate-reader
+confirmation control passes, so its speculative lead is withdrawn. All 15 feed
+and saved-draft controls pass together (log
+`44cafa7808dc2790507e63bc0bc1bd6b5a9af4dd2b8511b869bf4f5676bee830`).
+The expanded TypeScript snapshot passes. Final whole-project gates are pending
+the remaining IAM/reporting/delivery fixes and dependency artifact checks.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

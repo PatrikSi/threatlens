@@ -93,7 +93,7 @@ export function LifecycleRunHistory({
           onChange={(targetKey) => onFiltersChange({ ...filters, targetKey })}
           options={[
             ['', 'All datasets'], ...targets.map((target) => [target.key, target.label] as const),
-            ...(filters.targetKey && !targetsByKey.has(filters.targetKey) ? [[filters.targetKey, formatWireLabel(filters.targetKey)] as const] : []),
+            ...(filters.targetKey && !targets.some((target) => target.key === filters.targetKey) ? [[filters.targetKey, formatWireLabel(filters.targetKey)] as const] : []),
           ]}
         />
         <FilterSelect

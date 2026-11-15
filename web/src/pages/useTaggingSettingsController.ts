@@ -281,7 +281,20 @@ function freshDefaults(): TaggingSettingsDraft {
   return { ...DEFAULT_TAGGING_SETTINGS_DRAFT, enabled_categories: [...DEFAULT_TAGGING_SETTINGS_DRAFT.enabled_categories] }
 }
 function draftsEqual(left: unknown, right: unknown) { return JSON.stringify(left) === JSON.stringify(right) }
-function sameRule(left: TaggingRule, right: TaggingRule) { return left.id === right.id && left.updated_at === right.updated_at && draftsEqual(createRuleRequestFromDraft({ ...left, min_classification_confidence: left.min_classification_confidence === null ? '' : String(left.min_classification_confidence) }), createRuleRequestFromDraft({ ...right, min_classification_confidence: right.min_classification_confidence === null ? '' : String(right.min_classification_confidence) })) }
+function sameRule(left: TaggingRule, right: TaggingRule) {
+  return left.id === right.id && left.updated_at === right.updated_at && draftsEqual(
+    createRuleRequestFromDraft({
+      ...left,
+      min_classification_confidence: left.min_classification_confidence === null
+        ? '' : String(left.min_classification_confidence)
+    }),
+    createRuleRequestFromDraft({
+      ...right,
+      min_classification_confidence: right.min_classification_confidence === null
+        ? '' : String(right.min_classification_confidence)
+    })
+  )
+}
 function settingsDraftFromRequest(payload: TaggingSettingsRequest): TaggingSettingsDraft {
   return { enabled_categories: [...payload.enabled_categories], min_auto_tag_confidence: String(payload.min_auto_tag_confidence), secondary_tag_limit: String(payload.secondary_tag_limit) }
 }

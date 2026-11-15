@@ -150,7 +150,7 @@ export function DataLifecyclePage() {
       },
     )
     void queryClient.invalidateQueries({ queryKey: ['operations', 'lifecycle'] })
-  }, [queryClient, readAccess.catalog])
+  }, [catalogRead, queryClient, readAccess.catalog])
   const updatePreview = useCallback((
     targetKey: string,
     preview: LifecyclePreview | null,
@@ -169,7 +169,7 @@ export function DataLifecyclePage() {
         }) : current
       },
     )
-  }, [queryClient, readAccess.catalog])
+  }, [catalogRead, queryClient, readAccess.catalog])
   const reloadTarget = useCallback(async (targetKey: string) => {
     const result = await overviewQuery.refetch()
     if (!result.isSuccess) return null
@@ -187,7 +187,7 @@ export function DataLifecyclePage() {
     )
     void queryClient.invalidateQueries({ queryKey: ['operations', 'lifecycle', 'runs'] })
     void queryClient.invalidateQueries({ queryKey: ['operations', 'lifecycle'] })
-  }, [queryClient, readAccess.runs])
+  }, [queryClient, readAccess.runs, runsRead])
   const handleRunStarted = useCallback((run: LifecycleRun, capture: LifecycleResultCapture, mayNavigate: boolean) => {
     if (!readAccess.catalog.currentData(capture.catalog(true))) return
     updatePreview(run.target_key, null, capture)
@@ -203,12 +203,8 @@ export function DataLifecyclePage() {
     setSearchParams(next, { replace: true })
   }, [handleRunChanged, queryClient, readAccess.catalog, searchParams, setSearchParams, updatePreview])
 
-  const overviewError = overviewQuery.isError
-    ? resolveApiErrorMessage(overviewQuery.error, 'Data lifecycle settings could not be loaded')
-    : ''
-  const runsError = runsQuery.isError
-    ? resolveApiErrorMessage(runsQuery.error, 'Lifecycle run history could not be loaded')
-    : ''
+  const overviewError = lifecycleReadError(overviewQuery, 'Data lifecycle settings could not be loaded')
+  const runsError = lifecycleReadError(runsQuery, 'Lifecycle run history could not be loaded')
   const enabledCount = targets.filter((target) => target.policy.enabled).length
   const fetching = tab === 'policies' ? overviewQuery.isFetching : runsQuery.isFetching
 
@@ -306,6 +302,10 @@ export function DataLifecyclePage() {
       {unsaved.discardDialog}
     </div>
   )
+}
+
+function lifecycleReadError(query: { isError: boolean; error: unknown }, fallback: string) {
+  return query.isError ? resolveApiErrorMessage(query.error, fallback) : ''
 }
 
 function lifecycleAccess(
