@@ -197,7 +197,7 @@ def test_service_account_header_auth_is_attenuated_and_audited(
     assert denial_audit.actor_user_id is None
     assert denial_audit.credential_id == credential.id
 
-    client.cookies.set("threatlens_session", token)
+    client.cookies.set("threatlens_session", token, domain="testserver.local")
     cookie_attempt = client.get("/items?page_size=1")
     client.cookies.delete("threatlens_session")
     assert cookie_attempt.status_code == 401

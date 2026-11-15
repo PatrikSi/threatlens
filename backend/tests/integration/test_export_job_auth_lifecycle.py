@@ -59,8 +59,8 @@ def test_browser_session_job_survives_navigation_but_not_session_revocation(expo
         token, session_id = created.token, created.session.id
         db.commit()
     settings = get_settings()
-    env.client.cookies.set(settings.auth_cookie_name, token)
-    env.client.cookies.set(settings.auth_csrf_cookie_name, "export-csrf")
+    env.client.cookies.set(settings.auth_cookie_name, token, domain="testserver.local")
+    env.client.cookies.set(settings.auth_csrf_cookie_name, "export-csrf", domain="testserver.local")
     payload = {"format": "csv", "filters": {"feed_ids": [str(env.feed_id)]}, "idempotency_key": str(uuid.uuid4())}
     accepted = env.client.post("/exports/jobs", json=payload, headers={settings.auth_csrf_header_name: "export-csrf"})
     assert accepted.status_code == 202, accepted.text

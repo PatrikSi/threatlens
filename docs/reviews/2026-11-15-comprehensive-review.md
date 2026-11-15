@@ -317,6 +317,29 @@ A rebuilt image includes that supplement; final image-pair verification and the
 web build remain pending. These checks do not qualify ARM64, browsers, live
 vendors, sustained capacity or release publication.
 
+### HTTP client fixture compatibility
+
+The next broad backend run stops on one failure after 681 passes and three
+skips: a legacy-session test was actually sending the earlier opaque cookie.
+HTTPX2 orders cookies with different domains differently from HTTPX; the test
+had added a domainless cookie alongside the server's `testserver.local` cookie
+instead of replacing it. A synthetic header-only reproduction confirms both
+orders. Thirty-two session/CSRF fixture assignments across six integration test
+files now use the same explicit host domain as server-issued cookies. The
+legacy test also asserts the selected cookie is the intended token. Application
+authentication and CSRF policy are unchanged.
+
+All 129 cases in the complete MFA/IAM, OIDC, service-account, export credential
+lifecycle and lock-order test files pass after this correction; updated Ruff
+passes. The enterprise logout control is also rerun explicitly; its result is retained
+separately before the next complete backend run. Neither stopped broad run is counted as a full pass.
+
+The updated lock also validates byte-for-byte through the repository resolver.
+The isolated SDK environment passes 211 complete recovery/worker/protocol unit
+cases and both official MCP 2.3.0 modes against the authenticated ASGI route
+(two integration cases, no skips). SDK guards and the operator example now
+match the updated optional dependency. Both isolated environments pass `pip check`.
+
 ## Next executable steps
 
 Finish independent source reviews and the current registry/advisory inventory,

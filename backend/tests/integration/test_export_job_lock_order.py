@@ -27,8 +27,8 @@ def _accept_with_session(env):
         token, session_id = created.token, created.session.id
         db.commit()
     settings = get_settings()
-    env.client.cookies.set(settings.auth_cookie_name, token)
-    env.client.cookies.set(settings.auth_csrf_cookie_name, "test-export-csrf")
+    env.client.cookies.set(settings.auth_cookie_name, token, domain="testserver.local")
+    env.client.cookies.set(settings.auth_csrf_cookie_name, "test-export-csrf", domain="testserver.local")
     env.headers = {settings.auth_csrf_header_name: "test-export-csrf"}
     return session_id
 

@@ -196,7 +196,8 @@ def test_new_login_uses_hashed_opaque_session_and_legacy_jwt_remains_valid(
     legacy_token = create_access_token(
         str(admin.id), token_version=admin.auth_token_version
     )
-    client.cookies.set("threatlens_session", legacy_token)
+    client.cookies.set("threatlens_session", legacy_token, domain="testserver.local")
+    assert client.cookies.get("threatlens_session") == legacy_token
     assert client.get("/auth/me").status_code == 200
 
     legacy_enrollment = client.post(
@@ -905,11 +906,11 @@ def test_mfa_enable_rotates_current_cookie_and_invalidates_legacy_sessions(
     rotated_token = client.cookies.get("threatlens_session")
     assert rotated_token and rotated_token != old_opaque_token
 
-    client.cookies.set("threatlens_session", old_opaque_token)
+    client.cookies.set("threatlens_session", old_opaque_token, domain="testserver.local")
     assert client.get("/auth/me").status_code == 401
-    client.cookies.set("threatlens_session", legacy_token)
+    client.cookies.set("threatlens_session", legacy_token, domain="testserver.local")
     assert client.get("/auth/me").status_code == 401
-    client.cookies.set("threatlens_session", rotated_token)
+    client.cookies.set("threatlens_session", rotated_token, domain="testserver.local")
     assert client.get("/auth/me").status_code == 200
 
 
@@ -1683,9 +1684,9 @@ def test_session_inventory_and_revoke_others_are_scoped_to_the_current_user(
     assert rotated_session.absolute_expires_at == original_absolute_expiry
     db_session.refresh(other.session)
     assert other.session.revoked_at is not None
-    client.cookies.set("threatlens_session", original_token)
+    client.cookies.set("threatlens_session", original_token, domain="testserver.local")
     assert client.get("/auth/me").status_code == 401
-    client.cookies.set("threatlens_session", rotated_token)
+    client.cookies.set("threatlens_session", rotated_token, domain="testserver.local")
     assert client.get("/auth/me").status_code == 200
 
 
@@ -1870,9 +1871,9 @@ def test_local_reauthentication_rotates_only_the_exact_session(
     assert db_session.get(AuthSession, current.id).revoked_at is not None
     assert db_session.get(AuthSession, sibling.session.id).revoked_at is None
     assert db_session.get(User, admin.id).auth_token_version == original_generation
-    client.cookies.set("threatlens_session", original_token)
+    client.cookies.set("threatlens_session", original_token, domain="testserver.local")
     assert client.get("/auth/me").status_code == 401
-    client.cookies.set("threatlens_session", rotated_token)
+    client.cookies.set("threatlens_session", rotated_token, domain="testserver.local")
     assert client.get("/auth/me").status_code == 200
 
 
@@ -2063,7 +2064,7 @@ def test_sso_account_reports_provider_managed_mfa(
         user_agent="pytest",
     )
     db_session.commit()
-    client.cookies.set("threatlens_session", created.token)
+    client.cookies.set("threatlens_session", created.token, domain="testserver.local")
 
     response = client.get("/auth/security/mfa")
     assert response.status_code == 200
@@ -2169,8 +2170,8 @@ def test_recent_oidc_browser_session_without_mfa_cannot_create_api_token(
         user_agent="pytest",
     )
     db_session.commit()
-    client.cookies.set("threatlens_session", created.token)
-    client.cookies.set("threatlens_csrf", "csrf-test")
+    client.cookies.set("threatlens_session", created.token, domain="testserver.local")
+    client.cookies.set("threatlens_csrf", "csrf-test", domain="testserver.local")
 
     response = client.post(
         "/tokens",
@@ -2482,8 +2483,8 @@ def test_oidc_recent_external_mfa_assurance_can_authorize_admin_mfa_recovery(
         identity_authenticated_at=datetime.now(timezone.utc),
     )
     db_session.commit()
-    client.cookies.set("threatlens_session", oidc_session.token)
-    client.cookies.set("threatlens_csrf", "csrf-test")
+    client.cookies.set("threatlens_session", oidc_session.token, domain="testserver.local")
+    client.cookies.set("threatlens_csrf", "csrf-test", domain="testserver.local")
 
     response = client.post(
         f"/users/{viewer.id}/mfa/reset",
@@ -2561,8 +2562,8 @@ def test_hybrid_admin_mfa_recovery_uses_current_oidc_session_assurance(
         user_agent="pytest",
     )
     db_session.commit()
-    client.cookies.set("threatlens_session", oidc_session.token)
-    client.cookies.set("threatlens_csrf", "csrf-test")
+    client.cookies.set("threatlens_session", oidc_session.token, domain="testserver.local")
+    client.cookies.set("threatlens_csrf", "csrf-test", domain="testserver.local")
 
     response = client.post(
         f"/users/{viewer.id}/mfa/reset",

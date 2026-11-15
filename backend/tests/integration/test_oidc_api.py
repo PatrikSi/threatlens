@@ -842,8 +842,8 @@ def test_oidc_provider_update_requires_configured_external_mfa_assurance(
         user_agent="pytest plain oidc assurance",
     )
     db_session.commit()
-    client.cookies.set("threatlens_session", created.token)
-    client.cookies.set("threatlens_csrf", "plain-oidc-csrf")
+    client.cookies.set("threatlens_session", created.token, domain="testserver.local")
+    client.cookies.set("threatlens_csrf", "plain-oidc-csrf", domain="testserver.local")
 
     response = client.put(
         "/auth/oidc/provider",
@@ -882,8 +882,8 @@ def test_oidc_cannot_be_disabled_without_a_local_break_glass_admin(
         user_agent="pytest break glass",
     )
     db_session.commit()
-    client.cookies.set("threatlens_session", created.token)
-    client.cookies.set("threatlens_csrf", "break-glass-csrf")
+    client.cookies.set("threatlens_session", created.token, domain="testserver.local")
+    client.cookies.set("threatlens_csrf", "break-glass-csrf", domain="testserver.local")
 
     response = client.put(
         "/auth/oidc/provider",
@@ -1615,9 +1615,9 @@ def test_oidc_link_and_unlink_flow_binds_identity_to_initiating_browser_session(
     assert identity.user_id == seed_users["analyst"].id
     rotated_session = client.cookies.get("threatlens_session")
     assert rotated_session and rotated_session != initiating_session
-    client.cookies.set("threatlens_session", initiating_session)
+    client.cookies.set("threatlens_session", initiating_session, domain="testserver.local")
     assert client.get("/auth/me").status_code == 401
-    client.cookies.set("threatlens_session", rotated_session)
+    client.cookies.set("threatlens_session", rotated_session, domain="testserver.local")
 
     directory = client.get("/users", headers=auth_headers["admin"])
     entry = next(
@@ -1762,9 +1762,9 @@ def test_oidc_unlink_requires_local_mfa_and_rotates_browser_sessions(
     assert replacement is not None
     assert replacement.auth_method == "local"
     assert replacement.mfa_method == "recovery_code"
-    client.cookies.set("threatlens_session", before_unlink_token)
+    client.cookies.set("threatlens_session", before_unlink_token, domain="testserver.local")
     assert client.get("/auth/me").status_code == 401
-    client.cookies.set("threatlens_session", after_unlink_token)
+    client.cookies.set("threatlens_session", after_unlink_token, domain="testserver.local")
     assert client.get("/auth/me").status_code == 200
     audit = db_session.scalar(
         select(AuditLog)
@@ -2420,8 +2420,8 @@ def test_oidc_link_callback_serializes_with_concurrent_credential_rotation(
     )
     try:
         with TestClient(app) as isolated_client:
-            isolated_client.cookies.set("threatlens_session", session_token)
-            isolated_client.cookies.set("threatlens_csrf", "oidc-race-csrf")
+            isolated_client.cookies.set("threatlens_session", session_token, domain="testserver.local")
+            isolated_client.cookies.set("threatlens_csrf", "oidc-race-csrf", domain="testserver.local")
             start = isolated_client.post(
                 "/auth/oidc/link",
                 headers={"X-CSRF-Token": "oidc-race-csrf"},
@@ -2515,7 +2515,7 @@ def test_oidc_link_callback_is_bound_to_the_exact_initiating_session(
         user_agent="replacement session",
     )
     db_session.commit()
-    client.cookies.set("threatlens_session", replacement.token)
+    client.cookies.set("threatlens_session", replacement.token, domain="testserver.local")
 
     callback = client.get(
         "/auth/oidc/callback",

@@ -958,7 +958,7 @@ def test_logout_with_cookie_session_requires_csrf_header(
     assert allowed_logout.status_code == 200
     assert allowed_logout.json() == {"status": "ok"}
 
-    client.cookies.set("threatlens_session", session_token)
+    client.cookies.set("threatlens_session", session_token, domain="testserver.local")
     stale_session_response = client.get("/auth/me")
     assert stale_session_response.status_code == 401
 
