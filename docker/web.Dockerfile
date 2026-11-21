@@ -40,7 +40,7 @@ RUN mkdir -p /tmp/frontend-docs \
       --legal-output-dir /tmp/frontend-docs/frontend-runtime-package-legal
 RUN npm run build
 
-FROM nginx:1.31.7-alpine
+FROM nginx:1.31.8-alpine
 RUN apk upgrade --no-cache \
     && apk add --no-cache 'tiff>=4.7.2-r0'
 ARG BUILD_DATE=unknown
