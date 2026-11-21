@@ -1,4 +1,4 @@
 # Isolated protocol interoperability tests; never included in runtime requirements.
 pip==26.3
 mcp==2.3.0
-pytest==9.0.3
+pytest==9.2.0
